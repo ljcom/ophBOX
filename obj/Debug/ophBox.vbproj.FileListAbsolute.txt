@@ -1,0 +1,10 @@
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.vbprojResolveAssemblyReference.cache
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.Form1.resources
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.vbproj.GenerateResource.Cache
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.vbproj.CoreCompileInputs.cache
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\bin\Debug\ophBox.exe.config
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\bin\Debug\ophBox.exe
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\bin\Debug\ophBox.pdb
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.exe
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.pdb
+C:\Users\samuel\Documents\Visual Studio 2017\Projects\ophBox\ophBox\obj\Debug\ophBox.Resources.resources
