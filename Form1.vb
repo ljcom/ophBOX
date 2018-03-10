@@ -10,7 +10,7 @@ Public Class Form1
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles Me.Load
         'getInstalledSQL()
         'getLocalDB()
-        If checkInstance("OPERAHOUSE") = "OPERAHOUSE" Then
+        If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
             installLocalDB()
             setLog("localDB installed")
             createInstance("OPERAHOUSE")
@@ -209,7 +209,9 @@ Public Class Form1
         setLog(sOutput)
 
         Dim pipeName As String = ""
-        If Not (sOutput Is Nothing Or sOutput.Trim().Length = 0 Or sOutput.Contains("not recognized")) Then
+        'If sOutput.Contains("doesn't exist") Then
+        'getLocalDB()
+        If Not (sOutput Is Nothing Or sOutput.Trim().Length = 0 Or sOutput.Contains("not recognized") Or sOutput.Contains("doesn't exist")) Then
             For Each info In sOutput.Split(vbCrLf)
                 If info.Split(":")(0) = "Name" Then
                     pipeName = info.Split(":")(1)
