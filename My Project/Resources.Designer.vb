@@ -63,9 +63,45 @@ Namespace My.Resources
         '''<summary>
         '''  Looks up a localized string similar to .
         '''</summary>
+        Friend ReadOnly Property Account() As String
+            Get
+                Return ResourceManager.GetString("Account", resourceCulture)
+            End Get
+        End Property
+        
+        '''<summary>
+        '''  Looks up a localized string similar to .
+        '''</summary>
+        Friend ReadOnly Property AccountURL() As String
+            Get
+                Return ResourceManager.GetString("AccountURL", resourceCulture)
+            End Get
+        End Property
+        
+        '''<summary>
+        '''  Looks up a localized string similar to .
+        '''</summary>
         Friend ReadOnly Property IISExpressLocation() As String
             Get
                 Return ResourceManager.GetString("IISExpressLocation", resourceCulture)
+            End Get
+        End Property
+        
+        '''<summary>
+        '''  Looks up a localized string similar to .
+        '''</summary>
+        Friend ReadOnly Property Key() As String
+            Get
+                Return ResourceManager.GetString("Key", resourceCulture)
+            End Get
+        End Property
+        
+        '''<summary>
+        '''  Looks up a localized string similar to .
+        '''</summary>
+        Friend ReadOnly Property Secret() As String
+            Get
+                Return ResourceManager.GetString("Secret", resourceCulture)
             End Get
         End Property
     End Module
