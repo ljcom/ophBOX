@@ -1,16 +1,10 @@
-﻿Imports System.Data
-Imports System.Data.Sql
+﻿
 Imports System.Net
 Imports System.IO
 Imports System.Diagnostics
-Imports System.ComponentModel
 Imports System.Text
-Imports System.DirectoryServices.AccountManagement
-Imports System.DirectoryServices.ActiveDirectory.Domain
 Imports System.Windows.Forms
-Imports System.Threading
 Imports System.Collections.Generic
-Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 
 
@@ -71,8 +65,8 @@ Public Class mainForm
         'startSQLCMDConsole()
 
         If Not syncLocalScript("use " & coreDB, coreDB, pipename) Then
-            Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\" & coreDB & "_data.mdf"
-            Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\" & coreDB & "_log.ldf"
+            Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & coreDB & "_data.mdf"
+            Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & coreDB & "_log.ldf"
             syncLocalScript("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "');", "master", pipename)
 
 
@@ -132,8 +126,8 @@ Public Class mainForm
                     Dim dbname = r2(2)
                     Dim ismaster = r2(3)
                     Dim Version = r2(4)
-                    Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\" & dbname & "_data.mdf"
-                    Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\" & dbname & "_log.ldf"
+                    Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & dbname & "_data.mdf"
+                    Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & dbname & "_log.ldf"
                     syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname & " On ( NAME = " & dbname & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & dbname & "_log, FILENAME = '" & ldfFile & "');", "master", pipename)
 
                     sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
@@ -181,8 +175,6 @@ Public Class mainForm
         Me.Button1.Enabled = False
         Me.Button4.Enabled = False
 
-
-        Me.Timer1.Enabled = True
 
         'setup applicationhost.config
         iisExpressFolder = getIISLocation()
@@ -786,7 +778,7 @@ Public Class mainForm
     End Sub
 
 
-    Private Sub Timer2_Tick(sender As Object, e As EventArgs) Handles Timer2.Tick
+    Private Sub Timer2_Tick(sender As Object, e As EventArgs)
         Dim file = ""
         runCmd(file)
     End Sub

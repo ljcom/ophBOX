@@ -22,7 +22,6 @@ Partial Class mainForm
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
-        Me.components = New System.ComponentModel.Container()
         Me.SplitContainer1 = New System.Windows.Forms.SplitContainer()
         Me.Button3 = New System.Windows.Forms.Button()
         Me.tbLog = New System.Windows.Forms.TextBox()
@@ -40,8 +39,6 @@ Partial Class mainForm
         Me.Button1 = New System.Windows.Forms.Button()
         Me.Label1 = New System.Windows.Forms.Label()
         Me.FolderBrowserDialog1 = New System.Windows.Forms.FolderBrowserDialog()
-        Me.Timer1 = New System.Windows.Forms.Timer(Me.components)
-        Me.Timer2 = New System.Windows.Forms.Timer(Me.components)
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SplitContainer1.Panel1.SuspendLayout()
         Me.SplitContainer1.Panel2.SuspendLayout()
@@ -224,13 +221,6 @@ Partial Class mainForm
         Me.Label1.TabIndex = 0
         Me.Label1.Text = "Account"
         '
-        'Timer1
-        '
-        Me.Timer1.Interval = 1000
-        '
-        'Timer2
-        '
-        '
         'mainForm
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
@@ -258,9 +248,7 @@ Partial Class mainForm
     Friend WithEvents Button3 As Windows.Forms.Button
     Friend WithEvents FolderBrowserDialog1 As Windows.Forms.FolderBrowserDialog
     Friend WithEvents Button4 As Windows.Forms.Button
-    Friend WithEvents Timer1 As Windows.Forms.Timer
     Friend WithEvents TextBox1 As Windows.Forms.TextBox
-    Friend WithEvents Timer2 As Windows.Forms.Timer
     Friend WithEvents lbAcount As Windows.Forms.ListBox
     Friend WithEvents Button6 As Windows.Forms.Button
     Friend WithEvents Label5 As Windows.Forms.Label
