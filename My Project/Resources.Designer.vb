@@ -59,14 +59,5 @@ Namespace My.Resources
                 resourceCulture = value
             End Set
         End Property
-        
-        '''<summary>
-        '''  Looks up a localized string similar to {&quot;accountList&quot;:[{&quot;accountName&quot;:&quot;libertyPT&quot;,&quot;user&quot;:&quot;sam&quot;,&quot;secret&quot;:&quot;f41d5e12-1fa4-420a-8a74-bafbdfff3592&quot;}, {&quot;accountName&quot;:&quot;apotek&quot;,&quot;user&quot;:&quot;sam&quot;,&quot;secret&quot;:&quot;96eb06d2-9182-4903-b7bf-be19d1ac0ece&quot;}]}.
-        '''</summary>
-        Friend ReadOnly Property SavedAccountList() As String
-            Get
-                Return ResourceManager.GetString("SavedAccountList", resourceCulture)
-            End Get
-        End Property
     End Module
 End Namespace

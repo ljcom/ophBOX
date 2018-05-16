@@ -117,7 +117,4 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-  <data name="SavedAccountList" xml:space="preserve">
-    <value>{"accountList":[{"accountName":"libertyPT","user":"sam","secret":"f41d5e12-1fa4-420a-8a74-bafbdfff3592"}, {"accountName":"apotek","user":"sam","secret":"96eb06d2-9182-4903-b7bf-be19d1ac0ece"}]}</value>
-  </data>
 </root>
