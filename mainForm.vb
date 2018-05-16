@@ -178,6 +178,12 @@ Public Class mainForm
             sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
                             "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', 'localhost:" & curAccount.port & "')"
 
+            'white address
+            sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
+            sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
+
             url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript"
             Dim scriptFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\install_" & dataAccount & ".sql"
             runScript(url, pipename, scriptFile, dataDB)
@@ -186,6 +192,15 @@ Public Class mainForm
             syncLocalScript(sqlstr2, "master", pipename)
 
         End If
+
+        'setup applicationhost.config
+        If isIISExpress Then
+            iisExpressFolder = getIISLocation()
+            SetLog("IIS Express Location: " & iisExpressFolder)
+            addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port)
+            addWebConfig(Directory.GetCurrentDirectory() & "\")
+        End If
+
         If curAccount.isStart Then startSync(accountName)
     End Sub
     Sub startSync(accountName)
@@ -226,22 +241,22 @@ Public Class mainForm
             pipename = My.Settings.dbInstanceName
         End If
 
-        'setup applicationhost.config
         If isIISExpress Then
             iisExpressFolder = getIISLocation()
             SetLog("IIS Express Location: " & iisExpressFolder)
-            addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port)
-            addWebConfig(Directory.GetCurrentDirectory() & "\")
             'run iis
             If iisId = 0 Then runIIS(dataAccount)
         End If
 
         'start sync
-
+        syncLocalScript("exec core.compressdb '" & coreDB & "';", coreDB, pipename)
+        syncLocalScript("exec core.compressdb '" & dataAccount & "_data';", coreDB, pipename)
+        syncLocalScript("exec core.compressdb '" & dataAccount & "_v4';", coreDB, pipename)
         'Do While curAccount.isStart
+
         If GetWin32Process("", curAccount.sqlId) <> curAccount.sqlId Or curAccount.sqlId = 0 Then
             SetLog(dataAccount & " Synchronize Starting...")
-            Dim cmdstr = "while 1=1 begin exec core.compressdb 'oph_core'; exec gen.doSync @p_uri='" & p_uri & "', @s_uri=null, @paccountid='" & dataAccount & "', @saccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @pwd='" & secret & "', @isdebug=0 end"
+            Dim cmdstr = "while 1=1 begin exec gen.doSync @p_uri='" & p_uri & "', @s_uri=null, @paccountid='" & dataAccount & "', @saccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @pwd='" & secret & "', @isdebug=0 end"
             curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename)
         End If
         'Application.DoEvents()
@@ -250,53 +265,75 @@ Public Class mainForm
 
     End Sub
 
-    Function addAccounttoIIS(account, path, port) As Integer
+    Function addAccounttoIIS(account, path, port, Optional isRemoved = False) As Integer
         Dim isexists = False ', port As Integer = 8080
         For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
             If k.Contains("<site name=""" & account & """") Then
                 isexists = True
             End If
         Next
-        If Not isexists Then
-            Dim n = 1
-            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-                If k.Contains("<site ") Then
-                    n = n + 1
-                End If
-                'If k.Contains(port) Then
-                'port = port + 1
-                'End If
-            Next
-            If Not isexists Then
-                Dim newfile As New List(Of String)()
-
-                For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-                    If k.Contains("<siteDefaults>") Then
-                        Dim newline = {
-                        vbTab & vbTab & vbTab & "<site name=""" & account & """ id=""" & n & """>",
-                        vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
-                        vbTab & vbTab & vbTab & vbTab & "</application>",
-                        vbTab & vbTab & vbTab & vbTab & "<bindings>",
-                        vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
-                        vbTab & vbTab & vbTab & vbTab & "</bindings>",
-                        vbTab & vbTab & vbTab & "</site>"}
-
-                        For Each line As String In newline
-                            newfile.Add(line)
-                        Next
-                    End If
-                    newfile.Add(k)
-
-                Next
-                File.Delete(path & folderTemp & "\applicationhost.config")
-                System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
+        'If Not isexists Then
+        Dim n = 1
+        For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+            If k.Contains("<site ") Then
+                n = n + 1
             End If
-        End If
+        Next
+        Dim newfile As New List(Of String)()
+        Dim skipLine As Boolean = False
+        Dim curAccount = ""
+
+        For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+            If Not isexists Then
+                If k.Contains("<siteDefaults>") Then
+                    Dim newline = {
+                vbTab & vbTab & vbTab & "<site name=""" & account & """ id=""" & n & """>",
+                vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
+                vbTab & vbTab & vbTab & vbTab & "</application>",
+                vbTab & vbTab & vbTab & vbTab & "<bindings>",
+                vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
+                vbTab & vbTab & vbTab & vbTab & "</bindings>",
+                vbTab & vbTab & vbTab & "</site>"}
+
+                    For Each line As String In newline
+                        newfile.Add(line)
+                    Next
+                End If
+            Else
+                If k.Contains("<site name=""" & account & """") Then
+                    curAccount = account
+                End If
+                If curAccount = account And k.Contains("<binding protocol = ""http""") And Not isRemoved Then
+                    Dim line = vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />"
+                    newfile.Add(line)
+                    skipLine = True
+                    curAccount = ""
+                End If
+                If curAccount = account And isRemoved Then
+                    If k.Contains("<site name") Or k.Contains("<application path") Or k.Contains("<virtualDirectory") Or k.Contains("</application>") Or k.Contains("<bindings>") Or k.Contains("<binding") Or k.Contains("</bindings>") Then
+                        skipLine = True
+                    End If
+                    If k.Contains("</site>") Then
+                        skipLine = True
+                        curAccount = ""
+                    End If
+                End If
+            End If
+
+            If Not skipLine Then newfile.Add(k)
+            skipLine = False
+
+        Next
+
+        File.Delete(path & folderTemp & "\applicationhost.config")
+        System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
+
+        'End If
         Return port
     End Function
 

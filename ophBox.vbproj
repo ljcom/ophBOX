@@ -113,12 +113,6 @@
     <Compile Include="Form1.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="frmControlPanel.Designer.vb">
-      <DependentUpon>frmControlPanel.vb</DependentUpon>
-    </Compile>
-    <Compile Include="frmControlPanel.vb">
-      <SubType>Form</SubType>
-    </Compile>
     <Compile Include="mainForm.Designer.vb">
       <DependentUpon>mainForm.vb</DependentUpon>
     </Compile>
@@ -152,9 +146,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.vb</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="frmControlPanel.resx">
-      <DependentUpon>frmControlPanel.vb</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="mainForm.resx">
       <DependentUpon>mainForm.vb</DependentUpon>
