@@ -27,6 +27,7 @@ Partial Class mainForm
         Me.Button3 = New System.Windows.Forms.Button()
         Me.tbLog = New System.Windows.Forms.TextBox()
         Me.Label4 = New System.Windows.Forms.Label()
+        Me.CheckBox1 = New System.Windows.Forms.CheckBox()
         Me.Button7 = New System.Windows.Forms.Button()
         Me.Button5 = New System.Windows.Forms.Button()
         Me.Label6 = New System.Windows.Forms.Label()
@@ -44,7 +45,6 @@ Partial Class mainForm
         Me.Button1 = New System.Windows.Forms.Button()
         Me.Label1 = New System.Windows.Forms.Label()
         Me.FolderBrowserDialog1 = New System.Windows.Forms.FolderBrowserDialog()
-        Me.CheckBox1 = New System.Windows.Forms.CheckBox()
         Me.Timer1 = New System.Windows.Forms.Timer(Me.components)
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SplitContainer1.Panel1.SuspendLayout()
@@ -123,6 +123,16 @@ Partial Class mainForm
         Me.Label4.TabIndex = 0
         Me.Label4.Text = "Log"
         '
+        'CheckBox1
+        '
+        Me.CheckBox1.AutoSize = True
+        Me.CheckBox1.Location = New System.Drawing.Point(176, 367)
+        Me.CheckBox1.Name = "CheckBox1"
+        Me.CheckBox1.Size = New System.Drawing.Size(73, 17)
+        Me.CheckBox1.TabIndex = 9
+        Me.CheckBox1.Text = "Auto Start"
+        Me.CheckBox1.UseVisualStyleBackColor = True
+        '
         'Button7
         '
         Me.Button7.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
@@ -132,7 +142,7 @@ Partial Class mainForm
         Me.Button7.Name = "Button7"
         Me.Button7.Size = New System.Drawing.Size(75, 23)
         Me.Button7.TabIndex = 4
-        Me.Button7.Text = "Reset"
+        Me.Button7.Text = "Launch"
         Me.Button7.UseVisualStyleBackColor = True
         '
         'Button5
@@ -294,16 +304,6 @@ Partial Class mainForm
         Me.Label1.TabIndex = 0
         Me.Label1.Text = "Account List"
         '
-        'CheckBox1
-        '
-        Me.CheckBox1.AutoSize = True
-        Me.CheckBox1.Location = New System.Drawing.Point(176, 367)
-        Me.CheckBox1.Name = "CheckBox1"
-        Me.CheckBox1.Size = New System.Drawing.Size(73, 17)
-        Me.CheckBox1.TabIndex = 9
-        Me.CheckBox1.Text = "Auto Start"
-        Me.CheckBox1.UseVisualStyleBackColor = True
-        '
         'Timer1
         '
         Me.Timer1.Enabled = True
@@ -316,7 +316,7 @@ Partial Class mainForm
         Me.ClientSize = New System.Drawing.Size(732, 427)
         Me.Controls.Add(Me.SplitContainer1)
         Me.Name = "mainForm"
-        Me.Text = "Tunningfork"
+        Me.Text = "OPHBOX"
         Me.SplitContainer1.Panel1.ResumeLayout(False)
         Me.SplitContainer1.Panel1.PerformLayout()
         Me.SplitContainer1.Panel2.ResumeLayout(False)
