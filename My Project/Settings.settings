@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='iso-8859-1'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="SavedAccountList" Type="System.String" Scope="User">
+      <Value Profile="(Default)">{"accountList":[{"accountName":"libertyPT","user":"sam","secret":"f41d5e12-1fa4-420a-8a74-bafbdfff3592","port":"8080"}, {"accountName":"apotek","user":"sam","secret":"96eb06d2-9182-4903-b7bf-be19d1ac0ece","port":"8081"}]}</Value>
+    </Setting>
+    <Setting Name="remoteUrl" Type="System.String" Scope="User">
+      <Value Profile="(Default)">http://redbean/</Value>
+    </Setting>
+    <Setting Name="isLocalDB" Type="System.String" Scope="User">
+      <Value Profile="(Default)">1</Value>
+    </Setting>
+    <Setting Name="isIISExpress" Type="System.String" Scope="User">
+      <Value Profile="(Default)">1</Value>
+    </Setting>
+    <Setting Name="dbUser" Type="System.String" Scope="User">
+      <Value Profile="(Default)">gov</Value>
+    </Setting>
+    <Setting Name="dbPassword" Type="System.String" Scope="User">
+      <Value Profile="(Default)">ljcom2x</Value>
+    </Setting>
+    <Setting Name="dbInstanceName" Type="System.String" Scope="User">
+      <Value Profile="(Default)">springroll</Value>
+    </Setting>
+    <Setting Name="IISExpressLocation" Type="System.String" Scope="User">
+      <Value Profile="(Default)" />
+    </Setting>
+  </Settings>
+</SettingsFile>

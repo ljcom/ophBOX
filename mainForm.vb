@@ -134,7 +134,8 @@ Public Class mainForm
             If r.IndexOf("<message>") >= 0 Then
                 m = r.Substring(r.IndexOf("<message>") + Len("<message>"), r.IndexOf("</message>") - r.IndexOf("<message>") - Len("<message>"))
             End If
-            If m = "" Then
+
+            If m = "" And r.IndexOf("<sessionToken>") >= 0 Then
                 Dim token = r.Substring(r.IndexOf("<sessionToken>") + Len("<sessionToken>"), r.IndexOf("</sessionToken>") - r.IndexOf("<sessionToken>") - Len("<sessionToken>"))
 
                 url = p_add & "?mode=dbinfo&token=" & token
@@ -160,11 +161,11 @@ Public Class mainForm
                     syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname & " On ( NAME = " & dbname & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & dbname & "_log, FILENAME = '" & ldfFile & "');", "master", pipename)
 
                     sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                    "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
-                    "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf &
-                    "use " & dataDB & vbCrLf &
-                    "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
-                    "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf
+                "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
+                "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf &
+                "use " & dataDB & vbCrLf &
+                "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
+                "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf
                 End If
             Next
 
@@ -175,9 +176,9 @@ Public Class mainForm
                     For Each r2x In r2
                         Dim r3 = r2x.Split({"key=""", "value=""", """ "}, StringSplitOptions.RemoveEmptyEntries)
                         sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1) & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1) & "')"
                         sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1) & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1) & "')"
 
                     Next
 
@@ -186,21 +187,21 @@ Public Class mainForm
             Next
             'odbc
             sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'ODBC', 'Data Source=(localdb)\operahouse;Initial Catalog=" & dataAccount & "_data;Integrated Security=SSPI;timeout=600')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'ODBC', 'Data Source=(localdb)\operahouse;Initial Catalog=" & dataAccount & "_data;Integrated Security=SSPI;timeout=600')"
             sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'ODBC', 'Data Source=(localdb)\operahouse;Initial Catalog=" & dataAccount & "_data;Integrated Security=SSPI;timeout=600')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'ODBC', 'Data Source=(localdb)\operahouse;Initial Catalog=" & dataAccount & "_data;Integrated Security=SSPI;timeout=600')"
 
             'address
             sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', 'localhost:" & curAccount.port & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', 'localhost:" & curAccount.port & "')"
             sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', 'localhost:" & curAccount.port & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', 'localhost:" & curAccount.port & "')"
 
             'white address
             sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
             sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
+                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
 
             url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript"
             Dim scriptFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\install_" & dataAccount & ".sql"
@@ -1043,6 +1044,14 @@ Public Class mainForm
         Dim pt = Me.TextBox4.Text
         Dim ast As Boolean = Me.CheckBox1.Checked
 
+        Dim isExists = False
+        For Each x In Me.lbAcount.Items
+            If x.ToString = Me.TextBox1.Text Then
+                isExists = True
+                Exit For
+            End If
+        Next
+
         Dim remoteUrl = My.Settings.remoteUrl
         Dim p_uri = remoteUrl & an '"http://redbean/" & dataAccount
 
@@ -1056,25 +1065,16 @@ Public Class mainForm
             m = r.Substring(r.IndexOf("<message>") + Len("<message>"), r.IndexOf("</message>") - r.IndexOf("<message>") - Len("<message>"))
         End If
         If m = "" Then
-            accountList.Add(an, New accountType With {.user = us, .secret = sc, .sqlId = 0, .port = pt, .autoStart = ast})
-
-
-            Dim isExists = False
-            For Each x In Me.lbAcount.Items
-                If x.ToString = Me.TextBox1.Text Then
-                    isExists = True
-                    Exit For
-                End If
-            Next
             If Not isExists Then
+                accountList.Add(an, New accountType With {.user = us, .secret = sc, .sqlId = 0, .port = pt, .autoStart = ast})
                 Me.lbAcount.Items.Add(Me.TextBox1.Text) '
-
             Else
                 accountList(an).user = us
                 accountList(an).secret = sc
                 accountList(an).port = pt
                 accountList(an).autoStart = ast
             End If
+
             Dim json = "{""accountList"":[%item%]}"
             For Each j In accountList
                 Dim curAccount = accountList(j.Key.ToString)
