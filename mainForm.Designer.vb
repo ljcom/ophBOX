@@ -119,16 +119,17 @@ Partial Class mainForm
         Me.Label4.AutoSize = True
         Me.Label4.Location = New System.Drawing.Point(13, 13)
         Me.Label4.Name = "Label4"
-        Me.Label4.Size = New System.Drawing.Size(25, 13)
+        Me.Label4.Size = New System.Drawing.Size(28, 15)
         Me.Label4.TabIndex = 0
         Me.Label4.Text = "Log"
         '
         'CheckBox1
         '
+        Me.CheckBox1.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.CheckBox1.AutoSize = True
         Me.CheckBox1.Location = New System.Drawing.Point(176, 367)
         Me.CheckBox1.Name = "CheckBox1"
-        Me.CheckBox1.Size = New System.Drawing.Size(73, 17)
+        Me.CheckBox1.Size = New System.Drawing.Size(81, 19)
         Me.CheckBox1.TabIndex = 9
         Me.CheckBox1.Text = "Auto Start"
         Me.CheckBox1.UseVisualStyleBackColor = True
@@ -162,7 +163,7 @@ Partial Class mainForm
         Me.Label6.AutoSize = True
         Me.Label6.Location = New System.Drawing.Point(10, 367)
         Me.Label6.Name = "Label6"
-        Me.Label6.Size = New System.Drawing.Size(26, 13)
+        Me.Label6.Size = New System.Drawing.Size(29, 15)
         Me.Label6.TabIndex = 19
         Me.Label6.Text = "Port"
         '
@@ -182,7 +183,7 @@ Partial Class mainForm
         Me.Label5.AutoSize = True
         Me.Label5.Location = New System.Drawing.Point(10, 341)
         Me.Label5.Name = "Label5"
-        Me.Label5.Size = New System.Drawing.Size(38, 13)
+        Me.Label5.Size = New System.Drawing.Size(42, 15)
         Me.Label5.TabIndex = 17
         Me.Label5.Text = "Secret"
         '
@@ -202,7 +203,7 @@ Partial Class mainForm
         Me.Label3.AutoSize = True
         Me.Label3.Location = New System.Drawing.Point(10, 315)
         Me.Label3.Name = "Label3"
-        Me.Label3.Size = New System.Drawing.Size(29, 13)
+        Me.Label3.Size = New System.Drawing.Size(33, 15)
         Me.Label3.TabIndex = 15
         Me.Label3.Text = "User"
         '
@@ -222,7 +223,7 @@ Partial Class mainForm
         Me.Label2.AutoSize = True
         Me.Label2.Location = New System.Drawing.Point(10, 289)
         Me.Label2.Name = "Label2"
-        Me.Label2.Size = New System.Drawing.Size(47, 13)
+        Me.Label2.Size = New System.Drawing.Size(50, 15)
         Me.Label2.TabIndex = 13
         Me.Label2.Text = "Account"
         '
@@ -300,13 +301,12 @@ Partial Class mainForm
         Me.Label1.AutoSize = True
         Me.Label1.Location = New System.Drawing.Point(10, 14)
         Me.Label1.Name = "Label1"
-        Me.Label1.Size = New System.Drawing.Size(66, 13)
+        Me.Label1.Size = New System.Drawing.Size(72, 15)
         Me.Label1.TabIndex = 0
         Me.Label1.Text = "Account List"
         '
         'Timer1
         '
-        Me.Timer1.Enabled = True
         Me.Timer1.Interval = 3000
         '
         'mainForm

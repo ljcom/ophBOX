@@ -1166,4 +1166,36 @@ Public Class mainForm
             End If
         Next
     End Sub
+    Function findFile(path, pattern) As String
+        Dim r As String = ""
+        Dim FileLocation As DirectoryInfo =
+            New DirectoryInfo(path)
+
+        Try
+
+            For Each File In FileLocation.GetFiles()
+                If (File IsNot Nothing) Then
+                    If (File.Name.ToLower = pattern.ToString.ToLower) Then
+                        r = path & "/" & File.ToString.ToLower
+                        Exit For
+                        'If (File.ToString.ToLower.Contains("data")) Then fi.Add(File)
+                    End If
+                End If
+            Next
+        Catch ex As Exception
+            r = ""
+        End Try
+
+        If r = "" Then
+            Try
+                For Each Di In FileLocation.GetDirectories()
+                    r = findFile(path & "\" & Di.ToString.ToLower, pattern)
+                    If r <> "" Then Exit For
+                Next
+            Catch ex As Exception
+                r = ""
+            End Try
+        End If
+        Return r
+    End Function
 End Class
