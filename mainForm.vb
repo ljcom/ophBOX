@@ -270,7 +270,7 @@ Public Class mainForm
             iisExpressFolder = getIISLocation()
             SetLog("IIS Express Location: " & iisExpressFolder)
             'run iis
-            If iisId = 0 Then runIIS(dataAccount)
+            If iisId = 0 And iisExpressFolder <> "" Then runIIS(dataAccount)
         End If
 
         'start sync
@@ -392,25 +392,15 @@ Public Class mainForm
     Function getIISLocation() As String
         Dim r = My.Settings.IISExpressLocation
         If r = "" Or Not File.Exists(r) Then
-            If File.Exists("C:\Program Files\IIS Express\iisexpress.exe") Then
-                r = "C:\Program Files\IIS Express\iisexpress.exe"
-            ElseIf File.Exists("C:\Program Files (x86)\IIS Express\iisexpress.exe") Then
-                r = "C:\Program Files (x86)\IIS Express\iisexpress.exe"
-            Else
-                Dim c = MsgBox("We cannot find IIS Express. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "IIS Express")
-                If c = vbYes Then
-                    Dim folder = Me.FolderBrowserDialog1.ShowDialog()
-                    If File.Exists(folder & "\iisexpress.exe") Then
-                        r = folder & "\iisexpress.exe"
-                    End If
-                ElseIf c = vbNo Then
-                    installIIS(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
-                    SetLog("IIS Express Installed")
-
+            r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
+            If r = "" Then
+                If MessageBox.Show(Me, "We cannot find IIS Express. We are about to install from our repository.", "IIS Express", vbYesNo) = vbYes Then
+                    Dim b = installIIS(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
+                    r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
+                    If r <> "" Then SetLog("IIS Express Installed")
                 End If
             End If
         End If
-
         Return r
     End Function
     Function getGITLocation() As String
@@ -727,9 +717,9 @@ Public Class mainForm
 
     Function installIIS(ftemp, fdata) As Boolean
         Dim r = True
-        Dim url = "http://download.operahouse.systems/iisexpress_x86_en-US.msi" 'x86
+        Dim url = "http://media.operahouse.systems/iisexpress_x86_en-US.msi" 'x86
         If Environment.Is64BitOperatingSystem Then
-            url = "http://download.operahouse.systems/iisexpress_amd64_en-US.msi" '64 bit
+            url = "http://media.operahouse.systems/iisexpress_amd64_en-US.msi" '64 bit
         End If
 
         Dim filename = ftemp & "\iisexpress.msi"
@@ -739,17 +729,24 @@ Public Class mainForm
         If Not Directory.Exists(fdata) Then
             Directory.CreateDirectory(fdata)
         End If
+        Dim isdownloaded = File.Exists(filename)
         If Not File.Exists(filename) Then
-            If downloadFilename(url, filename) Then
-                Dim runfilename = """" & filename & """"
-                Dim info As New ProcessStartInfo()
-                info.FileName = "c:\windows\system32\msiexec.exe"
-                info.Arguments = " /i """ & ftemp & "\iisexpress.msi"" /qn"
-                Process.Start(info)
-            Else
-                r = False
-            End If
+            isdownloaded = downloadFilename(url, filename)
         End If
+        If isdownloaded Then
+            Dim runfilename = """" & filename & """"
+            Dim p As Process = New Process()
+            'Dim info As New ProcessStartInfo()
+            p.StartInfo.FileName = "c:\windows\system32\msiexec.exe"
+            p.StartInfo.Arguments = " /i """ & ftemp & "\iisexpress.msi"""
+            p.Start()
+
+            p.WaitForExit()
+            If findFile("c:\program files", "iisexpress.exe") = "" Then r = False
+        Else
+            r = False
+        End If
+
         Return r
 
     End Function
