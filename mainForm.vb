@@ -1,12 +1,12 @@
-﻿
-Imports System.Net
+﻿Imports System.Net
 Imports System.IO
 Imports System.Diagnostics
 Imports System.Text
 Imports System.Windows.Forms
 Imports System.Collections.Generic
 Imports Newtonsoft.Json.Linq
-
+Imports System.Data.SqlClient
+Imports System.Data
 
 Public Class mainForm
     Private isLocaldb = False
@@ -42,9 +42,11 @@ Public Class mainForm
     End Sub
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         If Not IsNothing(Me.lbAcount.SelectedItem) Then
-            startSync(Me.lbAcount.SelectedItem)
+            Dim curAccount = accountList(Me.lbAcount.SelectedItem)
+            curAccount.isStart = True
+            'startSync(Me.lbAcount.SelectedItem)
         Else
-            MessageBox.Show(Me, "Please select one of account to start before continue.", "Select Account", vbInformation)
+                MessageBox.Show(Me, "Please select one of account to start before continue.", "Select Account", vbInformation)
         End If
     End Sub
 
@@ -52,7 +54,8 @@ Public Class mainForm
         If Me.lbAcount.SelectedItem <> "" Then
             Dim curAccount = accountList(Me.lbAcount.SelectedItem)
             'Dim sqlId = 0, iisid = 0
-            stopSync(Me.lbAcount.SelectedItem, curAccount.sqlId)
+            'stopSync(Me.lbAcount.SelectedItem, curAccount.sqlId)
+            curAccount.isStart = False
         Else
             MessageBox.Show("Please choose account before continue.")
         End If
@@ -145,18 +148,12 @@ Public Class mainForm
 
         If Not syncLocalScript("use " & dataDB, dataDB, pipename) Then
             Dim sqlstr As String = ""
+            Dim token = getToken(dataAccount)
 
             Dim p_add = p_uri & "/ophcore/api/sync.aspx"
-            Dim url = p_add & "?mode=reqtoken&userid=" & user & "&pwd=" & secret
-            Dim r = postHttp(url)
-            Dim m = ""
-            If r.IndexOf("<message>") >= 0 Then
-                m = r.Substring(r.IndexOf("<message>") + Len("<message>"), r.IndexOf("</message>") - r.IndexOf("<message>") - Len("<message>"))
-            End If
-
-            If m = "" And r.IndexOf("<sessionToken>") >= 0 Then
-                Dim token = r.Substring(r.IndexOf("<sessionToken>") + Len("<sessionToken>"), r.IndexOf("</sessionToken>") - r.IndexOf("<sessionToken>") - Len("<sessionToken>"))
-
+            Dim r = ""
+            Dim url = ""
+            If token <> "" Then
                 url = p_add & "?mode=dbinfo&token=" & token
                 r = postHttp(url)
             End If
@@ -233,7 +230,7 @@ Public Class mainForm
 
         'setup applicationhost.config
         addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port, False)
-        Dim isReady = addWebConfig(Directory.GetCurrentDirectory() & "\")
+        'Dim isReady = addWebConfig(Directory.GetCurrentDirectory() & "\")
 
         'If isIISExpress Then
         '    iisExpressFolder = getIISLocation()
@@ -241,11 +238,11 @@ Public Class mainForm
         '    'addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port)
         '    'addWebConfig(Directory.GetCurrentDirectory() & "\")
         'End If
-        If isReady Then
-            'If curAccount.isStart Then startSync(accountName)
-        Else
-            SetLog("IIS not started yet. Web Config is not exists.")
-        End If
+        'If isReady Then
+        '    If curAccount.isStart Then startSync(accountName)
+        'Else
+        '    SetLog("IIS not started yet. Web Config is not exists.")
+        'End If
     End Sub
     Sub startSync(accountName)
         Dim curAccount = accountList(accountName)
@@ -267,7 +264,7 @@ Public Class mainForm
         Me.Button2.Enabled = True
         Me.Button1.Enabled = False
         Me.Button4.Enabled = False
-        Me.Button7.Enabled = True
+        Me.Button7.Enabled = False
 
         If isLocaldb Then
             If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
@@ -291,7 +288,9 @@ Public Class mainForm
             iisExpressFolder = getIISLocation()
             SetLog("IIS Express Location: " & iisExpressFolder)
             'run iis
-            If iisId = 0 And iisExpressFolder <> "" Then runIIS(dataAccount)
+            If iisId = 0 And iisExpressFolder <> "" Then
+                runIIS(dataAccount)
+            End If
         End If
 
         'start sync
@@ -302,7 +301,7 @@ Public Class mainForm
 
         If GetWin32Process("", curAccount.sqlId) <> curAccount.sqlId Or curAccount.sqlId = 0 Then
             SetLog(dataAccount & " Synchronize Starting...")
-            Dim cmdstr = "while 1=1 begin exec gen.doSync @p_uri='" & p_uri & "', @s_uri=null, @paccountid='" & dataAccount & "', @saccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @pwd='" & secret & "', @isdebug=0 end"
+            Dim cmdstr = "while 1=1 begin exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "' @pwd='" & secret & "', @isdebug=0 end"
             curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename)
         End If
         'Application.DoEvents()
@@ -566,7 +565,7 @@ Public Class mainForm
     End Sub
 
     Sub stopSync(accountName, sqlId)
-        accountList(accountName).isStart = False
+        'accountList(accountName).isStart = False
 
         SetLog(accountName & " stopping...")
         If GetWin32Process("", sqlId) = sqlId Then
@@ -1082,35 +1081,40 @@ Public Class mainForm
         If r.IndexOf("<message>") >= 0 Then
             m = r.Substring(r.IndexOf("<message>") + Len("<message>"), r.IndexOf("</message>") - r.IndexOf("<message>") - Len("<message>"))
         End If
-        If m = "" Then
-            If Not isExists Then
+
+        If Not isExists Then
+            If m = "" Then
                 accountList.Add(an, New accountType With {.user = us, .secret = sc, .sqlId = 0, .port = pt, .autoStart = ast})
                 Me.lbAcount.Items.Add(Me.TextBox1.Text) '
             Else
-                accountList(an).user = us
-                accountList(an).secret = sc
-                accountList(an).port = pt
-                accountList(an).autoStart = ast
+                MessageBox.Show("Wrong user or secret. Try Again!")
             End If
 
-            Dim json = "{""accountList"":[%item%]}"
-            For Each j In accountList
-                Dim curAccount = accountList(j.Key.ToString)
-                Dim jx = "{""accountName"":""" & j.Key.ToString & """,""user"":""" & curAccount.user & """,""secret"":""" & curAccount.secret & """,""port"":""" & curAccount.port & """, ""autoStart"":""" & IIf(curAccount.autoStart, 1, 0) & """}, %item%"
-                json = json.Replace("%item%", jx)
-            Next
-            json = json.Replace(", %item%", "")
-            json = json.Replace("%item%", "")
-            My.Settings.SavedAccountList = json
-            My.Settings.Save()
-
-            If accountList(an).autoStart Then accountList(an).isStart = True
-            'Else
-            'MessageBox.Show("Please choose account before continue.")
-            'End If
         Else
-            MessageBox.Show("Wrong user or secret. Try Again!")
+            If m = "" Then accountList(an).user = us
+            If m = "" Then accountList(an).secret = sc
+            accountList(an).port = pt
+            accountList(an).autoStart = ast
         End If
+
+        Dim json = "{""accountList"":[%item%]}"
+        For Each j In accountList
+            Dim curAccount = accountList(j.Key.ToString)
+            Dim jx = "{""accountName"":""" & j.Key.ToString & """,""user"":""" & curAccount.user & """,""secret"":""" & curAccount.secret & """,""port"":""" & curAccount.port & """, ""autoStart"":""" & IIf(curAccount.autoStart, 1, 0) & """}, %item%"
+            json = json.Replace("%item%", jx)
+        Next
+        json = json.Replace(", %item%", "")
+        json = json.Replace("%item%", "")
+        My.Settings.SavedAccountList = json
+        My.Settings.Save()
+
+        If accountList(an).autoStart Then accountList(an).isStart = True
+        'Else
+        'MessageBox.Show("Please choose account before continue.")
+        'End If
+        'Else
+        'MessageBox.Show("Wrong user or secret. Try Again!")
+        'End If
     End Sub
 
 
@@ -1130,10 +1134,31 @@ Public Class mainForm
             Me.Button1.Enabled = curAccount.sqlId = 0
             Me.Button2.Enabled = curAccount.sqlId > 0
             Me.Button4.Enabled = curAccount.sqlId = 0
-            Me.Button7.Enabled = curAccount.sqlId > 0
+            Me.Button7.Enabled = curAccount.sqlId > 0 AndAlso isStructureDone(Me.lbAcount.SelectedItem)
         End If
     End Sub
+    Function isSyncDone(accountName) As Boolean
+        Dim r = False
+        Dim p_uri = ""
+        Dim token = getToken(accountName)
 
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & accountName & ";Integrated Security=True" 'My.Settings.odbc
+        Dim sqlstr = "exec [gen].[dosync_lvl2] '" & accountName & "', null, 'http://redbean/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
+        r = runSQLwithResult(sqlstr, odbc)
+        Return Not r
+    End Function
+    Function isStructureDone(accountName) As Boolean
+        Dim r = False
+        Dim p_uri = ""
+        If pipename <> "" Then
+            Dim token = getToken(accountName)
+
+            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & "oph_core" & ";Integrated Security=True" 'My.Settings.odbc
+            Dim sqlstr = "exec [gen].[dosync_lvl1] '" & accountName & "', null, 'http://redbean/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
+            r = runSQLwithResult(sqlstr, odbc)
+        End If
+        Return Not r
+    End Function
     Private Sub Button5_Click_1(sender As Object, e As EventArgs) Handles Button5.Click
         Me.TextBox1.Text = ""
         Me.TextBox2.Text = ""
@@ -1157,12 +1182,11 @@ Public Class mainForm
     Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
         For Each x In accountList
             Dim curAccount = accountList(x.Key)
-            If curAccount.isStart Then
-                curAccount.sqlId = GetWin32Process("", curAccount.sqlId)
-                If curAccount.sqlId = 0 Then
-                    createAccount(x.Key)
-                    'startSync(x.Key)
-                End If
+            curAccount.sqlId = GetWin32Process("", curAccount.sqlId)
+            If curAccount.isStart And curAccount.sqlId = 0 Then
+                startSync(x.Key)
+            ElseIf Not curAccount.isStart And curAccount.sqlId > 0 Then
+                stopSync(x.Key, curAccount.sqlId)
             End If
         Next
     End Sub
@@ -1197,5 +1221,70 @@ Public Class mainForm
             End Try
         End If
         Return r
+    End Function
+    Public Function runSQLwithResult(ByVal sqlstr As String, Optional ByVal sqlconstr As String = "") As String
+        Dim result As String, contentofError As String
+
+        ' If the connection string is null, usse a default.
+        Dim myConnectionString As String = sqlconstr
+        'If sqlconstr = "" Then myConnectionString = contentOfdbODBC
+        If myConnectionString = "" And sqlconstr = "" Then
+            'SignOff()
+            Return ""
+            Exit Function
+        End If
+
+        Dim myConnection As New SqlConnection(myConnectionString)
+        Dim myInsertQuery As String = sqlstr
+        Dim myCommand As New SqlCommand(myInsertQuery)
+        Try
+            Dim Reader As SqlClient.SqlDataReader
+
+            myCommand.Connection = myConnection
+            myConnection.Open()
+
+            Reader = myCommand.ExecuteReader()
+
+            Reader.Read()
+            If Reader.HasRows Then
+                result = Reader.GetValue(0).ToString
+            Else
+                result = ""
+            End If
+
+        Catch ex As SqlException
+            contentofError = ex.Message & "<br>"
+            Return ""
+        Catch ex As Exception
+
+            contentofError = ex.Message & "<br>"
+            Return ""
+        Finally
+            myCommand.Connection.Close()
+            myConnection.Close()
+        End Try
+        Return result
+    End Function
+    Function getToken(dataAccount) As String
+        Dim token = ""
+        Dim remoteUrl = My.Settings.remoteUrl
+        Dim p_uri = remoteUrl & dataAccount
+        Dim curAccount = accountList(dataAccount)
+        Dim user = curAccount.user
+        Dim secret = curAccount.secret
+
+        Dim p_add = p_uri & "/ophcore/api/sync.aspx"
+        Dim url = p_add & "?mode=reqtoken&userid=" & user & "&pwd=" & secret
+        Dim r = postHttp(url)
+        Dim m = ""
+        If r.IndexOf("<message>") >= 0 Then
+            m = r.Substring(r.IndexOf("<message>") + Len("<message>"), r.IndexOf("</message>") - r.IndexOf("<message>") - Len("<message>"))
+        End If
+
+        If m = "" And r.IndexOf("<sessionToken>") >= 0 Then
+            token = r.Substring(r.IndexOf("<sessionToken>") + Len("<sessionToken>"), r.IndexOf("</sessionToken>") - r.IndexOf("<sessionToken>") - Len("<sessionToken>"))
+
+        End If
+        Return token
     End Function
 End Class
