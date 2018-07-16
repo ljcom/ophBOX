@@ -288,13 +288,7 @@ Public Class mainForm
             iisExpressFolder = getIISLocation()
             SetLog("IIS Express Location: " & iisExpressFolder)
             'run iis
-<<<<<<< HEAD
-            If iisId = 0 And iisExpressFolder <> "" Then
-                runIIS(dataAccount)
-            End If
-=======
             If iisId = 0 And iisExpressFolder <> "" Then runIIS(dataAccount)
->>>>>>> 5eaf15f1bdb1d4b66194a84368a5f11d2e82911a
         End If
 
         'start sync
