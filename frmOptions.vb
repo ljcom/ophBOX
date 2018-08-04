@@ -33,5 +33,6 @@
         My.Settings.dbUser = Me.TextBox3.Text
         If Me.TextBox4.Text <> "*******" Then My.Settings.dbPassword = Me.TextBox4.Text
         My.Settings.Save()
+        Me.Close()
     End Sub
 End Class
