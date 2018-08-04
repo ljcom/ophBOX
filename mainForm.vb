@@ -48,7 +48,7 @@ Public Class mainForm
             NotifyIcon1.Icon = SystemIcons.Application
             NotifyIcon1.BalloonTipIcon = ToolTipIcon.Info
             NotifyIcon1.BalloonTipTitle = "OPHBOX"
-            NotifyIcon1.BalloonTipText = "Let's start!"
+            NotifyIcon1.BalloonTipText = "Click here to zoom out!"
             NotifyIcon1.ShowBalloonTip(50000)
             'Me.Hide()
             ShowInTaskbar = False
