@@ -109,6 +109,7 @@ Partial Class frmOptions
         '
         Me.TextBox4.Location = New System.Drawing.Point(109, 156)
         Me.TextBox4.Name = "TextBox4"
+        Me.TextBox4.PasswordChar = Global.Microsoft.VisualBasic.ChrW(42)
         Me.TextBox4.Size = New System.Drawing.Size(276, 20)
         Me.TextBox4.TabIndex = 9
         '
