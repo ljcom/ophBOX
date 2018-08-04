@@ -7,6 +7,7 @@ Imports System.Collections.Generic
 Imports Newtonsoft.Json.Linq
 Imports System.Data.SqlClient
 Imports System.Data
+Imports System.Drawing
 
 Public Class mainForm
     Private isLocaldb = False
@@ -40,13 +41,34 @@ Public Class mainForm
         End If
 
     End Sub
+
+    Private Sub Form1_Resize(ByVal sender As Object, ByVal e As System.EventArgs) Handles Me.Resize
+        If Me.WindowState = FormWindowState.Minimized Then
+            NotifyIcon1.Visible = True
+            NotifyIcon1.Icon = SystemIcons.Application
+            NotifyIcon1.BalloonTipIcon = ToolTipIcon.Info
+            NotifyIcon1.BalloonTipTitle = "OPHBOX"
+            NotifyIcon1.BalloonTipText = "Let's start!"
+            NotifyIcon1.ShowBalloonTip(50000)
+            'Me.Hide()
+            ShowInTaskbar = False
+        End If
+    End Sub
+
+    Private Sub NotifyIcon1_DoubleClick(ByVal sender As Object, ByVal e As System.EventArgs) Handles NotifyIcon1.DoubleClick
+        'Me.Show()
+        ShowInTaskbar = True
+        Me.WindowState = FormWindowState.Normal
+        NotifyIcon1.Visible = False
+    End Sub
+
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         If Not IsNothing(Me.lbAcount.SelectedItem) Then
             Dim curAccount = accountList(Me.lbAcount.SelectedItem)
             curAccount.isStart = True
             'startSync(Me.lbAcount.SelectedItem)
         Else
-                MessageBox.Show(Me, "Please select one of account to start before continue.", "Select Account", vbInformation)
+            MessageBox.Show(Me, "Please select one of account to start before continue.", "Select Account", vbInformation)
         End If
     End Sub
 
@@ -299,7 +321,7 @@ Public Class mainForm
 
         If GetWin32Process("", curAccount.sqlId) <> curAccount.sqlId Or curAccount.sqlId = 0 Then
             SetLog(dataAccount & " Synchronize Starting...")
-            Dim cmdstr = "while 1=1 begin exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "' @pwd='" & secret & "', @isdebug=0 end"
+            Dim cmdstr = "while 1=1 begin exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "', @pwd='" & secret & "', @isdebug=0 end"
             curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename)
         End If
         'Application.DoEvents()
@@ -899,6 +921,8 @@ Public Class mainForm
 
         p.StartInfo.FileName = "sqlcmd.exe"
         p.StartInfo.Arguments = "-S " & pipename & " -Q """ & sqlstr & """" & IIf(db <> "", " -d " & db, "")
+        WriteLog(sqlstr)
+
         p.StartInfo.CreateNoWindow = True
         p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
 
@@ -944,7 +968,7 @@ Public Class mainForm
             Me.tbLog.AppendText(t)
 
         End If
-
+        'If Len(t) > 0 Then NotifyIcon1.BalloonTipText = t.ToString.TrimStart().Substring(1, 20) & IIf(Len(t) > 20, "...", "")
         WriteLog(t)
     End Sub
 
@@ -1285,4 +1309,13 @@ Public Class mainForm
         End If
         Return token
     End Function
+
+    Private Sub ExitToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ExitToolStripMenuItem.Click
+        End
+    End Sub
+
+    Private Sub OptionsToolStripMenuItem1_Click(sender As Object, e As EventArgs) Handles OptionsToolStripMenuItem1.Click
+        Dim o = New frmOptions()
+        o.ShowDialog()
+    End Sub
 End Class
