@@ -365,7 +365,7 @@ Public Class mainForm
         Dim newfile As New List(Of String)()
         Dim skipLine As Boolean = False
         Dim curAccount = ""
-
+        Dim nn = 1
         For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
             If Not isexists Then
                 If k.Contains("<siteDefaults>") Then
@@ -407,7 +407,12 @@ Public Class mainForm
                     End If
                 End If
             End If
-
+            If k.Contains("<site ") Then
+                Dim line = k.Substring(1, k.IndexOf("id") - 1) & "id=""" & nn & """>"
+                newfile.Add(line)
+                skipLine = True
+                nn += 1
+            End If
             If Not skipLine Then newfile.Add(k)
             skipLine = False
 
