@@ -107,7 +107,7 @@ Public Class mainForm
         If Not Directory.Exists(fdata) Then
             Directory.CreateDirectory(fdata)
         End If
-        Dim isLocaldb = My.Settings.isLocalDB
+        Dim isLocaldb = My.Settings.isLocalDB = 1
         If isLocaldb Then
             If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
                 installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
@@ -306,7 +306,7 @@ Public Class mainForm
         Me.Button1.Enabled = False
         Me.Button4.Enabled = False
         Me.Button7.Enabled = False
-        Dim isLocaldb = My.Settings.isLocalDB
+        Dim isLocaldb = My.Settings.isLocalDB = 1
         If isLocaldb Then
             If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
                 installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
@@ -615,7 +615,7 @@ Public Class mainForm
                 killProcess(iisId)
             End If
             'GetWin32Process("iisexpress", 0)
-            Dim isLocaldb = My.Settings.isLocalDB
+            Dim isLocaldb = My.Settings.isLocalDB = 1
             If isLocaldb Then stopInstance("OPERAHOUSE")
 
         End If
