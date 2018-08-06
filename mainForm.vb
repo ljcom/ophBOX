@@ -408,7 +408,7 @@ Public Class mainForm
                 End If
             End If
             If k.Contains("<site ") Then
-                Dim line = k.Substring(1, k.IndexOf("id") - 1) & "id=""" & nn & """>"
+                Dim line = k.Substring(0, k.IndexOf("id") - 1) & " id=""" & nn & """>"
                 newfile.Add(line)
                 skipLine = True
                 nn += 1
@@ -631,7 +631,8 @@ Public Class mainForm
                 killProcess(iisId)
             End If
             'GetWin32Process("iisexpress", 0)
-            stopInstance("OPERAHOUSE")
+            Dim isLocaldb = My.Settings.isLocalDB
+            If isLocaldb Then stopInstance("OPERAHOUSE")
 
         End If
         SetLog(accountName & " stopped.")
