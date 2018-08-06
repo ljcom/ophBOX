@@ -21,11 +21,13 @@ Public Class mainForm
     Private accountList As New Dictionary(Of String, accountType)
 
     Private Sub mainForm_Load(sender As Object, e As EventArgs) Handles Me.Load
+
         Dim jsonText = My.Settings.SavedAccountList
 
         isIISExpress = My.Settings.isIISExpress
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
-        If Directory.Exists(Directory.GetCurrentDirectory & "\" & folderData & "") Then
+        If Directory.Exists(ophPath & "\" & folderData & "") Then
             Dim json As JObject = JObject.Parse(jsonText)
             Dim al = json("accountList")
             For Each x In al
@@ -94,8 +96,9 @@ Public Class mainForm
 
         Dim remoteUrl = My.Settings.remoteUrl
         Dim p_uri = remoteUrl & dataAccount '"http://redbean/" & dataAccount
-        Dim ftemp = Directory.GetCurrentDirectory() & "\" & folderTemp
-        Dim fdata = Directory.GetCurrentDirectory() & "\" & folderData
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ftemp = ophPath & "\" & folderTemp
+        Dim fdata = ophPath & "\" & folderData
         Dim uid = "", pwd = ""
 
         If Not Directory.Exists(ftemp & "") Then
@@ -107,7 +110,7 @@ Public Class mainForm
         Dim isLocaldb = My.Settings.isLocalDB
         If isLocaldb Then
             If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
-                installLocalDB(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
+                installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
                 SetLog("localDB installed")
                 createInstance("OPERAHOUSE")
                 SetLog("OPERAHOUSE created")
@@ -128,8 +131,8 @@ Public Class mainForm
 
 
         If Not syncLocalScript("use " & coreDB, coreDB, pipename, uid, pwd) Then
-            Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & coreDB & "_data.mdf"
-            Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & coreDB & "_log.ldf"
+            Dim mdfFile = ophPath & "\" & folderData & "\" & coreDB & "_data.mdf"
+            Dim ldfFile = ophPath & "\" & folderData & "\" & coreDB & "_log.ldf"
             If isLocaldb Then
                 syncLocalScript("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "');", "master", pipename, uid, pwd)
             Else
@@ -140,25 +143,25 @@ Public Class mainForm
             Dim c_uri = remoteUrl & coreAccount
 
             Dim url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript"
-            Dim scriptFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\install_core.sql"
+            Dim scriptFile = ophPath & "\" & folderTemp & "\install_core.sql"
             runScript(url, pipename, scriptFile, coreDB, uid, pwd)
 
         End If
 
-        Dim localFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\sync.zip"
+        Dim localFile = ophPath & "\" & folderTemp & "\sync.zip"
 
         If Not File.Exists(localFile) Then
             Dim url = p_uri & "/ophcore/api/sync.aspx?mode=webrequestFile"
             If downloadFilename(url, localFile) Then
-                unZip(localFile, Directory.GetCurrentDirectory & "\" & folderTemp)
+                unZip(localFile, ophPath & "\" & folderTemp)
             End If
         End If
 
         'download from git
-        runCmd(Directory.GetCurrentDirectory & "\" & folderTemp & "\build-oph.bat")
+        runCmd(ophPath & "\" & folderTemp & "\build-oph.bat")
 
 
-        localFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\webRequest.dll"
+        localFile = ophPath & "\" & folderTemp & "\webRequest.dll"
         If File.Exists(localFile) Then
             syncLocalScript("EXEC sp_changedbowner 'sa'; ALTER DATABASE " & coreDB & " SET TRUSTWORTHY ON", coreDB, pipename, uid, pwd)
             syncLocalScript("sp_configure 'show advanced options', 1;RECONFIGURE", coreDB, pipename, uid, pwd)
@@ -203,8 +206,8 @@ Public Class mainForm
                     Dim dbname = r2(2)
                     Dim ismaster = r2(3)
                     Dim Version = r2(4)
-                    Dim mdfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & dbname & "_data.mdf"
-                    Dim ldfFile = Directory.GetCurrentDirectory & "\" & folderData & "\" & dbname & "_log.ldf"
+                    Dim mdfFile = ophPath & "\" & folderData & "\" & dbname & "_data.mdf"
+                    Dim ldfFile = ophPath & "\" & folderData & "\" & dbname & "_log.ldf"
                     If isLocaldb Then
                         syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname & " On ( NAME = " & dbname & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & dbname & "_log, FILENAME = '" & ldfFile & "');", "master", pipename, uid, pwd)
                     Else
@@ -254,7 +257,7 @@ Public Class mainForm
                     "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', 'localhost:" & curAccount.port & "')"
 
             url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript"
-            Dim scriptFile = Directory.GetCurrentDirectory & "\" & folderTemp & "\install_" & dataAccount & ".sql"
+            Dim scriptFile = ophPath & "\" & folderTemp & "\install_" & dataAccount & ".sql"
             runScript(url, pipename, scriptFile, dataDB, uid, pwd)
 
             'run after
@@ -263,14 +266,14 @@ Public Class mainForm
         End If
 
         'setup applicationhost.config
-        addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port, False)
-        'Dim isReady = addWebConfig(Directory.GetCurrentDirectory() & "\")
+        addAccounttoIIS(dataAccount, ophPath & "\", port, False)
+        Dim isReady = addWebConfig(ophPath & "\")
 
         'If isIISExpress Then
         '    iisExpressFolder = getIISLocation()
         '    SetLog("IIS Express Location: " & iisExpressFolder)
-        '    'addAccounttoIIS(dataAccount, Directory.GetCurrentDirectory() & "\", port)
-        '    'addWebConfig(Directory.GetCurrentDirectory() & "\")
+        '    'addAccounttoIIS(dataAccount, ophPath & "\", port)
+        '    'addWebConfig(ophPath & "\")
         'End If
         'If isReady Then
         '    If curAccount.isStart Then startSync(accountName)
@@ -295,6 +298,7 @@ Public Class mainForm
         Dim remoteUrl = My.Settings.remoteUrl
         Dim p_uri = remoteUrl & dataAccount '"http://redbean/" & dataAccount
         Dim uid = "", pwd = ""
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
         'sync on
         curAccount.isStart = True
@@ -305,7 +309,7 @@ Public Class mainForm
         Dim isLocaldb = My.Settings.isLocalDB
         If isLocaldb Then
             If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
-                installLocalDB(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
+                installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
                 SetLog("localDB installed")
                 createInstance("OPERAHOUSE")
                 SetLog("OPERAHOUSE created")
@@ -327,6 +331,9 @@ Public Class mainForm
         If isIISExpress Then
             iisExpressFolder = getIISLocation()
             SetLog("IIS Express Location: " & iisExpressFolder)
+
+
+
             'run iis
             If iisId = 0 And iisExpressFolder <> "" Then runIIS(dataAccount)
         End If
@@ -425,40 +432,15 @@ Public Class mainForm
         Return port
     End Function
 
-    Function addWebConfig(path) As Boolean
-        Dim r = False
-        If File.Exists(path & "operahouse\core\sample-web.config") Then
-            r = True
-            If Not File.Exists(path & "operahouse\core\web.config") Then
-                Dim newfile As New List(Of String)()
-                For Each k As String In IO.File.ReadLines(path & "operahouse\core\sample-web.config")
-                    If k.Contains("<add key=""Sequoia""") Then
-                        Dim newline = {
-                                    vbTab & "<add key=""Sequoia"" value=""Data Source=(localdb)\operahouse;Initial Catalog=oph_core;Integrated Security=SSPI;password=;timeout=600"" />"}
 
-                        For Each line As String In newline
-                            newfile.Add(line)
-                        Next
-                    Else
-                        newfile.Add(k)
-                    End If
-
-
-                Next
-                File.Delete(path & folderTemp & "\web.config")
-                System.IO.File.WriteAllLines(path & "operahouse\core\web.config", newfile.ToArray())
-                r = True
-            End If
-        End If
-        Return r
-    End Function
     Function getIISLocation() As String
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = My.Settings.IISExpressLocation
         If r = "" Or Not File.Exists(r) Then
             r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
             If r = "" Then
                 If MessageBox.Show(Me, "We cannot find IIS Express. We are about to install from our repository.", "IIS Express", vbYesNo) = vbYes Then
-                    Dim b = installIIS(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
+                    Dim b = installIIS(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
                     r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
                     If r <> "" Then SetLog("IIS Express Installed")
                 End If
@@ -467,6 +449,7 @@ Public Class mainForm
         Return r
     End Function
     Function getGITLocation() As String
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = "C:\Program Files\GIT\git-bash.exe"
         If r = "" Or Not File.Exists(r) Then
             Dim c = MsgBox("We cannot find GIT. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "GIT")
@@ -476,7 +459,7 @@ Public Class mainForm
                     r = folder & "\git-bash.exe"
                 End If
             ElseIf c = vbNo Then
-                installGIT(Directory.GetCurrentDirectory() & "\" & folderTemp, Directory.GetCurrentDirectory() & "\" & folderData)
+                installGIT(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
                 SetLog("GIT Installed")
             End If
         End If
@@ -511,6 +494,7 @@ Public Class mainForm
     End Function
 
     Sub runIIS(app)
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         eventHandled = False
         elapsedTime = 0
 
@@ -524,7 +508,7 @@ Public Class mainForm
         AddHandler p.OutputDataReceived, AddressOf OutputDataReceivedIIS
 
         p.StartInfo.FileName = iisExpressFolder
-        p.StartInfo.Arguments = "/config:" & Directory.GetCurrentDirectory & "\" & folderTemp & "\applicationhost.config /systray:false /site:" & app
+        p.StartInfo.Arguments = "/config:" & ophPath & "\" & folderTemp & "\applicationhost.config /systray:false /site:" & app
         p.StartInfo.CreateNoWindow = True
         p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
 
@@ -871,9 +855,10 @@ Public Class mainForm
         Return r
     End Function
     Private Sub Button4_Click(sender As Object, e As EventArgs) Handles Button4.Click
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         accountList.Remove(Me.lbAcount.SelectedItem)
-        If Directory.Exists(Directory.GetCurrentDirectory & "\" & folderData & "") Then
-            Dim directoryName As String = Directory.GetCurrentDirectory & "\" & folderData & ""
+        If Directory.Exists(ophPath & "\" & folderData & "") Then
+            Dim directoryName As String = ophPath & "\" & folderData & ""
             For Each deleteFile In Directory.GetFiles(directoryName, Me.lbAcount.SelectedItem & ".*", SearchOption.TopDirectoryOnly)
                 Try
                     File.Delete(deleteFile)
@@ -901,8 +886,8 @@ Public Class mainForm
         If accountList.Count = 0 Then
             stopInstance("OPERAHOUSE")
             deleteInstance("OPERAHOUSE")
-            'If Directory.Exists(Directory.GetCurrentDirectory & "\" & folderTemp & "") Then
-            '    Dim directoryName As String = Directory.GetCurrentDirectory & "\" & folderTemp & ""
+            'If Directory.Exists(ophPath & "\" & folderTemp & "") Then
+            '    Dim directoryName As String = ophPath & "\" & folderTemp & ""
             '    For Each deleteFile In Directory.GetFiles(directoryName, "*.*", SearchOption.TopDirectoryOnly)
             '        Try
             '            File.Delete(deleteFile)
@@ -912,8 +897,8 @@ Public Class mainForm
 
             '    Next
             'End If
-            If Directory.Exists(Directory.GetCurrentDirectory & "\" & folderData & "") Then
-                Dim directoryName As String = Directory.GetCurrentDirectory & "\" & folderData & ""
+            If Directory.Exists(ophPath & "\" & folderData & "") Then
+                Dim directoryName As String = ophPath & "\" & folderData & ""
                 For Each deleteFile In Directory.GetFiles(directoryName, "*.*", SearchOption.TopDirectoryOnly)
                     Try
                         File.Delete(deleteFile)
@@ -1037,7 +1022,8 @@ Public Class mainForm
 
     End Sub
     Sub WriteLog(logMessage As String)
-        Dim path = Directory.GetCurrentDirectory() & "\log"
+        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim path = ophPath & "\log"
         path = path & "\" '& "OPHContent\log\"
         Dim logFilepath = path & DateTime.Now().Year & "\" & Strings.Right("0" & DateTime.Now().Month, 2) & "\" & Strings.Right("0" & DateTime.Now().Day, 2) & ".txt"
         Dim logPath = path & DateTime.Now().Year & "\" & Strings.Right("0" & DateTime.Now().Month, 2) & "\"

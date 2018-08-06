@@ -35,6 +35,10 @@ Partial Class frmOptions
         Me.CheckBox1 = New System.Windows.Forms.CheckBox()
         Me.Button1 = New System.Windows.Forms.Button()
         Me.Button2 = New System.Windows.Forms.Button()
+        Me.CheckBox2 = New System.Windows.Forms.CheckBox()
+        Me.Label7 = New System.Windows.Forms.Label()
+        Me.TextBox5 = New System.Windows.Forms.TextBox()
+        Me.Label8 = New System.Windows.Forms.Label()
         Me.SuspendLayout()
         '
         'Label1
@@ -65,7 +69,7 @@ Partial Class frmOptions
         '
         'TextBox2
         '
-        Me.TextBox2.Location = New System.Drawing.Point(109, 104)
+        Me.TextBox2.Location = New System.Drawing.Point(109, 98)
         Me.TextBox2.Name = "TextBox2"
         Me.TextBox2.Size = New System.Drawing.Size(276, 20)
         Me.TextBox2.TabIndex = 4
@@ -73,7 +77,7 @@ Partial Class frmOptions
         'Label3
         '
         Me.Label3.AutoSize = True
-        Me.Label3.Location = New System.Drawing.Point(13, 107)
+        Me.Label3.Location = New System.Drawing.Point(13, 101)
         Me.Label3.Name = "Label3"
         Me.Label3.Size = New System.Drawing.Size(62, 13)
         Me.Label3.TabIndex = 3
@@ -81,7 +85,7 @@ Partial Class frmOptions
         '
         'TextBox3
         '
-        Me.TextBox3.Location = New System.Drawing.Point(109, 130)
+        Me.TextBox3.Location = New System.Drawing.Point(109, 124)
         Me.TextBox3.Name = "TextBox3"
         Me.TextBox3.Size = New System.Drawing.Size(276, 20)
         Me.TextBox3.TabIndex = 6
@@ -89,7 +93,7 @@ Partial Class frmOptions
         'Label4
         '
         Me.Label4.AutoSize = True
-        Me.Label4.Location = New System.Drawing.Point(13, 133)
+        Me.Label4.Location = New System.Drawing.Point(13, 124)
         Me.Label4.Name = "Label4"
         Me.Label4.Size = New System.Drawing.Size(29, 13)
         Me.Label4.TabIndex = 5
@@ -107,7 +111,7 @@ Partial Class frmOptions
         '
         'TextBox4
         '
-        Me.TextBox4.Location = New System.Drawing.Point(109, 156)
+        Me.TextBox4.Location = New System.Drawing.Point(109, 150)
         Me.TextBox4.Name = "TextBox4"
         Me.TextBox4.PasswordChar = Global.Microsoft.VisualBasic.ChrW(42)
         Me.TextBox4.Size = New System.Drawing.Size(276, 20)
@@ -116,7 +120,7 @@ Partial Class frmOptions
         'Label6
         '
         Me.Label6.AutoSize = True
-        Me.Label6.Location = New System.Drawing.Point(13, 159)
+        Me.Label6.Location = New System.Drawing.Point(13, 153)
         Me.Label6.Name = "Label6"
         Me.Label6.Size = New System.Drawing.Size(53, 13)
         Me.Label6.TabIndex = 8
@@ -150,11 +154,51 @@ Partial Class frmOptions
         Me.Button2.Text = "Cancel"
         Me.Button2.UseVisualStyleBackColor = True
         '
+        'CheckBox2
+        '
+        Me.CheckBox2.AutoSize = True
+        Me.CheckBox2.Location = New System.Drawing.Point(16, 208)
+        Me.CheckBox2.Name = "CheckBox2"
+        Me.CheckBox2.Size = New System.Drawing.Size(39, 17)
+        Me.CheckBox2.TabIndex = 14
+        Me.CheckBox2.Text = "IIS"
+        Me.CheckBox2.UseVisualStyleBackColor = True
+        '
+        'Label7
+        '
+        Me.Label7.AutoSize = True
+        Me.Label7.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.25!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
+        Me.Label7.Location = New System.Drawing.Point(13, 191)
+        Me.Label7.Name = "Label7"
+        Me.Label7.Size = New System.Drawing.Size(73, 13)
+        Me.Label7.TabIndex = 13
+        Me.Label7.Text = "IIS Settings"
+        '
+        'TextBox5
+        '
+        Me.TextBox5.Location = New System.Drawing.Point(109, 225)
+        Me.TextBox5.Name = "TextBox5"
+        Me.TextBox5.Size = New System.Drawing.Size(276, 20)
+        Me.TextBox5.TabIndex = 16
+        '
+        'Label8
+        '
+        Me.Label8.AutoSize = True
+        Me.Label8.Location = New System.Drawing.Point(13, 228)
+        Me.Label8.Name = "Label8"
+        Me.Label8.Size = New System.Drawing.Size(55, 13)
+        Me.Label8.TabIndex = 15
+        Me.Label8.Text = "OPH Path"
+        '
         'frmOptions
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.ClientSize = New System.Drawing.Size(397, 357)
+        Me.Controls.Add(Me.TextBox5)
+        Me.Controls.Add(Me.Label8)
+        Me.Controls.Add(Me.CheckBox2)
+        Me.Controls.Add(Me.Label7)
         Me.Controls.Add(Me.Button2)
         Me.Controls.Add(Me.Button1)
         Me.Controls.Add(Me.CheckBox1)
@@ -188,4 +232,8 @@ Partial Class frmOptions
     Friend WithEvents CheckBox1 As Windows.Forms.CheckBox
     Friend WithEvents Button1 As Windows.Forms.Button
     Friend WithEvents Button2 As Windows.Forms.Button
+    Friend WithEvents CheckBox2 As Windows.Forms.CheckBox
+    Friend WithEvents Label7 As Windows.Forms.Label
+    Friend WithEvents TextBox5 As Windows.Forms.TextBox
+    Friend WithEvents Label8 As Windows.Forms.Label
 End Class
