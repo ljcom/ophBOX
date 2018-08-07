@@ -41,6 +41,10 @@ Public Class frmOptions
 
         My.Settings.isIISExpress = IIf(Me.CheckBox2.Checked, 1, 0)
         My.Settings.OPHPath = Me.TextBox5.Text
+
+        If Me.CheckBox2.Checked And Not Directory.Exists(Me.TextBox5.Text) Then
+            Directory.CreateDirectory(Me.TextBox5.Text)
+        End If
         My.Settings.Save()
         Me.Close()
 
