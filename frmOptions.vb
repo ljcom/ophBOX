@@ -1,4 +1,7 @@
-﻿Imports System.IO
+﻿Imports IWshRuntimeLibrary
+Imports System.IO
+Imports System.Windows.Forms
+
 
 Public Class frmOptions
     Private Sub frmOptions_Load(sender As Object, e As EventArgs) Handles Me.Load
@@ -8,10 +11,11 @@ Public Class frmOptions
         Me.TextBox2.Text = My.Settings.dbInstanceName
         Me.TextBox3.Text = My.Settings.dbUser
         Me.TextBox4.Text = "*******"
+        Me.TextBox6.Text = My.Settings.delayTime
 
         Me.CheckBox2.Checked = My.Settings.isIISExpress
         Me.TextBox5.Text = My.Settings.OPHPath
-
+        Me.CheckBox3.Checked = My.Settings.isStartMenu
         CheckBox1_afterclick()
         CheckBox1_afterclick()
 
@@ -45,6 +49,15 @@ Public Class frmOptions
         If Me.CheckBox2.Checked And Not Directory.Exists(Me.TextBox5.Text) Then
             Directory.CreateDirectory(Me.TextBox5.Text)
         End If
+        My.Settings.delayTime = Me.TextBox6.Text
+        If CheckBox3.Checked And My.Settings.isStartMenu = 0 Then
+            My.Settings.isStartMenu = 1
+            CreateShortcutInStartUp("OPH Box")
+        ElseIf Not CheckBox3.Checked And My.Settings.isStartMenu = 1 Then
+            'remove shortcut
+            My.Settings.isStartMenu = 0
+            DeleteShortcutInStartUp()
+        End If
         My.Settings.Save()
         Me.Close()
 
@@ -57,5 +70,28 @@ Public Class frmOptions
     End Sub
     Sub CheckBox2_afterclick()
         Me.TextBox5.Enabled = Not Me.CheckBox2.Checked
+    End Sub
+    Public Sub CreateShortcutInStartUp(ByVal Descrip As String)
+
+
+        Dim WshShell As WshShell = New WshShell()
+        Dim ShortcutPath As String = Environment.GetFolderPath(Environment.SpecialFolder.Startup)
+        Dim Shortcut As IWshShortcut = CType(WshShell.CreateShortcut(System.IO.Path.Combine(ShortcutPath, "OPHBOX") & ".lnk"), IWshShortcut)
+        Shortcut.TargetPath = Application.ExecutablePath
+        Shortcut.WorkingDirectory = Application.StartupPath
+        Shortcut.Description = Descrip
+        Shortcut.Save()
+    End Sub
+    Public Sub DeleteShortcutInStartUp()
+        Dim WshShell As WshShell = New WshShell()
+        Dim ShortcutPath As String = Environment.GetFolderPath(Environment.SpecialFolder.Startup)
+        If IO.File.Exists(System.IO.Path.Combine(ShortcutPath, "OPHBOX") & ".lnk") Then
+            IO.File.Delete(System.IO.Path.Combine(ShortcutPath, "OPHBOX") & ".lnk")
+        End If
+
+    End Sub
+
+    Private Sub CheckBox3_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox3.CheckedChanged
+
     End Sub
 End Class

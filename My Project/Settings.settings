@@ -29,5 +29,11 @@
     <Setting Name="OPHPath" Type="System.String" Scope="User">
       <Value Profile="(Default)" />
     </Setting>
+    <Setting Name="delayTime" Type="System.String" Scope="User">
+      <Value Profile="(Default)">0:5:0</Value>
+    </Setting>
+    <Setting Name="isStartMenu" Type="System.String" Scope="User">
+      <Value Profile="(Default)">0</Value>
+    </Setting>
   </Settings>
 </SettingsFile>

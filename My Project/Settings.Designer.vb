@@ -162,6 +162,30 @@ Partial Friend NotInheritable Class Settings
             Me("OPHPath") = value
         End Set
     End Property
+    
+    <Global.System.Configuration.UserScopedSettingAttribute(),  _
+     Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+     Global.System.Configuration.DefaultSettingValueAttribute("0:5:0")>  _
+    Public Property delayTime() As String
+        Get
+            Return CType(Me("delayTime"),String)
+        End Get
+        Set
+            Me("delayTime") = value
+        End Set
+    End Property
+    
+    <Global.System.Configuration.UserScopedSettingAttribute(),  _
+     Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+     Global.System.Configuration.DefaultSettingValueAttribute("0")>  _
+    Public Property isStartMenu() As String
+        Get
+            Return CType(Me("isStartMenu"),String)
+        End Get
+        Set
+            Me("isStartMenu") = value
+        End Set
+    End Property
 End Class
 
 Namespace My
