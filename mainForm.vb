@@ -80,6 +80,8 @@ Public Class mainForm
             End If
         Catch ex As Exception
             SetLog(ex.Message, , True)
+            Me.lbAcount.Items.Clear()
+            accountList.Clear()
         End Try
 
         Me.Timer1.Enabled = True
@@ -440,8 +442,10 @@ Public Class mainForm
             Dim delayTime As String = My.Settings.delayTime
 
             If GetWin32Process("", curAccount.sqlId) <> curAccount.sqlId Or curAccount.sqlId = 0 Then
+                Dim oneTimeOnly = Me.Button1.Text.Substring(Len(Me.Button1.Text) - 1, 1) = "!'"
+
                 SetLog(dataAccount & " Synchronize Starting...")
-                Dim cmdstr = "while 1=1 begin" & vbCrLf & "exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "', @pwd='" & secret & "', @isdebug=0" & vbCrLf & "waitfor delay '" & delayTime & "'" & vbCrLf & "end"
+                Dim cmdstr = "while 1=1 begin" & vbCrLf & "exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "', @pwd='" & secret & "', @isdebug=0" & vbCrLf & IIf(oneTimeOnly, "", "waitfor delay '" & delayTime & "'" & vbCrLf) & "end"
                 curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename, uid, pwd)
             End If
             'Application.DoEvents()
@@ -1454,7 +1458,9 @@ Public Class mainForm
 
         If m = "" And r.IndexOf("<sessionToken>") >= 0 Then
             token = r.Substring(r.IndexOf("<sessionToken>") + Len("<sessionToken>"), r.IndexOf("</sessionToken>") - r.IndexOf("<sessionToken>") - Len("<sessionToken>"))
-
+        Else
+            SetLog(url, True)
+            SetLog(r, True)
         End If
         Return token
     End Function
@@ -1478,11 +1484,18 @@ Public Class mainForm
         If e.Control Then
             Me.Button1.Text = "START"
         End If
+        If e.Alt And Me.Button1.Text.Substring(Len(Me.Button1.Text) - 1, 1) <> "!" Then
+            Me.Button1.Text = Me.Button1.Text & "!"
+        End If
     End Sub
 
     Private Sub mainForm_KeyUp(sender As Object, e As KeyEventArgs) Handles Me.KeyUp
         If Not e.Control Then
             Me.Button1.Text = "Start"
         End If
+        If e.Alt And Me.Button1.Text.Substring(Len(Me.Button1.Text) - 1, 1) <> "!" Then
+            Me.Button1.Text = Me.Button1.Text & "!"
+        End If
+
     End Sub
 End Class
