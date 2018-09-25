@@ -65,7 +65,7 @@ Public Class mainForm
             Dim jsonText = My.Settings.SavedAccountList
 
             isIISExpress = My.Settings.isIISExpress
-            Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
             If Directory.Exists(ophPath & "\" & folderData & "") Then
                 Dim json As JObject = JObject.Parse(jsonText)
@@ -155,7 +155,7 @@ Public Class mainForm
     Sub createAccount(accountName)
         Dim curAccount = accountList(accountName)
 
-        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim ftemp = ophPath & "\" & folderTemp
         Dim fdata = ophPath & "\" & folderData
 
@@ -396,7 +396,7 @@ Public Class mainForm
             Dim remoteUrl = My.Settings.remoteUrl
             Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://redbean/" & dataAccount
             Dim uid = "", pwd = ""
-            Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
             'sync on
             curAccount.isStart = True
@@ -539,7 +539,7 @@ Public Class mainForm
     Function getIISLocation() As String
         Dim r = False
         If My.Settings.isIISExpress Then
-            Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
             r = My.Settings.IISExpressLocation
             If r = "" Or Not File.Exists(r) Then
                 r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
@@ -557,7 +557,7 @@ Public Class mainForm
         Return r
     End Function
     Function getGITLocation() As String
-        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = "C:\Program Files\GIT\git-bash.exe"
         If r = "" Or Not File.Exists(r) Then
             Dim c = MsgBox("We cannot find GIT. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "GIT")
@@ -603,7 +603,7 @@ Public Class mainForm
     End Function
 
     Sub runIIS(app)
-        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         eventHandled = False
         elapsedTime = 0
 
@@ -970,7 +970,7 @@ Public Class mainForm
         Return r
     End Function
     Private Sub Button4_Click(sender As Object, e As EventArgs) Handles Button4.Click
-        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
         Dim x = 0
         For x = 0 To Me.lbAcount.SelectedItems.Count - 1
@@ -988,8 +988,8 @@ Public Class mainForm
                 Next
             End If
 
-            addAccounttoIIS(Me.lbAcount.SelectedItems(x), "", 0, True)
-            Me.lbAcount.Items.RemoveAt(Me.lbAcount.SelectedItems(x))
+            addAccounttoIIS(Me.lbAcount.SelectedItems(x), ophPath & "\", 0, True)
+            Me.lbAcount.Items.RemoveAt(x)
         Next x
 
         Dim json = "{""accountList"":[%item%]}"
@@ -1135,7 +1135,7 @@ Public Class mainForm
 
     End Sub
     Sub WriteLog(logMessage As String)
-        Dim ophPath = IIf(My.Settings.isIISExpress, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim path = ophPath & "\log"
         path = path & "\" '& "OPHContent\log\"
         Dim logFilepath = path & DateTime.Now().Year & "\" & Strings.Right("0" & DateTime.Now().Month, 2) & "\" & Strings.Right("0" & DateTime.Now().Day, 2) & ".txt"
