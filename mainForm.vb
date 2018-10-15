@@ -31,7 +31,7 @@ Public Class mainForm
     Private iisExpressFolder
     Private iisId As Integer = 0
     Private accountList As New Dictionary(Of String, accountType)
-    Private syncStructure As Boolean = True
+    Private syncStructure As Boolean = False 'false=no need to compile again!
     Private isDebug As Boolean = False
 
 
@@ -63,12 +63,13 @@ Public Class mainForm
 
 
             Dim jsonText = My.Settings.SavedAccountList
+            'SetLog(jsonText, False)
 
             isIISExpress = My.Settings.isIISExpress
             Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
-            If Directory.Exists(ophPath & "\" & folderData & "") Then
-                Dim json As JObject = JObject.Parse(jsonText)
+            'If Directory.Exists(ophPath & "\" & folderData & "") Then
+            Dim json As JObject = JObject.Parse(jsonText)
                 Dim al = json("accountList")
                 For Each x In al
                     Dim an = x("accountName").ToString
@@ -77,7 +78,9 @@ Public Class mainForm
                         accountList.Add(an, New accountType With {.user = x("user").ToString, .address = x("address").ToString, .secret = x("secret").ToString, .sqlId = 0, .port = x("port").ToString, .autoStart = x("autoStart") = "1", .isStart = x("autoStart") = "1"})
                     End If
                 Next
-            End If
+            'Else
+            'SetLog(ophPath & "\" & folderData & "", True)
+            'End If
         Catch ex As Exception
             SetLog(ex.Message, , True)
             Me.lbAcount.Items.Clear()
@@ -128,12 +131,13 @@ Public Class mainForm
     End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
-        syncStructure = IIf(Me.Button1.Text = "START", False, syncStructure)
+        syncStructure = IIf(Me.Button1.Text = "START", True, syncStructure)
 
         If Not IsNothing(Me.lbAcount.SelectedItem) Then
             Dim x = 0
             For x = 0 To Me.lbAcount.SelectedItems.Count - 1
                 Dim curAccount = accountList(Me.lbAcount.SelectedItems(x))
+                curAccount.isClearStructure = IIf(Me.Button1.Text = "START", True, curAccount.isClearStructure)
                 curAccount.isStart = True
             Next x
         Else
@@ -146,6 +150,7 @@ Public Class mainForm
             Dim x = 0
             For x = 0 To Me.lbAcount.SelectedItems.Count - 1
                 Dim curAccount = accountList(Me.lbAcount.SelectedItems(x))
+                'curAccount.isClearStructure = False
                 curAccount.isStart = False
             Next x
         Else
@@ -161,15 +166,15 @@ Public Class mainForm
 
         If Not Directory.Exists(ftemp & "") Then
             Directory.CreateDirectory(ftemp & "")
-            syncStructure = False
+            syncStructure = True    'check again!
         End If
         If Not Directory.Exists(fdata) Then
             Directory.CreateDirectory(fdata)
-            syncStructure = False
+            syncStructure = True
         End If
 
         Dim isClearStructure = curAccount.isClearStructure
-        If Not syncStructure Or Not isClearStructure Then
+        If syncStructure Or isClearStructure Then
             Try
                 Me.Timer1.Enabled = False
                 Dim coreAccount = "oph"
@@ -213,7 +218,7 @@ Public Class mainForm
 
                 End If
 
-                If Not syncStructure Then
+                If syncStructure Then
                     Dim gitloc = getGITLocation()
                     SetLog("GIT Location: " & gitloc, , isDebug)
 
@@ -230,6 +235,8 @@ Public Class mainForm
                     End If
                     '--always check new update'
                     Dim c_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & coreAccount
+
+                    syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
 
                     url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
                     Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
@@ -354,6 +361,12 @@ Public Class mainForm
                         "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='whiteAddress' and accountguid='" & accountGUID & "'" & vbCrLf
                 'End If
 
+                syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
+                syncLocalScript("disable trigger table_lock on database", dataDB, pipename, uid, pwd)
+
+                syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", coreDB, pipename, uid, pwd)
+                syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", dataDB, pipename, uid, pwd)
+
                 url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
                 Dim scriptFile = ophPath & "\" & folderTemp & "\install_" & dataAccount & ".sql"
                 runScript(url, pipename, scriptFile, dataDB, uid, pwd)
@@ -370,8 +383,8 @@ Public Class mainForm
                 addAccounttoIIS(dataAccount, ophPath & "\", port, False)
                 Dim isReady = addWebConfig(ophPath & "\")
                 SetLog("Checking IIS Files completed.")
-                syncStructure = True
-                curAccount.isClearStructure = True
+                syncStructure = False
+                curAccount.isClearStructure = False
             Catch ex As Exception
                 'If isDebug Then MessageBox.Show(ex.Message)
                 SetLog(ex.Message, , True)
@@ -1237,15 +1250,15 @@ Public Class mainForm
             End If
 
         Else
-            If m = "" And sc.Substring(Len(sc) - 1, 1) <> "*" Then
-                MessageBox.Show("Wrong user or secret. Try Again!")
-            Else
-                If m = "" Then accountList(an).user = us
-                If m = "" Then accountList(an).secret = sc
-                accountList(an).port = pt
-                accountList(an).autoStart = ast
-                accountList(an).address = ad
-            End If
+            'If m = "" And sc.Substring(Len(sc) - 1, 1) <> "*" Then
+            If m = "" Then accountList(an).user = us
+            If m = "" Then accountList(an).secret = sc
+            accountList(an).port = pt
+            accountList(an).autoStart = ast
+            accountList(an).address = ad
+            'Else
+            'MessageBox.Show("Wrong user or secret. Try Again!")
+            '            End If
         End If
 
         Dim json = "{""accountList"":[%item%]}"
