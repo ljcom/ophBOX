@@ -63,13 +63,14 @@ Public Class mainForm
 
 
             Dim jsonText = My.Settings.SavedAccountList
-            'SetLog(jsonText, False)
+            SetLog(jsonText, , False)
 
-            isIISExpress = My.Settings.isIISExpress
-            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            SetLog(ophPath & "\" & folderData & "", , False)
 
-            'If Directory.Exists(ophPath & "\" & folderData & "") Then
-            Dim json As JObject = JObject.Parse(jsonText)
+            If jsonText.Length > 10 Then
+                'If Directory.Exists(ophPath & "\" & folderData & "") Then
+                Dim json As JObject = JObject.Parse(jsonText)
                 Dim al = json("accountList")
                 For Each x In al
                     Dim an = x("accountName").ToString
@@ -78,11 +79,11 @@ Public Class mainForm
                         accountList.Add(an, New accountType With {.user = x("user").ToString, .address = x("address").ToString, .secret = x("secret").ToString, .sqlId = 0, .port = x("port").ToString, .autoStart = x("autoStart") = "1", .isStart = x("autoStart") = "1"})
                     End If
                 Next
-            'Else
-            'SetLog(ophPath & "\" & folderData & "", True)
-            'End If
+            End If
+
+
         Catch ex As Exception
-            SetLog(ex.Message, , True)
+            SetLog("load " & ex.Message, , True)
             Me.lbAcount.Items.Clear()
             accountList.Clear()
         End Try
@@ -131,6 +132,7 @@ Public Class mainForm
     End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+
         syncStructure = IIf(Me.Button1.Text = "START", True, syncStructure)
 
         If Not IsNothing(Me.lbAcount.SelectedItem) Then
@@ -160,7 +162,7 @@ Public Class mainForm
     Sub createAccount(accountName)
         Dim curAccount = accountList(accountName)
 
-        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim ftemp = ophPath & "\" & folderTemp
         Dim fdata = ophPath & "\" & folderData
 
@@ -194,200 +196,236 @@ Public Class mainForm
                 Dim url = "", odbc = "", address = ""
                 Dim token = getToken(dataAccount)
 
-                Dim isLocaldb = My.Settings.isLocalDB = 1
-                If isLocaldb Then
-                    If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
-                        installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
-                        SetLog("localDB installed")
-                        createInstance("OPERAHOUSE")
-                        odbc = "Data Source=(localdb)\operahouse;Initial Catalog=" & dataDB & ";integrated security=sspi" 'My.Settings.odbc
-                        address = "localhost:" & curAccount.port
-                        SetLog("OPERAHOUSE created")
-                    End If
-
-                    startInstance("OPERAHOUSE")
-                    SetLog("OPERAHOUSE started")
-                    pipename = getPipeName("OPERAHOUSE")
-                    SetLog("Pipename: " & pipename, , isDebug)
-                Else
-                    pipename = My.Settings.dbInstanceName
-                    uid = My.Settings.dbUser
-                    pwd = My.Settings.dbPassword
-                    odbc = "Data Source=" & pipename & ";Initial Catalog=" & dataDB & ";uid=" & uid & ";pwd=" & pwd 'My.Settings.odbc
-                    address = curAccount.address.ToString()
-
-                End If
-
-                If syncStructure Then
-                    Dim gitloc = getGITLocation()
-                    SetLog("GIT Location: " & gitloc, , isDebug)
-
-                    SetLog("Checking core database...")
-                    If Not syncLocalScript("use " & coreDB, "master", pipename, uid, pwd) Then
-                        Dim mdfFile = ophPath & "\" & folderData & "\" & coreDB & "_data.mdf"
-                        Dim ldfFile = ophPath & "\" & folderData & "\" & coreDB & "_log.ldf"
-                        If isLocaldb Then
-                            syncLocalScript("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "');", "master", pipename, uid, pwd)
-                        Else
-                            syncLocalScript("CREATE DATABASE " & coreDB, "master", pipename, uid, pwd)
-                        End If
-                        SetLog("Building core database completed.")
-                    End If
-                    '--always check new update'
-                    Dim c_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & coreAccount
-
-                    syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
-
-                    url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
-                    Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
-                    runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
-                    SetLog("Installing core database completed.")
-
-                    Dim localFile = ophPath & "\" & folderTemp & "\sync.zip"
-
-                    If Not File.Exists(localFile) Then
-                        url = p_uri & "/ophcore/api/sync.aspx?mode=webrequestFile"
-                        If downloadFilename(url, localFile) Then
-                            unZip(localFile, ophPath & "\" & folderTemp)
-                        End If
-                    End If
-                    SetLog("Checking core database completed.")
-
-                    'download from git
-                    SetLog("Checking web application folder...")
-                    runCmd(ophPath & "\" & folderTemp & "\build-oph.bat", ophPath)
-                    SetLog("Checking web application folder completed.")
-
-                    SetLog("Checking required files...")
-                    localFile = ophPath & "\" & folderTemp & "\webRequest.dll"
-                    If File.Exists(localFile) Then
-                        syncLocalScript("EXEC sp_changedbowner 'sa'; ALTER DATABASE " & coreDB & " SET TRUSTWORTHY ON", coreDB, pipename, uid, pwd)
-                        syncLocalScript("sp_configure 'show advanced options', 1;RECONFIGURE", coreDB, pipename, uid, pwd)
-                        syncLocalScript("sp_configure 'clr enabled', 1;RECONFIGURE", coreDB, pipename, uid, pwd)
-
-                        If isLocaldb Then
-                            syncLocalScript("if not exists(select * from sys.assemblies where name='webRequest') create assembly webRequest from '" & localFile & "' with PERMISSION_SET = unsafe", coreDB, pipename, uid, pwd)
-                        Else
-                            Dim odbc1 = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";uid=" & uid & ";pwd=" & pwd 'My.Settings.odbc
-                            Dim x = runSQLwithResult("if not exists(select * from sys.assemblies where name='webRequest') select 1", odbc1)
-                            If x = "1" Then MessageBox.Show("Please add webRequest.dll in oph_core database manually. Please OK when continue...")
-                        End If
-                    End If
-
-                    syncLocalScript("if not exists(select * from sys.objects where name='fn_get_webrequest') begin	declare @sqlstr nvarchar(max)='CREATE FUNCTION [gen].[fn_get_webrequest](@uri [nvarchar](max), @user [nvarchar](255) = N'''', @passwd [nvarchar](255) = N'''') RETURNS [nvarchar](max) WITH EXECUTE AS CALLER AS EXTERNAL NAME [webRequest].[webRequest.Functions].[GET]';	exec sp_executesql @sqlstr; end", coreDB, pipename, uid, pwd)
-                    syncLocalScript("if not exists(select * from sys.objects where name='fn_post_webrequest') begin	declare @sqlstr nvarchar(max)='CREATE FUNCTION [gen].[fn_post_webrequest](@uri [nvarchar](max), @postdata [nvarchar](max), @user [nvarchar](255) = N'''', @passwd [nvarchar](255) = N'''', @headers [nvarchar](max)) RETURNS [nvarchar](max) WITH EXECUTE AS CALLER AS EXTERNAL NAME [webRequest].[webRequest.Functions].[POST]'; exec sp_executesql @sqlstr; end", coreDB, pipename, uid, pwd)
-                    SetLog("Checking required files completed.")
-                End If
-
-                Dim sqlstr2 As String = ""
-                Dim sqlstr As String = ""
-
-                'If Not syncLocalScript("use " & dataDB, dataDB, pipename, uid, pwd) Then
-
-                SetLog("Checking account databases...")
-                Dim p_add = p_uri & "/ophcore/api/sync.aspx"
-                Dim r = ""
-                url = ""
                 If token <> "" Then
-                    url = p_add & "?mode=dbinfo&token=" & token
-                    r = postHttp(url)
-                End If
-
-                Dim sep() As String = {"<?xml version=""1.0"" encoding=""utf-8""?>", "<sqroot>", "<databases>", "<database>", "</database>", "</databases>", "</sqroot>"}
-                Dim r1 = r.Split(sep, StringSplitOptions.RemoveEmptyEntries)
-                Dim accountGUID As String = ""
-
-                Dim sep1() As String = {"<AccountGUID>", "<AccountDBGUID>", "<databasename>", "<isMaster>", "<version>", "</AccountGUID>", "</AccountDBGUID>", "</databasename>", "</isMaster>", "</version>"}
-                For Each r1x In r1
-                    Dim r2 = r1x.Split(sep1, StringSplitOptions.RemoveEmptyEntries)
-                    If r2.Length = 5 Then
-                        accountGUID = r2(0)
-                        Dim accountDBGUID = r2(1)
-                        Dim dbname = r2(2)
-                        Dim ismaster = r2(3)
-                        Dim Version = r2(4)
-                        Dim mdfFile = ophPath & "\" & folderData & "\" & dbname & "_data.mdf"
-                        Dim ldfFile = ophPath & "\" & folderData & "\" & dbname & "_log.ldf"
-                        If isLocaldb Then
-                            syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname & " On ( NAME = " & dbname & "_data, FILENAME = '" & mdfFile & "') Log ON ( NAME = " & dbname & "_log, FILENAME = '" & ldfFile & "');", "master", pipename, uid, pwd)
-                        Else
-                            syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname, "master", pipename, uid, pwd)
+                    Dim isLocaldb = My.Settings.isLocalDB = 1
+                    If isLocaldb Then
+                        If checkInstance("OPERAHOUSE") <> "OPERAHOUSE" Then
+                            installLocalDB(ophPath & "\" & folderTemp, ophPath & "\" & folderData)
+                            SetLog("localDB installed")
+                            createInstance("OPERAHOUSE")
+                            odbc = "Data Source=(localdb)\operahouse;Initial Catalog=" & dataDB & ";integrated security=sspi" 'My.Settings.odbc
+                            address = "localhost:" & curAccount.port
+                            SetLog("OPERAHOUSE created")
                         End If
 
+                        startInstance("OPERAHOUSE")
+                        SetLog("OPERAHOUSE started")
+                        pipename = getPipeName("OPERAHOUSE")
+                        SetLog("Pipename: " & pipename, , isDebug)
+                    Else
+                        pipename = My.Settings.dbInstanceName
+                        uid = My.Settings.dbUser
+                        pwd = My.Settings.dbPassword
+                        odbc = "Data Source=" & pipename & ";Initial Catalog=" & dataDB & ";uid=" & uid & ";pwd=" & pwd 'My.Settings.odbc
+                        address = curAccount.address.ToString()
 
-                        sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                            "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
-                            "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf &
-                            "use " & dataDB & vbCrLf &
-                            "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
-                            "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf
                     End If
-                Next
-                SetLog("Building account databases completed.")
 
-                Dim info1() As String = {"<info>", "</info>", "<data ", "/>"}
-                For Each r1x In r1
-                    Dim r2 = r1x.Split(info1, StringSplitOptions.RemoveEmptyEntries)
-                    If r2.Length > 1 Then
-                        For Each r2x In r2
-                            Dim r3 = r2x.Split({"key=""", "value=""", """ "}, StringSplitOptions.RemoveEmptyEntries)
-                            sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                                "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1).Replace("'", "''") & "') else update acctinfo set infovalue='" & r3(1).Replace("'", "''") & "' where infokey='" & r3(0) & "' and accountguid='" & accountGUID & "'" & vbCrLf
-                            sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                                "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1).Replace("'", "''") & "') else update acctinfo set infovalue='" & r3(1).Replace("'", "''") & "' where infokey='" & r3(0) & "' and accountguid='" & accountGUID & "'" & vbCrLf
+                    If syncStructure Then
+                        Dim gitloc = getGITLocation()
+                        SetLog("GIT Location: " & gitloc, , isDebug)
+
+                        SetLog("Checking core database...")
+                        Dim checkCore = True
+                        If Not syncLocalScript("use " & coreDB, "master", pipename, uid, pwd) Then
+                            Dim mdfFile = ophPath & "\" & folderData & "\" & coreDB & "_data.mdf"
+                            Dim ldfFile = ophPath & "\" & folderData & "\" & coreDB & "_log.ldf"
+                            If isLocaldb Then
+                                'syncLocalScript("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "', MAXSIZE = UNLIMITED) Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "', MAXSIZE = UNLIMITED);", "master", pipename, uid, pwd)
+                                'syncLocalScript("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "', MAXSIZE = UNLIMITED) Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "', MAXSIZE = UNLIMITED);", "master", pipename, uid, pwd)
+                                runSQLwithResult("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "', MAXSIZE = UNLIMITED) Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "', MAXSIZE = UNLIMITED);", odbc)
+                                runSQLwithResult("CREATE DATABASE " & coreDB & " On ( NAME = " & coreDB & "_data, FILENAME = '" & mdfFile & "', MAXSIZE = UNLIMITED) Log ON ( NAME = " & coreDB & "_log, FILENAME = '" & ldfFile & "', MAXSIZE = UNLIMITED);", odbc)
+                            Else
+                                'syncLocalScript("CREATE DATABASE " & coreDB, "master", pipename, uid, pwd)
+                                runSQLwithResult("CREATE DATABASE " & coreDB, odbc)
+                            End If
+
+                            syncLocalScript("ALTER DATABASE " & coreDB & " MODIFY FILE (NAME = '" & coreDB & "_log', MAXSIZE = UNLIMITED)", "master", pipename, uid, pwd)
+                            SetLog("Building core database completed.")
+                        End If
+                        '--always check new update'
+                        Dim c_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & coreAccount
+
+                        'syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
+                        runSQLwithResult("disable trigger table_lock on database", odbc)
+
+                        url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
+                        Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
+                        runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
+                        If File.Exists(scriptFile1) Then
+                            SetLog("Installing core database completed.")
+                        Else
+                            SetLog("Installing core database NOT completed.")
+                            checkCore = False
+                        End If
+
+                        If checkCore Then
+                            Dim localFile1 = ophPath & "\" & folderTemp & "\sync.zip"
+
+                            If Not File.Exists(localFile1) Then
+                                url = p_uri & "/ophcore/api/sync.aspx?mode=webrequestFile"
+                                If downloadFilename(url, localFile1) Then
+                                    unZip(localFile1, ophPath & "\" & folderTemp)
+                                End If
+                            End If
+
+                            SetLog("Checking core database completed.")
+                        Else
+                            SetLog("Checking core database NOT completed.")
+                        End If
+
+                        'download from git
+                        SetLog("Checking web application folder...")
+                        runCmd(ophPath & "\" & folderTemp & "\build-oph.bat", ophPath)
+                        SetLog("Checking web application folder completed.")
+
+                        SetLog("Checking required files...")
+                        Dim localFile2 = ophPath & "\" & folderTemp & "\webRequest.dll"
+                        If File.Exists(localFile2) Then
+                            syncLocalScript("EXEC sp_changedbowner 'sa'; ALTER DATABASE " & coreDB & " SET TRUSTWORTHY ON", coreDB, pipename, uid, pwd)
+                            syncLocalScript("sp_configure 'show advanced options', 1;RECONFIGURE", coreDB, pipename, uid, pwd)
+                            syncLocalScript("sp_configure 'clr enabled', 1;RECONFIGURE", coreDB, pipename, uid, pwd)
+
+                            If isLocaldb Then
+                                syncLocalScript("if not exists(select * from sys.assemblies where name='webRequest') create assembly webRequest from '" & localFile2 & "' with PERMISSION_SET = unsafe", coreDB, pipename, uid, pwd)
+                            Else
+                                Dim odbc1 = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";uid=" & uid & ";pwd=" & pwd 'My.Settings.odbc
+                                Dim x = runSQLwithResult("if not exists(select * from sys.assemblies where name='webRequest') select 1", odbc1)
+                                If x = "1" Then MessageBox.Show("Please add webRequest.dll in oph_core database manually. Please OK when continue...")
+                            End If
+                        End If
+
+                        syncLocalScript("if not exists(select * from sys.objects where name='fn_get_webrequest') begin	declare @sqlstr nvarchar(max)='CREATE FUNCTION [gen].[fn_get_webrequest](@uri [nvarchar](max), @user [nvarchar](255) = N'''', @passwd [nvarchar](255) = N'''') RETURNS [nvarchar](max) WITH EXECUTE AS CALLER AS EXTERNAL NAME [webRequest].[webRequest.Functions].[GET]';	exec sp_executesql @sqlstr; end", coreDB, pipename, uid, pwd)
+                        syncLocalScript("if not exists(select * from sys.objects where name='fn_post_webrequest') begin	declare @sqlstr nvarchar(max)='CREATE FUNCTION [gen].[fn_post_webrequest](@uri [nvarchar](max), @postdata [nvarchar](max), @user [nvarchar](255) = N'''', @passwd [nvarchar](255) = N'''', @headers [nvarchar](max)) RETURNS [nvarchar](max) WITH EXECUTE AS CALLER AS EXTERNAL NAME [webRequest].[webRequest.Functions].[POST]'; exec sp_executesql @sqlstr; end", coreDB, pipename, uid, pwd)
+                        SetLog("Checking required files completed.")
+                    End If
+
+                    Dim sqlstr2 As String = ""
+                    Dim sqlstr As String = ""
+
+                    'If Not syncLocalScript("use " & dataDB, dataDB, pipename, uid, pwd) Then
+
+                    SetLog("Checking account databases...")
+                    Dim checkAccount = True
+                    Dim p_add = p_uri & "/ophcore/api/sync.aspx"
+                    Dim r = ""
+                    url = ""
+                    If token <> "" Then
+                        url = p_add & "?mode=dbinfo&token=" & token
+                        r = postHttp(url)
+                    End If
+                    SetLog(url, "", )
+                    SetLog(r, "", )
+                    If r = "" Then checkAccount = False
+
+                    If checkAccount Then
+                        Dim sep() As String = {"<?xml version=""1.0"" encoding=""utf-8""?>", "<sqroot>", "<databases>", "<database>", "</database>", "</databases>", "</sqroot>"}
+                        Dim r1 = r.Split(sep, StringSplitOptions.RemoveEmptyEntries)
+                        Dim accountGUID As String = ""
+
+                        Dim sep1() As String = {"<AccountGUID>", "<AccountDBGUID>", "<databasename>", "<isMaster>", "<version>", "</AccountGUID>", "</AccountDBGUID>", "</databasename>", "</isMaster>", "</version>"}
+                        For Each r1x In r1
+                            Dim r2 = r1x.Split(sep1, StringSplitOptions.RemoveEmptyEntries)
+                            If r2.Length = 5 Then
+                                accountGUID = r2(0)
+                                Dim accountDBGUID = r2(1)
+                                Dim dbname = r2(2)
+                                Dim ismaster = r2(3)
+                                Dim Version = r2(4)
+                                Dim mdfFile = ophPath & "\" & folderData & "\" & dbname & "_data.mdf"
+                                Dim ldfFile = ophPath & "\" & folderData & "\" & dbname & "_log.ldf"
+                                If isLocaldb Then
+                                    syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname & " On ( NAME = " & dbname & "_data, FILENAME = '" & mdfFile & "', MAXSIZE = UNLIMITED) Log ON ( NAME = " & dbname & "_log, FILENAME = '" & ldfFile & "', MAXSIZE = UNLIMITED);", "master", pipename, uid, pwd)
+                                Else
+                                    syncLocalScript("if not exists(select * from sys.databases where name='" & dbname & "') CREATE DATABASE " & dbname, "master", pipename, uid, pwd)
+                                End If
+                                syncLocalScript("ALTER DATABASE " & dbname & " MODIFY FILE (NAME = '" & dbname & "_log', MAXSIZE = UNLIMITED)", "master", pipename, uid, pwd)
+
+
+                                sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                                "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
+                                "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf &
+                                "use " & dataDB & vbCrLf &
+                                "if not exists(select * from acct where accountid='" & dataAccount & "') insert into acct (accountguid, accountid) values ('" & accountGUID & "', '" & dataAccount & "')" & vbCrLf &
+                                "if not exists(select * from acctdbse where accountdbguid='" & accountDBGUID & "') insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values ('" & accountDBGUID & "', '" & accountGUID & "', '" & dbname & "', '" & ismaster & "', '" & Version & "')" & vbCrLf
+
+                                'SetLog(sqlstr2,, True)
+                            End If
+                        Next
+
+                        'SetLog("Building account databases completed.")
+
+                        Dim info1() As String = {"<info>", "</info>", "<data ", "/>"}
+                        For Each r1x In r1
+                            Dim r2 = r1x.Split(info1, StringSplitOptions.RemoveEmptyEntries)
+                            If r2.Length > 1 Then
+                                For Each r2x In r2
+                                    Dim r3 = r2x.Split({"key=""", "value=""", """ "}, StringSplitOptions.RemoveEmptyEntries)
+                                    If r3.Length > 1 Then   'not empty
+                                        sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1).Replace("'", "''") & "') else update acctinfo set infovalue='" & r3(1).Replace("'", "''") & "' where infokey='" & r3(0) & "' and accountguid='" & accountGUID & "'" & vbCrLf
+                                        sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
+                                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='" & r3(0) & "') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', '" & r3(0) & "', '" & r3(1).Replace("'", "''") & "') else update acctinfo set infovalue='" & r3(1).Replace("'", "''") & "' where infokey='" & r3(0) & "' and accountguid='" & accountGUID & "'" & vbCrLf
+                                    End If
+                                Next
+
+                            End If
 
                         Next
 
+                        'odbc
+                        sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'odbc', '" & odbc.Replace("'", "''") & "') else update acctinfo set infovalue='" & odbc.Replace("'", "''") & "' where infokey='odbc' and accountguid='" & accountGUID & "'" & vbCrLf
+                        sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
+                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'odbc', '" & odbc.Replace("'", "''") & "') else update acctinfo set infovalue='" & odbc.Replace("'", "''") & "' where infokey='odbc' and accountguid='" & accountGUID & "'" & vbCrLf
+                        'SetLog(sqlstr2,, True)
+                        'address
+                        sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='address' and accountguid='" & accountGUID & "'" & vbCrLf
+                        sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='address' and accountguid='" & accountGUID & "'" & vbCrLf
+                        'SetLog(sqlstr2,, True)
+                        'white address
+                        sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='whiteAddress' and accountguid='" & accountGUID & "'" & vbCrLf
+                        sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
+                            "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='whiteAddress' and accountguid='" & accountGUID & "'" & vbCrLf
+                        'End If
+                        'SetLog(sqlstr2,, True)
+                        syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
+                        syncLocalScript("disable trigger table_lock on database", dataDB, pipename, uid, pwd)
+
+                        syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", coreDB, pipename, uid, pwd)
+                        syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", dataDB, pipename, uid, pwd)
+
+                        url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
+                        Dim scriptFile = ophPath & "\" & folderTemp & "\install_" & dataAccount & ".sql"
+                        runScript(url, pipename, scriptFile, dataDB, uid, pwd)
+                        SetLog("Installing account databases completed.")
+
+                    End If
+                    'run after
+                    If sqlstr2 <> "" Then
+                        'syncLocalScript(sqlstr2, "master", pipename, uid, pwd)
+                        runSQLwithResult(sqlstr2, odbc)
+                        SetLog("Checking account databases completed.")
                     End If
 
-                Next
-
-                'odbc
-                sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'odbc', '" & odbc.Replace("'", "''") & "') else update acctinfo set infovalue='" & odbc.Replace("'", "''") & "' where infokey='odbc' and accountguid='" & accountGUID & "'" & vbCrLf
-                sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                    "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='ODBC') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'odbc', '" & odbc.Replace("'", "''") & "') else update acctinfo set infovalue='" & odbc.Replace("'", "''") & "' where infokey='odbc' and accountguid='" & accountGUID & "'" & vbCrLf
-
-                'address
-                sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='address' and accountguid='" & accountGUID & "'" & vbCrLf
-                sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='address') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'address', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='address' and accountguid='" & accountGUID & "'" & vbCrLf
-
-                'white address
-                sqlstr2 = sqlstr2 & "use " & coreDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='whiteAddress' and accountguid='" & accountGUID & "'" & vbCrLf
-                sqlstr2 = sqlstr2 & "use " & dataDB & vbCrLf &
-                        "if not exists(select * from acctinfo where accountguid='" & accountGUID & "' and infokey='whiteAddress') insert into acctinfo (accountguid, infokey, infovalue) values ('" & accountGUID & "', 'whiteAddress', '" & address.Replace("'", "''") & "') else update acctinfo set infovalue='" & address.Replace("'", "''") & "' where infokey='whiteAddress' and accountguid='" & accountGUID & "'" & vbCrLf
-                'End If
-
-                syncLocalScript("disable trigger table_lock on database", coreDB, pipename, uid, pwd)
-                syncLocalScript("disable trigger table_lock on database", dataDB, pipename, uid, pwd)
-
-                syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", coreDB, pipename, uid, pwd)
-                syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", dataDB, pipename, uid, pwd)
-
-                url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
-                Dim scriptFile = ophPath & "\" & folderTemp & "\install_" & dataAccount & ".sql"
-                runScript(url, pipename, scriptFile, dataDB, uid, pwd)
-                SetLog("Installing account databases completed.")
-
-                'run after
-                If sqlstr2 <> "" Then
-                    syncLocalScript(sqlstr2, "master", pipename, uid, pwd)
-                    SetLog("Checking account databases completed.")
+                    'setup applicationhost.config
+                    SetLog("Checking IIS Files...")
+                    addAccounttoIIS(dataAccount, ophPath & "\", port, False)
+                    Dim isReady = addWebConfig(ophPath & "\")
+                    SetLog("Checking IIS Files completed.")
+                    syncStructure = False
+                    curAccount.isClearStructure = False
+                Else
+                    SetLog("User or password is invalid.")
                 End If
 
-                'setup applicationhost.config
-                SetLog("Checking IIS Files...")
-                addAccounttoIIS(dataAccount, ophPath & "\", port, False)
-                Dim isReady = addWebConfig(ophPath & "\")
-                SetLog("Checking IIS Files completed.")
-                syncStructure = False
-                curAccount.isClearStructure = False
+
             Catch ex As Exception
                 'If isDebug Then MessageBox.Show(ex.Message)
-                SetLog(ex.Message, , True)
+                SetLog("create account " & ex.Message, , True)
             End Try
 
             Me.Timer1.Enabled = True
@@ -409,7 +447,7 @@ Public Class mainForm
             Dim remoteUrl = My.Settings.remoteUrl
             Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://redbean/" & dataAccount
             Dim uid = "", pwd = ""
-            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
             'sync on
             curAccount.isStart = True
@@ -457,14 +495,14 @@ Public Class mainForm
             If GetWin32Process("", curAccount.sqlId) <> curAccount.sqlId Or curAccount.sqlId = 0 Then
                 Dim oneTimeOnly = Me.Button1.Text.Substring(Len(Me.Button1.Text) - 1, 1) = "!'"
 
-                SetLog(dataAccount & " Synchronize Starting...")
+                SetLog(dataAccount & " Synchronize Starting...", True)
                 Dim cmdstr = "while 1=1 begin" & vbCrLf & "exec gen.doSync @p_uri='" & p_uri & "', @paccountid='" & dataAccount & "', @code_preset=null, @isLAN=0, @user='" & user & "', @pwd='" & secret & "', @isdebug=0" & vbCrLf & IIf(oneTimeOnly, "", "waitfor delay '" & delayTime & "'" & vbCrLf) & "end"
-                curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename, uid, pwd)
+                curAccount.sqlId = asynclocalScript(cmdstr, coreDB, pipename, uid, pwd, True)
             End If
             'Application.DoEvents()
             'Loop
         Catch ex As Exception
-            SetLog(ex.Message)
+            SetLog("Start Sync " & ex.Message)
             'MessageBox.Show(ex.Message)
         End Try
 
@@ -472,78 +510,82 @@ Public Class mainForm
     End Sub
 
     Function addAccounttoIIS(account, path, port, Optional isRemoved = False) As Integer
-        Dim isexists = False ', port As Integer = 8080
-        For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-            If k.Contains("<site name=""" & account & """") Then
-                isexists = True
-            End If
-        Next
-        'If Not isexists Then
-        Dim n = 1
-        For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-            If k.Contains("<site ") Then
-                n = n + 1
-            End If
-        Next
-        Dim newfile As New List(Of String)()
-        Dim skipLine As Boolean = False
-        Dim curAccount = ""
-        Dim nn = 1
-        For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-            If Not isexists Then
-                If k.Contains("<siteDefaults>") Then
-                    Dim newline = {
-                vbTab & vbTab & vbTab & "<site name=""" & account & """ id=""" & n & """>",
-                vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
-                vbTab & vbTab & vbTab & vbTab & "</application>",
-                vbTab & vbTab & vbTab & vbTab & "<bindings>",
-                vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
-                vbTab & vbTab & vbTab & vbTab & "</bindings>",
-                vbTab & vbTab & vbTab & "</site>"}
+        Try
 
-                    For Each line As String In newline
-                        newfile.Add(line)
-                    Next
-                End If
-            Else
+            Dim isexists = False ', port As Integer = 8080
+            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
                 If k.Contains("<site name=""" & account & """") Then
-                    curAccount = account
+                    isexists = True
                 End If
-                If curAccount = account And k.Contains("<binding protocol = ""http""") And Not isRemoved Then
-                    Dim line = vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />"
-                    newfile.Add(line)
-                    skipLine = True
-                    curAccount = ""
+            Next
+            'If Not isexists Then
+            Dim n = 1
+            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+                If k.Contains("<site ") Then
+                    n = n + 1
                 End If
-                If curAccount = account And isRemoved Then
-                    If k.Contains("<site name") Or k.Contains("<application path") Or k.Contains("<virtualDirectory") Or k.Contains("</application>") Or k.Contains("<bindings>") Or k.Contains("<binding") Or k.Contains("</bindings>") Then
-                        skipLine = True
+            Next
+            Dim newfile As New List(Of String)()
+            Dim skipLine As Boolean = False
+            Dim curAccount = ""
+            Dim nn = 1
+            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+                If Not isexists Then
+                    If k.Contains("<siteDefaults>") Then
+                        Dim newline = {
+                    vbTab & vbTab & vbTab & "<site name=""" & account & """ id=""" & n & """>",
+                    vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
+                    vbTab & vbTab & vbTab & vbTab & "</application>",
+                    vbTab & vbTab & vbTab & vbTab & "<bindings>",
+                    vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
+                    vbTab & vbTab & vbTab & vbTab & "</bindings>",
+                    vbTab & vbTab & vbTab & "</site>"}
+
+                        For Each line As String In newline
+                            newfile.Add(line)
+                        Next
                     End If
-                    If k.Contains("</site>") Then
+                Else
+                    If k.Contains("<site name=""" & account & """") Then
+                        curAccount = account
+                    End If
+                    If curAccount = account And k.Contains("<binding protocol = ""http""") And Not isRemoved Then
+                        Dim line = vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />"
+                        newfile.Add(line)
                         skipLine = True
                         curAccount = ""
                     End If
+                    If curAccount = account And isRemoved Then
+                        If k.Contains("<site name") Or k.Contains("<application path") Or k.Contains("<virtualDirectory") Or k.Contains("</application>") Or k.Contains("<bindings>") Or k.Contains("<binding") Or k.Contains("</bindings>") Then
+                            skipLine = True
+                        End If
+                        If k.Contains("</site>") Then
+                            skipLine = True
+                            curAccount = ""
+                        End If
+                    End If
                 End If
-            End If
-            If k.Contains("<site ") Then
-                Dim line = k.Substring(0, k.IndexOf("id") - 1) & " id=""" & nn & """>"
-                newfile.Add(line)
-                skipLine = True
-                nn += 1
-            End If
-            If Not skipLine Then newfile.Add(k)
-            skipLine = False
+                If k.Contains("<site ") Then
+                    Dim line = k.Substring(0, k.IndexOf("id") - 1) & " id=""" & nn & """>"
+                    newfile.Add(line)
+                    skipLine = True
+                    nn += 1
+                End If
+                If Not skipLine Then newfile.Add(k)
+                skipLine = False
 
-        Next
+            Next
 
-        File.Delete(path & folderTemp & "\applicationhost.config")
-        System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
-
+            File.Delete(path & folderTemp & "\applicationhost.config")
+            System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
+        Catch ex As Exception
+            WriteLog(path)
+        End Try
         'End If
         Return port
     End Function
@@ -552,7 +594,7 @@ Public Class mainForm
     Function getIISLocation() As String
         Dim r = False
         If My.Settings.isIISExpress Then
-            Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+            Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
             r = My.Settings.IISExpressLocation
             If r = "" Or Not File.Exists(r) Then
                 r = findFile("C:\Program Files\IIS Express", "iisexpress.exe")
@@ -570,7 +612,7 @@ Public Class mainForm
         Return r
     End Function
     Function getGITLocation() As String
-        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = "C:\Program Files\GIT\git-bash.exe"
         If r = "" Or Not File.Exists(r) Then
             Dim c = MsgBox("We cannot find GIT. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "GIT")
@@ -616,7 +658,7 @@ Public Class mainForm
     End Function
 
     Sub runIIS(app)
-        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         eventHandled = False
         elapsedTime = 0
 
@@ -885,7 +927,7 @@ Public Class mainForm
         Try
             wc.DownloadFile(url, localpath)
         Catch ex As Exception
-            SetLog(url & " " & localpath & " " & ex.Message, , True)
+            SetLog("downloadFileName " & url & " " & localpath & " " & ex.Message, , True)
             r = False
         End Try
         Return r
@@ -983,7 +1025,7 @@ Public Class mainForm
         Return r
     End Function
     Private Sub Button4_Click(sender As Object, e As EventArgs) Handles Button4.Click
-        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
         Dim x = 0
         For x = 0 To Me.lbAcount.SelectedItems.Count - 1
@@ -1148,7 +1190,7 @@ Public Class mainForm
 
     End Sub
     Sub WriteLog(logMessage As String)
-        Dim ophPath = IIf(My.Settings.isIISExpress = 0, Directory.GetCurrentDirectory, My.Settings.OPHPath)
+        Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim path = ophPath & "\log"
         path = path & "\" '& "OPHContent\log\"
         Dim logFilepath = path & DateTime.Now().Year & "\" & Strings.Right("0" & DateTime.Now().Month, 2) & "\" & Strings.Right("0" & DateTime.Now().Day, 2) & ".txt"
@@ -1164,7 +1206,7 @@ Public Class mainForm
             End Using
 
         Catch ex As Exception
-            Debug.Write(ex.Message.ToString)
+            Debug.Write("writelog " & ex.Message.ToString)
         End Try
     End Sub
 
