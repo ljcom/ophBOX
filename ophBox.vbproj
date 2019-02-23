@@ -27,7 +27,7 @@
     <TargetCulture>en</TargetCulture>
     <ProductName>OPHBOX</ProductName>
     <PublisherName>OPERAHOUSE</PublisherName>
-    <ApplicationRevision>79</ApplicationRevision>
+    <ApplicationRevision>84</ApplicationRevision>
     <ApplicationVersion>0.1.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
@@ -68,7 +68,7 @@
     <OptionInfer>On</OptionInfer>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject>ophBox.mainForm</StartupObject>
+    <StartupObject>ophBox.frmMenu</StartupObject>
   </PropertyGroup>
   <PropertyGroup>
     <ManifestCertificateThumbprint>8B74B9CE57AA9ECBF0FDADF9DE5BF56A633CB6F1</ManifestCertificateThumbprint>
@@ -91,7 +91,9 @@
     <Import Include="System.IO.Compression" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App.config">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="My Project\app.manifest" />
     <None Include="My Project\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
@@ -120,12 +122,19 @@
     <Compile Include="Form1.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="frmMenu.Designer.vb">
+      <DependentUpon>frmMenu.vb</DependentUpon>
+    </Compile>
+    <Compile Include="frmMenu.vb">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="frmOptions.Designer.vb">
       <DependentUpon>frmOptions.vb</DependentUpon>
     </Compile>
     <Compile Include="frmOptions.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="functions.vb" />
     <Compile Include="mainForm.Designer.vb">
       <DependentUpon>mainForm.vb</DependentUpon>
     </Compile>
@@ -163,6 +172,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.vb</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="frmMenu.resx">
+      <DependentUpon>frmMenu.vb</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="frmOptions.resx">
       <DependentUpon>frmOptions.vb</DependentUpon>

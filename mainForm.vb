@@ -25,7 +25,7 @@ Public Class mainForm
     Private isIISExpress = False
     Private Const folderTemp = "temp"
     Private Const folderData = "data"
-    Private pipename As String = ""
+    'Private pipename As String = ""
     Private eventHandled As Boolean = False
     Private elapsedTime As Integer
     Private iisExpressFolder
@@ -189,11 +189,11 @@ Public Class mainForm
                 Dim autoStart = curAccount.autoStart
 
                 Dim remoteUrl = My.Settings.remoteUrl
-                Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://redbean/" & dataAccount
+                Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://springroll/" & dataAccount
 
 
                 Dim uid = "", pwd = ""
-                Dim url = "", odbc = "", address = ""
+                Dim url = "", odbc = "", address = "", pipename = ""
                 Dim token = getToken(dataAccount)
 
                 If token <> "" Then
@@ -251,6 +251,7 @@ Public Class mainForm
 
                         url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
                         Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
+                        SetLog(scriptFile1, , True)
                         runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
                         If File.Exists(scriptFile1) Then
                             SetLog("Installing core database completed.")
@@ -275,9 +276,11 @@ Public Class mainForm
                         End If
 
                         'download from git
-                        SetLog("Checking web application folder...")
-                        runCmd(ophPath & "\" & folderTemp & "\build-oph.bat", ophPath)
-                        SetLog("Checking web application folder completed.")
+                        If My.Settings.noWeb.ToString = "0" Then
+                            SetLog("Checking web application folder...")
+                            runCmd(ophPath & "\" & folderTemp & "\build-oph.bat", ophPath)
+                            SetLog("Checking web application folder completed.")
+                        End If
 
                         SetLog("Checking required files...")
                         Dim localFile2 = ophPath & "\" & folderTemp & "\webRequest.dll"
@@ -400,6 +403,8 @@ Public Class mainForm
 
                         url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
                         Dim scriptFile = ophPath & "\" & folderTemp & "\install_" & dataAccount & ".sql"
+                        SetLog(url, , True)
+                        SetLog(scriptFile, , True)
                         runScript(url, pipename, scriptFile, dataDB, uid, pwd)
                         SetLog("Installing account databases completed.")
 
@@ -445,8 +450,8 @@ Public Class mainForm
             Dim autoStart = curAccount.autoStart
 
             Dim remoteUrl = My.Settings.remoteUrl
-            Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://redbean/" & dataAccount
-            Dim uid = "", pwd = ""
+            Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://springroll/" & dataAccount
+            Dim uid = "", pwd = "", pipename = ""
             Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
 
             'sync on
@@ -1271,8 +1276,8 @@ Public Class mainForm
         Next
 
         Dim remoteUrl = My.Settings.remoteUrl
-        'Dim p_uri = remoteUrl & an '"http://redbean/" & dataAccount
-        Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & an '"http://redbean/" & dataAccount
+        'Dim p_uri = remoteUrl & an '"http://springroll/" & dataAccount
+        Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & an '"http://springroll/" & dataAccount
 
         Dim sqlstr As String = ""
 
@@ -1332,6 +1337,13 @@ Public Class mainForm
         Me.TextBox4.Enabled = Me.lbAcount.SelectedItems.Count <= 1
         Me.TextBox5.Enabled = Me.lbAcount.SelectedItems.Count <= 1
 
+        Dim pipename = ""
+        If My.Settings.isLocalDB = 1 Then
+            pipename = getPipeName("OPERAHOUSE")
+        Else
+            pipename = My.Settings.dbInstanceName
+        End If
+
         If Me.lbAcount.SelectedItems.Count = 1 Then
             If Not IsNothing(Me.lbAcount.SelectedItem) Then
                 Dim curAccount = accountList(Me.lbAcount.SelectedItem)
@@ -1350,7 +1362,7 @@ Public Class mainForm
                 Me.Button4.Enabled = curAccount.sqlId = 0
                 Me.Button5.Enabled = True
                 Me.Button6.Enabled = True
-                Me.Button7.Enabled = curAccount.sqlId > 0 AndAlso isStructureDone(Me.lbAcount.SelectedItem)
+                Me.Button7.Enabled = curAccount.sqlId > 0 AndAlso isStructureDone(Me.lbAcount.SelectedItem, pipename)
 
             End If
         ElseIf Me.lbAcount.SelectedItems.Count > 1 Then
@@ -1362,22 +1374,23 @@ Public Class mainForm
             Me.Button7.Enabled = False
         End If
     End Sub
-    Function isSyncDone(accountName) As Boolean
+    Function isSyncDone(accountName, pipename) As Boolean
         Dim r = False
         Dim token = getToken(accountName)
 
         Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & accountName & ";Integrated Security=True" 'My.Settings.odbc
-        Dim sqlstr = "exec [gen].[dosync_lvl2] '" & accountName & "', null, 'http://redbean/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
+        Dim sqlstr = "exec [gen].[dosync_lvl2] '" & accountName & "', null, 'http://springroll/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
         r = runSQLwithResult(sqlstr, odbc)
         Return Not r
     End Function
-    Function isStructureDone(accountName) As Boolean
+    Function isStructureDone(accountName As String, pipename As String) As Boolean
         Dim r = False
+        'Dim pipename = getPipeName()
         If pipename <> "" Then
             Dim token = getToken(accountName)
 
             Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & "oph_core" & ";Integrated Security=True" 'My.Settings.odbc
-            Dim sqlstr = "exec [gen].[dosync_lvl1] '" & accountName & "', null, 'http://redbean/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
+            Dim sqlstr = "exec [gen].[dosync_lvl1] '" & accountName & "', null, 'http://springroll/apotek/ophcore/api/sync.aspx', 0, '" & token & "', 0, @statusonly=1, @isdebug=0"
             Try
                 r = runSQLwithResult(sqlstr, odbc)
             Catch ex As Exception
@@ -1498,7 +1511,7 @@ Public Class mainForm
         Dim token = ""
         Dim remoteUrl = My.Settings.remoteUrl
         'Dim p_uri = remoteUrl & dataAccount
-        Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://redbean/" & dataAccount
+        Dim p_uri = remoteUrl & IIf(remoteUrl.Substring(Len(remoteUrl) - 1, 1) <> "/", "/", "") & dataAccount '"http://springroll/" & dataAccount
         Dim curAccount = accountList(dataAccount)
         Dim user = curAccount.user
         Dim secret = curAccount.secret

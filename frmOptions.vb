@@ -16,6 +16,7 @@ Public Class frmOptions
         Me.CheckBox2.Checked = My.Settings.isIISExpress
         Me.TextBox5.Text = My.Settings.OPHPath
         Me.CheckBox3.Checked = My.Settings.isStartMenu
+        Me.CheckBox5.Checked = My.Settings.noWeb
         CheckBox1_afterclick()
         CheckBox1_afterclick()
 
@@ -45,6 +46,7 @@ Public Class frmOptions
 
         My.Settings.isIISExpress = IIf(Me.CheckBox2.Checked, 1, 0)
         My.Settings.OPHPath = Me.TextBox5.Text
+        My.Settings.noWeb = Me.CheckBox5.Checked
 
         If Me.CheckBox2.Checked And Not Directory.Exists(Me.TextBox5.Text) Then
             Directory.CreateDirectory(Me.TextBox5.Text)
@@ -70,6 +72,7 @@ Public Class frmOptions
     End Sub
     Sub CheckBox2_afterclick()
         Me.TextBox5.Enabled = Not Me.CheckBox2.Checked
+        Me.CheckBox5.Enabled = Not Me.CheckBox2.Checked
     End Sub
     Public Sub CreateShortcutInStartUp(ByVal Descrip As String)
 
@@ -93,5 +96,25 @@ Public Class frmOptions
 
     Private Sub CheckBox3_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox3.CheckedChanged
 
+    End Sub
+
+    Private Sub LinkLabel1_LinkClicked(sender As Object, e As LinkLabelLinkClickedEventArgs) Handles LinkLabel1.LinkClicked
+        Dim url = "https://go.microsoft.com/fwlink/?linkid=853017" 'x86
+        'If Environment.Is64BitOperatingSystem Then
+        'url = "http://media.operahouse.systems/iisexpress_amd64_en-US.msi" '64 bit
+        'End If
+
+        LinkLabel1.LinkVisited = True
+        System.Diagnostics.Process.Start(url)
+    End Sub
+
+    Private Sub LinkLabel2_LinkClicked(sender As Object, e As LinkLabelLinkClickedEventArgs) Handles LinkLabel2.LinkClicked
+        Dim url = "http://media.operahouse.systems/iisexpress_x86_en-US.msi" 'x86
+        If Environment.Is64BitOperatingSystem Then
+            url = "http://media.operahouse.systems/iisexpress_amd64_en-US.msi" '64 bit
+        End If
+
+        LinkLabel1.LinkVisited = True
+        System.Diagnostics.Process.Start(url)
     End Sub
 End Class
