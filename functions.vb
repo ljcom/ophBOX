@@ -11,7 +11,7 @@ Imports System.Drawing
 
 Public Class functions
 
-    Public Shared Sub CreateAccount(accountName As String, syncStructure As Boolean,
+    Public Shared Sub CreateAccount(frm As Form, accountName As String, syncStructure As Boolean,
                       curAccount As accountType, ophPath As String,
                       folder As String, folderData As String, folderTemp As String)
         'Dim curAccount = accountList(accountName)
@@ -76,7 +76,7 @@ Public Class functions
                     End If
 
                     If syncStructure Then
-                        Dim gitloc = getGITLocation(folder, folderTemp, folderData)
+                        Dim gitloc = getGITLocation(frm, folderTemp, folderData)
                         SetLog("GIT Location: " & gitloc, , )
 
                         SetLog("Checking core database...")
@@ -263,7 +263,7 @@ Public Class functions
                         End If
 
                         syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", coreDB, pipename, uid, pwd)
-                            syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", dataDB, pipename, uid, pwd)
+                        syncLocalScript("update acctinfo set infovalue=''" & Now() & "'' where infokey='lock_hold'", dataDB, pipename, uid, pwd)
 
                         If coreDB <> dataDB Then
                             url = p_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
@@ -274,8 +274,8 @@ Public Class functions
                             SetLog("Installing account databases completed.")
                         End If
                     End If
-                        'run after
-                        If sqlstr2 <> "" Then
+                    'run after
+                    If sqlstr2 <> "" Then
                         'syncLocalScript(sqlstr2, "master", pipename, uid, pwd)
                         runSQLwithResult(sqlstr2, odbc)
                         SetLog("Checking account databases completed.")
@@ -326,13 +326,13 @@ Public Class functions
         End If
         Return token
     End Function
-    Shared Function getGITLocation(folder, folderTemp, folderData) As String
+    Shared Function getGITLocation(frm, folderTemp, folderData) As String
         Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = "C:\Program Files\GIT\git-bash.exe"
         If r = "" Or Not File.Exists(r) Then
             Dim c = MsgBox("We cannot find GIT. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "GIT")
             If c = vbYes Then
-                'Dim folder = Me.FolderBrowserDialog1.ShowDialog()
+                Dim folder = frm.FolderBrowserDialog1.ShowDialog()
                 If File.Exists(folder & "\git-bash.exe") Then
                     r = folder & "\git-bash.exe"
                 End If
@@ -792,4 +792,69 @@ Public Class functions
             Debug.Write("writelog " & ex.Message.ToString)
         End Try
     End Sub
+    Public Shared Function SelectSqlSrvRows(ByVal query As String, ByVal Optional sqlconstr As String = "") As DataSet
+        Dim myConnectionString As String = sqlconstr
+        'If sqlconstr = "" Then myConnectionString = contentOfdbODBC
+
+        Dim conn As New SqlConnection(myConnectionString)
+        Dim adapter As New SqlDataAdapter
+        Dim dataSet As New DataSet
+        Try
+            adapter.SelectCommand = New SqlCommand(query, conn)
+            adapter.SelectCommand.CommandTimeout = 0
+            adapter.Fill(dataSet)
+
+        Catch ex As SqlException
+            'contentofError = query & ex.Message & "<br>"
+        Catch ex As Exception
+            'contentofError = query & ex.Message & "<br>"
+        Finally
+            conn.Close()
+
+        End Try
+        adapter = Nothing
+        'GC.Collect()
+        Return dataSet
+
+    End Function
+    Public Shared Function runSQL(ByVal sqlstr As String, Optional ByVal sqlconstr As String = "") As Boolean
+        Dim r As Boolean
+
+        Dim myConnectionString As String = sqlconstr
+        'If sqlconstr = "" Then myConnectionString = contentOfdbODBC
+
+        If myConnectionString = "" And sqlconstr = "" Then
+            r = False 'Return False
+            'Exit Function
+        End If
+
+        Dim myConnection As New SqlConnection(myConnectionString)
+        '        Dim myInsertQuery As String = "INSERT INTO Customers (CustomerID, CompanyName) Values('NWIND', 'Northwind Traders')"
+        Dim myInsertQuery As String = sqlstr
+        Dim myCommand As New SqlCommand(myInsertQuery)
+        Try
+            myCommand.Connection = myConnection
+            myConnection.Open()
+            myCommand.CommandTimeout = 600
+            myCommand.ExecuteNonQuery()
+        Catch ex As SqlException
+            'Response.Write(ex.Message)
+            'contentofError = ex.Message & "<br>"
+            'Return False
+            r = False
+        Catch ex As Exception
+            'Response.Write(ex.Message)
+            'contentofError = ex.Message & "<br>"
+            'Return False
+            r = False
+        Finally
+            myCommand.Connection.Close()
+            myConnection.Close()
+
+        End Try
+        'GC.Collect()
+        Return r
+
+    End Function
+
 End Class

@@ -64,7 +64,8 @@ Partial Class mainForm
         'SplitContainer1
         '
         Me.SplitContainer1.Dock = System.Windows.Forms.DockStyle.Fill
-        Me.SplitContainer1.Location = New System.Drawing.Point(0, 28)
+        Me.SplitContainer1.Location = New System.Drawing.Point(0, 35)
+        Me.SplitContainer1.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.SplitContainer1.Name = "SplitContainer1"
         '
         'SplitContainer1.Panel1
@@ -96,17 +97,19 @@ Partial Class mainForm
         Me.SplitContainer1.Panel2.Controls.Add(Me.Button2)
         Me.SplitContainer1.Panel2.Controls.Add(Me.Button1)
         Me.SplitContainer1.Panel2.Controls.Add(Me.Label1)
-        Me.SplitContainer1.Size = New System.Drawing.Size(732, 399)
-        Me.SplitContainer1.SplitterDistance = 463
+        Me.SplitContainer1.Size = New System.Drawing.Size(1098, 622)
+        Me.SplitContainer1.SplitterDistance = 694
+        Me.SplitContainer1.SplitterWidth = 6
         Me.SplitContainer1.TabIndex = 0
         '
         'Button3
         '
         Me.Button3.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.Button3.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button3.Location = New System.Drawing.Point(375, 364)
+        Me.Button3.Location = New System.Drawing.Point(562, 568)
+        Me.Button3.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button3.Name = "Button3"
-        Me.Button3.Size = New System.Drawing.Size(75, 23)
+        Me.Button3.Size = New System.Drawing.Size(112, 35)
         Me.Button3.TabIndex = 14
         Me.Button3.Text = "Clear"
         Me.Button3.UseVisualStyleBackColor = True
@@ -117,20 +120,22 @@ Partial Class mainForm
             Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.tbLog.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.tbLog.Location = New System.Drawing.Point(13, 30)
+        Me.tbLog.Location = New System.Drawing.Point(20, 46)
+        Me.tbLog.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.tbLog.Multiline = True
         Me.tbLog.Name = "tbLog"
         Me.tbLog.ReadOnly = True
         Me.tbLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical
-        Me.tbLog.Size = New System.Drawing.Size(437, 328)
+        Me.tbLog.Size = New System.Drawing.Size(654, 512)
         Me.tbLog.TabIndex = 13
         '
         'Label4
         '
         Me.Label4.AutoSize = True
-        Me.Label4.Location = New System.Drawing.Point(13, 13)
+        Me.Label4.Location = New System.Drawing.Point(20, 20)
+        Me.Label4.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label4.Name = "Label4"
-        Me.Label4.Size = New System.Drawing.Size(28, 15)
+        Me.Label4.Size = New System.Drawing.Size(36, 20)
         Me.Label4.TabIndex = 0
         Me.Label4.Text = "Log"
         '
@@ -138,9 +143,10 @@ Partial Class mainForm
         '
         Me.Label7.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Label7.AutoSize = True
-        Me.Label7.Location = New System.Drawing.Point(10, 260)
+        Me.Label7.Location = New System.Drawing.Point(15, 408)
+        Me.Label7.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label7.Name = "Label7"
-        Me.Label7.Size = New System.Drawing.Size(51, 15)
+        Me.Label7.Size = New System.Drawing.Size(68, 20)
         Me.Label7.TabIndex = 21
         Me.Label7.Text = "Address"
         '
@@ -149,18 +155,20 @@ Partial Class mainForm
         Me.TextBox5.Anchor = CType(((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.TextBox5.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.TextBox5.Location = New System.Drawing.Point(63, 258)
+        Me.TextBox5.Location = New System.Drawing.Point(94, 405)
+        Me.TextBox5.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.TextBox5.Name = "TextBox5"
-        Me.TextBox5.Size = New System.Drawing.Size(187, 20)
+        Me.TextBox5.Size = New System.Drawing.Size(280, 26)
         Me.TextBox5.TabIndex = 7
         '
         'CheckBox1
         '
         Me.CheckBox1.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.CheckBox1.AutoSize = True
-        Me.CheckBox1.Location = New System.Drawing.Point(169, 336)
+        Me.CheckBox1.Location = New System.Drawing.Point(267, 530)
+        Me.CheckBox1.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.CheckBox1.Name = "CheckBox1"
-        Me.CheckBox1.Size = New System.Drawing.Size(81, 19)
+        Me.CheckBox1.Size = New System.Drawing.Size(108, 24)
         Me.CheckBox1.TabIndex = 14
         Me.CheckBox1.Text = "Auto Start"
         Me.CheckBox1.UseVisualStyleBackColor = True
@@ -170,9 +178,10 @@ Partial Class mainForm
         Me.Button7.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button7.Enabled = False
         Me.Button7.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button7.Location = New System.Drawing.Point(175, 203)
+        Me.Button7.Location = New System.Drawing.Point(262, 320)
+        Me.Button7.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button7.Name = "Button7"
-        Me.Button7.Size = New System.Drawing.Size(75, 23)
+        Me.Button7.Size = New System.Drawing.Size(112, 35)
         Me.Button7.TabIndex = 4
         Me.Button7.Text = "Launch"
         Me.Button7.UseVisualStyleBackColor = True
@@ -181,9 +190,10 @@ Partial Class mainForm
         '
         Me.Button5.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button5.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button5.Location = New System.Drawing.Point(13, 363)
+        Me.Button5.Location = New System.Drawing.Point(20, 566)
+        Me.Button5.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button5.Name = "Button5"
-        Me.Button5.Size = New System.Drawing.Size(75, 23)
+        Me.Button5.Size = New System.Drawing.Size(112, 35)
         Me.Button5.TabIndex = 15
         Me.Button5.Text = "New"
         Me.Button5.UseVisualStyleBackColor = True
@@ -192,9 +202,10 @@ Partial Class mainForm
         '
         Me.Label6.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Label6.AutoSize = True
-        Me.Label6.Location = New System.Drawing.Point(13, 339)
+        Me.Label6.Location = New System.Drawing.Point(20, 530)
+        Me.Label6.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label6.Name = "Label6"
-        Me.Label6.Size = New System.Drawing.Size(29, 15)
+        Me.Label6.Size = New System.Drawing.Size(38, 20)
         Me.Label6.TabIndex = 19
         Me.Label6.Text = "Port"
         '
@@ -203,18 +214,20 @@ Partial Class mainForm
         Me.TextBox4.Anchor = CType(((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.TextBox4.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.TextBox4.Location = New System.Drawing.Point(63, 336)
+        Me.TextBox4.Location = New System.Drawing.Point(94, 525)
+        Me.TextBox4.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.TextBox4.Name = "TextBox4"
-        Me.TextBox4.Size = New System.Drawing.Size(106, 20)
+        Me.TextBox4.Size = New System.Drawing.Size(158, 26)
         Me.TextBox4.TabIndex = 13
         '
         'Label5
         '
         Me.Label5.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Label5.AutoSize = True
-        Me.Label5.Location = New System.Drawing.Point(10, 312)
+        Me.Label5.Location = New System.Drawing.Point(15, 488)
+        Me.Label5.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label5.Name = "Label5"
-        Me.Label5.Size = New System.Drawing.Size(42, 15)
+        Me.Label5.Size = New System.Drawing.Size(56, 20)
         Me.Label5.TabIndex = 17
         Me.Label5.Text = "Secret"
         '
@@ -223,18 +236,20 @@ Partial Class mainForm
         Me.TextBox3.Anchor = CType(((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.TextBox3.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.TextBox3.Location = New System.Drawing.Point(63, 310)
+        Me.TextBox3.Location = New System.Drawing.Point(94, 485)
+        Me.TextBox3.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.TextBox3.Name = "TextBox3"
-        Me.TextBox3.Size = New System.Drawing.Size(187, 20)
+        Me.TextBox3.Size = New System.Drawing.Size(280, 26)
         Me.TextBox3.TabIndex = 11
         '
         'Label3
         '
         Me.Label3.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Label3.AutoSize = True
-        Me.Label3.Location = New System.Drawing.Point(10, 286)
+        Me.Label3.Location = New System.Drawing.Point(15, 448)
+        Me.Label3.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label3.Name = "Label3"
-        Me.Label3.Size = New System.Drawing.Size(33, 15)
+        Me.Label3.Size = New System.Drawing.Size(43, 20)
         Me.Label3.TabIndex = 15
         Me.Label3.Text = "User"
         '
@@ -243,18 +258,20 @@ Partial Class mainForm
         Me.TextBox2.Anchor = CType(((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.TextBox2.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.TextBox2.Location = New System.Drawing.Point(63, 284)
+        Me.TextBox2.Location = New System.Drawing.Point(94, 445)
+        Me.TextBox2.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.TextBox2.Name = "TextBox2"
-        Me.TextBox2.Size = New System.Drawing.Size(187, 20)
+        Me.TextBox2.Size = New System.Drawing.Size(280, 26)
         Me.TextBox2.TabIndex = 9
         '
         'Label2
         '
         Me.Label2.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Label2.AutoSize = True
-        Me.Label2.Location = New System.Drawing.Point(10, 234)
+        Me.Label2.Location = New System.Drawing.Point(15, 368)
+        Me.Label2.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label2.Name = "Label2"
-        Me.Label2.Size = New System.Drawing.Size(50, 15)
+        Me.Label2.Size = New System.Drawing.Size(68, 20)
         Me.Label2.TabIndex = 13
         Me.Label2.Text = "Account"
         '
@@ -262,9 +279,10 @@ Partial Class mainForm
         '
         Me.Button6.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button6.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button6.Location = New System.Drawing.Point(94, 363)
+        Me.Button6.Location = New System.Drawing.Point(141, 566)
+        Me.Button6.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button6.Name = "Button6"
-        Me.Button6.Size = New System.Drawing.Size(75, 23)
+        Me.Button6.Size = New System.Drawing.Size(112, 35)
         Me.Button6.TabIndex = 16
         Me.Button6.Text = "Save"
         Me.Button6.UseVisualStyleBackColor = True
@@ -276,10 +294,12 @@ Partial Class mainForm
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.lbAcount.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
         Me.lbAcount.FormattingEnabled = True
-        Me.lbAcount.Location = New System.Drawing.Point(13, 30)
+        Me.lbAcount.ItemHeight = 20
+        Me.lbAcount.Location = New System.Drawing.Point(20, 46)
+        Me.lbAcount.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.lbAcount.Name = "lbAcount"
         Me.lbAcount.SelectionMode = System.Windows.Forms.SelectionMode.MultiExtended
-        Me.lbAcount.Size = New System.Drawing.Size(237, 158)
+        Me.lbAcount.Size = New System.Drawing.Size(354, 242)
         Me.lbAcount.TabIndex = 1
         '
         'TextBox1
@@ -287,9 +307,10 @@ Partial Class mainForm
         Me.TextBox1.Anchor = CType(((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left) _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.TextBox1.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-        Me.TextBox1.Location = New System.Drawing.Point(63, 232)
+        Me.TextBox1.Location = New System.Drawing.Point(94, 365)
+        Me.TextBox1.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.TextBox1.Name = "TextBox1"
-        Me.TextBox1.Size = New System.Drawing.Size(187, 20)
+        Me.TextBox1.Size = New System.Drawing.Size(280, 26)
         Me.TextBox1.TabIndex = 5
         '
         'Button4
@@ -297,9 +318,10 @@ Partial Class mainForm
         Me.Button4.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button4.Enabled = False
         Me.Button4.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button4.Location = New System.Drawing.Point(175, 363)
+        Me.Button4.Location = New System.Drawing.Point(262, 566)
+        Me.Button4.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button4.Name = "Button4"
-        Me.Button4.Size = New System.Drawing.Size(75, 23)
+        Me.Button4.Size = New System.Drawing.Size(112, 35)
         Me.Button4.TabIndex = 17
         Me.Button4.Text = "Delete"
         Me.Button4.UseVisualStyleBackColor = True
@@ -309,9 +331,10 @@ Partial Class mainForm
         Me.Button2.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button2.Enabled = False
         Me.Button2.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button2.Location = New System.Drawing.Point(94, 203)
+        Me.Button2.Location = New System.Drawing.Point(141, 320)
+        Me.Button2.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button2.Name = "Button2"
-        Me.Button2.Size = New System.Drawing.Size(75, 23)
+        Me.Button2.Size = New System.Drawing.Size(112, 35)
         Me.Button2.TabIndex = 3
         Me.Button2.Text = "Stop"
         Me.Button2.UseVisualStyleBackColor = True
@@ -321,9 +344,10 @@ Partial Class mainForm
         Me.Button1.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
         Me.Button1.Enabled = False
         Me.Button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat
-        Me.Button1.Location = New System.Drawing.Point(13, 203)
+        Me.Button1.Location = New System.Drawing.Point(20, 320)
+        Me.Button1.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Button1.Name = "Button1"
-        Me.Button1.Size = New System.Drawing.Size(75, 23)
+        Me.Button1.Size = New System.Drawing.Size(112, 35)
         Me.Button1.TabIndex = 2
         Me.Button1.Text = "Start"
         Me.Button1.UseVisualStyleBackColor = True
@@ -331,9 +355,10 @@ Partial Class mainForm
         'Label1
         '
         Me.Label1.AutoSize = True
-        Me.Label1.Location = New System.Drawing.Point(10, 14)
+        Me.Label1.Location = New System.Drawing.Point(15, 22)
+        Me.Label1.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label1.Name = "Label1"
-        Me.Label1.Size = New System.Drawing.Size(72, 15)
+        Me.Label1.Size = New System.Drawing.Size(97, 20)
         Me.Label1.TabIndex = 0
         Me.Label1.Text = "Account List"
         '
@@ -352,7 +377,8 @@ Partial Class mainForm
         Me.MenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.FileToolStripMenuItem, Me.OptionsToolStripMenuItem})
         Me.MenuStrip1.Location = New System.Drawing.Point(0, 0)
         Me.MenuStrip1.Name = "MenuStrip1"
-        Me.MenuStrip1.Size = New System.Drawing.Size(732, 28)
+        Me.MenuStrip1.Padding = New System.Windows.Forms.Padding(9, 3, 0, 3)
+        Me.MenuStrip1.Size = New System.Drawing.Size(1098, 35)
         Me.MenuStrip1.TabIndex = 1
         Me.MenuStrip1.Text = "MenuStrip1"
         '
@@ -360,37 +386,38 @@ Partial Class mainForm
         '
         Me.FileToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ExitToolStripMenuItem})
         Me.FileToolStripMenuItem.Name = "FileToolStripMenuItem"
-        Me.FileToolStripMenuItem.Size = New System.Drawing.Size(44, 24)
+        Me.FileToolStripMenuItem.Size = New System.Drawing.Size(50, 29)
         Me.FileToolStripMenuItem.Text = "&File"
         '
         'ExitToolStripMenuItem
         '
         Me.ExitToolStripMenuItem.Name = "ExitToolStripMenuItem"
-        Me.ExitToolStripMenuItem.Size = New System.Drawing.Size(108, 26)
+        Me.ExitToolStripMenuItem.Size = New System.Drawing.Size(123, 30)
         Me.ExitToolStripMenuItem.Text = "&Exit"
         '
         'OptionsToolStripMenuItem
         '
         Me.OptionsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.OptionsToolStripMenuItem1})
         Me.OptionsToolStripMenuItem.Name = "OptionsToolStripMenuItem"
-        Me.OptionsToolStripMenuItem.Size = New System.Drawing.Size(56, 24)
+        Me.OptionsToolStripMenuItem.Size = New System.Drawing.Size(65, 29)
         Me.OptionsToolStripMenuItem.Text = "&Tools"
         '
         'OptionsToolStripMenuItem1
         '
         Me.OptionsToolStripMenuItem1.Name = "OptionsToolStripMenuItem1"
-        Me.OptionsToolStripMenuItem1.Size = New System.Drawing.Size(216, 26)
+        Me.OptionsToolStripMenuItem1.Size = New System.Drawing.Size(160, 30)
         Me.OptionsToolStripMenuItem1.Text = "&Options"
         '
         'mainForm
         '
-        Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
+        Me.AutoScaleDimensions = New System.Drawing.SizeF(9.0!, 20.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        Me.ClientSize = New System.Drawing.Size(732, 427)
+        Me.ClientSize = New System.Drawing.Size(1098, 657)
         Me.Controls.Add(Me.SplitContainer1)
         Me.Controls.Add(Me.MenuStrip1)
         Me.KeyPreview = True
         Me.MainMenuStrip = Me.MenuStrip1
+        Me.Margin = New System.Windows.Forms.Padding(4, 5, 4, 5)
         Me.Name = "mainForm"
         Me.Text = "OPHBOX"
         Me.SplitContainer1.Panel1.ResumeLayout(False)

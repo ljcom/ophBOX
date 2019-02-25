@@ -11,8 +11,6 @@ Imports System.Drawing
 Imports System.Runtime.InteropServices
 
 
-
-
 Public Class mainForm
     Public Declare Function SetForegroundWindow Lib "user32.dll" (ByVal hwnd As Integer) As Integer
     Public Declare Auto Function FindWindow Lib "user32.dll" (ByVal lpClassName As String, ByVal lpWindowName As String) As Integer
