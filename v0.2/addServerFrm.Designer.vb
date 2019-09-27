@@ -93,7 +93,7 @@ Partial Class addServerFrm
         '
         Me.Button1.DialogResult = System.Windows.Forms.DialogResult.OK
         Me.Button1.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button1.Location = New System.Drawing.Point(412, 215)
+        Me.Button1.Location = New System.Drawing.Point(410, 286)
         Me.Button1.Name = "Button1"
         Me.Button1.Size = New System.Drawing.Size(144, 44)
         Me.Button1.TabIndex = 10
@@ -104,7 +104,7 @@ Partial Class addServerFrm
         '
         Me.Button2.DialogResult = System.Windows.Forms.DialogResult.Cancel
         Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button2.Location = New System.Drawing.Point(262, 215)
+        Me.Button2.Location = New System.Drawing.Point(260, 286)
         Me.Button2.Name = "Button2"
         Me.Button2.Size = New System.Drawing.Size(144, 44)
         Me.Button2.TabIndex = 11
@@ -119,6 +119,7 @@ Partial Class addServerFrm
         Me.RadioButton1.Name = "RadioButton1"
         Me.RadioButton1.Size = New System.Drawing.Size(96, 24)
         Me.RadioButton1.TabIndex = 1
+        Me.RadioButton1.TabStop = True
         Me.RadioButton1.Text = "Instance"
         Me.RadioButton1.UseVisualStyleBackColor = True
         '
@@ -138,7 +139,7 @@ Partial Class addServerFrm
         Me.AutoScaleDimensions = New System.Drawing.SizeF(9.0!, 20.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.CancelButton = Me.Button2
-        Me.ClientSize = New System.Drawing.Size(621, 305)
+        Me.ClientSize = New System.Drawing.Size(621, 372)
         Me.Controls.Add(Me.RadioButton2)
         Me.Controls.Add(Me.RadioButton1)
         Me.Controls.Add(Me.Button2)

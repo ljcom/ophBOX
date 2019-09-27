@@ -11,6 +11,8 @@ Public Class addServerFrm
     End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        Me.TextBox1.Text = Replace(Me.TextBox1.Text, ".", "(local)")
+
         If addServer(IIf(RadioButton1.Checked, "instance", "url"), Me.TextBox1.Text, Me.TextBox2.Text, Me.TextBox3.Text, False) Then
             canClose = True
             Me.Close()
@@ -21,8 +23,6 @@ Public Class addServerFrm
     End Sub
     Function addServer(mode As String, pipename As String, uid As String, pwd As String, isNew As Boolean) As Boolean
         Dim r = False
-
-
 
         Dim coreDB = "oph_core"
         Dim folderData As String = "data"
@@ -132,36 +132,10 @@ Public Class addServerFrm
             Else
                 If MessageBox.Show("oph account is Not exists. Do you want to create one?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
                     Me.Cursor = Cursors.WaitCursor
+                    Dim tuser = "sam"
+                    Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
 
-                    odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd & ""
-                    Dim result = f.runSQLwithResult("CREATE DATABASE " & coreDB, odbc)
-                    If result = "" Then
-
-                        Dim c_uri = My.Settings.ophServer & "/oph"
-                        Dim tuser = "sam"
-                        Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
-                        token = f.getToken(c_uri, tuser, secret)
-                        Dim url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&token=" & token
-                        Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
-                        f.SetLog(scriptFile1, , True)
-
-                        Me.UseWaitCursor = True
-                        Application.DoEvents()
-                        f.runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
-                        If File.Exists(scriptFile1) Then
-                            odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
-                            Dim sqlstr = "if not exists(select * from acct where accountid='oph') insert into acct (accountid) values ('oph')"
-                            f.runSQLwithResult(sqlstr, odbc)
-
-                            sqlstr = "declare @accountguid uniqueidentifier
-                            select @accountguid=accountguid from acct where accountid='oph'
-                            if not exists(select * from acctdbse where databasename='oph_core' and accountguid=@accountguid) insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values (newid(), @accountguid, 'oph_core', '1', '4.0')"
-                            f.runSQLwithResult(sqlstr, odbc)
-
-                            f.SetLog("Installing core database completed.")
-                        Else
-                            f.SetLog("Installing core database NOT completed.")
-                        End If
+                    If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
                         Dim x = mainFrm.TreeView1.SelectedNode
                         If f.getTag(mainFrm.TreeView1.SelectedNode, "type") = "1" Then
                             x = mainFrm.TreeView1.SelectedNode.Nodes.Add(Me.TextBox1.Text)
@@ -171,10 +145,13 @@ Public Class addServerFrm
                         Dim y = x.Nodes.Add("oph")
                         y.Tag = "type=3;dbname=oph_core"
 
-                        Me.UseWaitCursor = False
-
-                        r = True
+                        f.SetLog("Installing core database completed.")
+                        MessageBox.Show("Installing server is completed")
+                    Else
+                        f.SetLog("Installing core database NOT completed.")
+                        MessageBox.Show("Installing server is NOT completed")
                     End If
+
                     Me.Cursor = Cursors.Default
 
                 End If
@@ -236,7 +213,9 @@ Public Class addServerFrm
     End Sub
 
     Private Sub TextBox1_TextChanged(sender As Object, e As EventArgs) Handles TextBox1.TextChanged
-
+        If Me.TextBox1.Text.IndexOf(".") >= 0 Then
+            Me.TextBox1.Text = Me.TextBox1.Text.Replace(".", "(local)")
+        End If
     End Sub
 
     Private Sub TextBox1_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox1.KeyPress

@@ -68,7 +68,7 @@ Namespace My
         
         <Global.System.Configuration.UserScopedSettingAttribute(),  _
          Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
-         Global.System.Configuration.DefaultSettingValueAttribute("")>  _
+         Global.System.Configuration.DefaultSettingValueAttribute("https://springroll.operahouse.systems")>  _
         Public Property ophServer() As String
             Get
                 Return CType(Me("ophServer"),String)
@@ -87,6 +87,78 @@ Namespace My
             End Get
             Set
                 Me("treeData") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("")>  _
+        Public Property localServer() As String
+            Get
+                Return CType(Me("localServer"),String)
+            End Get
+            Set
+                Me("localServer") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("")>  _
+        Public Property localUserID() As String
+            Get
+                Return CType(Me("localUserID"),String)
+            End Get
+            Set
+                Me("localUserID") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("")>  _
+        Public Property LocalPwd() As String
+            Get
+                Return CType(Me("LocalPwd"),String)
+            End Get
+            Set
+                Me("LocalPwd") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("8080")>  _
+        Public Property IISPort() As String
+            Get
+                Return CType(Me("IISPort"),String)
+            End Get
+            Set
+                Me("IISPort") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("False")>  _
+        Public Property isIISExpress() As Boolean
+            Get
+                Return CType(Me("isIISExpress"),Boolean)
+            End Get
+            Set
+                Me("isIISExpress") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("")>  _
+        Public Property IISExpressLocation() As String
+            Get
+                Return CType(Me("IISExpressLocation"),String)
+            End Get
+            Set
+                Me("IISExpressLocation") = value
             End Set
         End Property
     End Class

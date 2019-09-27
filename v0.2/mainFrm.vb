@@ -1,9 +1,22 @@
 ﻿Imports System.IO
+Imports System.Diagnostics
 Imports Newtonsoft.Json
 Imports ophBox.FunctionList
+Imports System.Runtime.InteropServices
+Imports System.Net
+Imports System.Text
+Imports System.Windows.Forms
+Imports System.Collections.Generic
+Imports Newtonsoft.Json.Linq
+Imports System.Data.SqlClient
+Imports System.Data
+Imports System.Drawing
 
 Public Class mainFrm
     Dim f As FunctionList = FunctionList.Instance
+    Private eventHandled As Boolean = False
+    Private elapsedTime As Integer
+    Private iisId As Long
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         End
     End Sub
@@ -159,6 +172,8 @@ Public Class mainFrm
 
             delDb(accountid, pipename, uid, pwd)
             saveTree()
+        Else
+            MessageBox.Show("You cannot delete OPH Database. You may delete the server instead.", "Warning")
         End If
     End Sub
     Sub delDb(accountid As String, pipename As String, uid As String, pwd As String)
@@ -188,6 +203,8 @@ Public Class mainFrm
 
                     delDb(accountid, pipename, uid, pwd)
                     saveTree()
+                Else
+                    MessageBox.Show("You cannot delete OPH Database. You may delete the server instead.", "Warning")
                 End If
             End If
         End If
@@ -205,4 +222,74 @@ Public Class mainFrm
             MessageBox.Show("Please remove all accounts before continue.")
         End If
     End Sub
+
+    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
+        If Not eventHandled Then
+            iisId = runIIS("oph")
+            Me.Button3.Text = "IIS Stop"
+        Else
+            If iisId > 0 Then
+                Try
+                    Dim p = Process.GetProcessById(iisId)
+                    p.Kill()
+                Catch ex As Exception
+                End Try
+                'iisId = System.Diagnostics.GetWin32Process("iisexpress", 0) '= iisId
+                eventHandled = False
+                iisId = 0
+                Me.Button3.Text = "IIS Start"
+            End If
+        End If
+    End Sub
+    Function runIIS(app) As Long
+        Dim ophPath = My.Settings.ophFolder
+        eventHandled = False
+        elapsedTime = 0
+        Dim folderTemp = "temp"
+        Dim folderData = "data"
+
+        Dim p As Process = New Process()
+        p.StartInfo.UseShellExecute = False
+        p.StartInfo.RedirectStandardOutput = True
+        p.StartInfo.RedirectStandardError = True
+        p.EnableRaisingEvents = True
+
+        AddHandler p.ErrorDataReceived, AddressOf OutputDataReceivedIIS
+        AddHandler p.OutputDataReceived, AddressOf OutputDataReceivedIIS
+
+        p.StartInfo.FileName = My.Settings.IISExpressLocation
+        p.StartInfo.Arguments = "/config:" & ophPath & "\" & folderTemp & "\applicationhost.config /systray:false /site:" & app
+        p.StartInfo.CreateNoWindow = True
+        p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+
+
+        p.Start()
+        Dim iId = p.Id
+
+        p.BeginErrorReadLine()
+        p.BeginOutputReadLine()
+
+        Return iId
+    End Function
+    Public Sub OutputDataReceivedIIS(ByVal sender As Object, ByVal e As DataReceivedEventArgs)
+        Try
+            Dim t = IIf(e.Data = "", "", Now() & " IIS " & e.Data & vbCrLf)
+            'lastMessage = lastMessage & t
+
+            If Me.InvokeRequired = True Then
+                'Me.Invoke(myDelegate, e.Data)
+                'Me.Invoke(New Action(Sub() Me.tbLog.AppendText(t)))
+            Else
+                'UpdateTextBox(e.Data)
+                'Me.tbLog.AppendText(t)
+            End If
+            eventHandled = True
+
+            f.WriteLog(t)
+        Catch ex As Exception
+
+        End Try
+
+    End Sub
+
 End Class
