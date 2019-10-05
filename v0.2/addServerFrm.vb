@@ -12,16 +12,32 @@ Public Class addServerFrm
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         Me.TextBox1.Text = Replace(Me.TextBox1.Text, ".", "(local)")
-
-        If addServer(IIf(RadioButton1.Checked, "instance", "url"), Me.TextBox1.Text, Me.TextBox2.Text, Me.TextBox3.Text, False) Then
-            canClose = True
-            Me.Close()
+        If Val(Me.TextBox4.Text) < 8080 Or Val(Me.TextBox4.Text) > 8100 Then
+            MessageBox.Show("Please use port between 8080 and 8100.", "Error")
+        ElseIf Not checkPort(Me.TextBox1.Text, Me.TextBox4.Text) Then
+            MessageBox.Show("Your port selection is already used with another server.", "Error")
         Else
-            MessageBox.Show("Server is not exists or your password is wrong.", "Error")
-        End If
 
+            If addServer(IIf(RadioButton1.Checked, "instance", "url"), Me.TextBox1.Text, Me.TextBox2.Text, Me.TextBox3.Text, False, Me.TextBox4.Text) Then
+                canClose = True
+                Me.Close()
+            Else
+                'MessageBox.Show("Server is not exists or your password is wrong.", "Error")
+            End If
+        End If
     End Sub
-    Function addServer(mode As String, pipename As String, uid As String, pwd As String, isNew As Boolean) As Boolean
+    Function checkPort(server, port) As Boolean
+        Dim r = True
+        For Each n In mainFrm.TreeView1.Nodes(0).Nodes
+            Dim curPort = f.getTag(n, "port")
+            Dim curServer = n.text
+            If curServer <> server And port = curPort Then
+                r = False
+            End If
+        Next
+        Return r
+    End Function
+    Function addServer(mode As String, pipename As String, uid As String, pwd As String, isNew As Boolean, iisport As String) As Boolean
         Dim r = False
 
         Dim coreDB = "oph_core"
@@ -90,72 +106,11 @@ Public Class addServerFrm
                 r = True
             End If
         Else
-            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
-            Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
-            If ophcore <> "" Then
-                odbc = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";User Id=" & uid & ";password=" & pwd
-                Dim listofAccount = f.runSQLwithResult("select ';accountid='+accountid+',dbname='+d.DatabaseName from acct a inner join acctdbse d on d.accountguid=a.accountguid and d.ismaster=1 order by accountid for xml path('')", odbc)
-                If listofAccount <> "" Then
-                    Dim curnode = mainFrm.TreeView1.SelectedNode
-                    Dim curTag = mainFrm.TreeView1.SelectedNode.Tag
-                    For Each t In curTag.split(";")
-                        If t.split("=")(0) = "type" And t.split("=")(1) = "1" Then  'new
-                            Dim x = mainFrm.TreeView1.SelectedNode.Nodes.Add(Me.TextBox1.Text)
-                            x.Tag = "type=2;mode=" & IIf(RadioButton1.Checked, "instance", "url") & ";uid=" & Me.TextBox2.Text & ";pwd=" & Me.TextBox3.Text
-                            curnode = x
-                        Else
-                            mainFrm.TreeView1.SelectedNode.Text = Me.TextBox1.Text
-                            mainFrm.TreeView1.SelectedNode.Tag = "type=2;mode=" & IIf(RadioButton1.Checked, "instance", "url") & ";uid=" & Me.TextBox2.Text & ";pwd=" & Me.TextBox3.Text
-                        End If
-                    Next
+            Me.Cursor = Cursors.WaitCursor
+            Dim curnode = mainFrm.TreeView1.SelectedNode
+            r = f.addInstance(pipename, uid, pwd, coreDB, iisport, ophPath, curnode)
+            Me.Cursor = Cursors.Default
 
-                    curnode.Nodes.Clear()
-
-                    For Each a In listofAccount.Split(";")
-                        Dim accountid = "", dbname = ""
-                        For Each ax In a.Split(",")
-                            If ax.Split("=")(0) = "accountid" Then
-                                accountid = ax.Split("=")(1)
-                            End If
-                            If ax.Split("=")(0) = "dbname" Then
-                                dbname = ax.Split("=")(1)
-                            End If
-                        Next
-                        If accountid <> "" Then
-                            Dim x = curnode.Nodes.Add(accountid)
-                            x.Tag = "type=3;dbname=" & dbname
-                        End If
-                    Next
-                    r = True
-                End If
-
-            Else
-                If MessageBox.Show("oph account is Not exists. Do you want to create one?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
-                    Me.Cursor = Cursors.WaitCursor
-                    Dim tuser = "sam"
-                    Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
-
-                    If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
-                        Dim x = mainFrm.TreeView1.SelectedNode
-                        If f.getTag(mainFrm.TreeView1.SelectedNode, "type") = "1" Then
-                            x = mainFrm.TreeView1.SelectedNode.Nodes.Add(Me.TextBox1.Text)
-                        End If
-                        x.Tag = "type=2;mode=" & IIf(RadioButton1.Checked, "instance", "url") & ";uid=" & Me.TextBox2.Text & ";pwd=" & Me.TextBox3.Text
-                        x.Nodes.Clear()
-                        Dim y = x.Nodes.Add("oph")
-                        y.Tag = "type=3;dbname=oph_core"
-
-                        f.SetLog("Installing core database completed.")
-                        MessageBox.Show("Installing server is completed")
-                    Else
-                        f.SetLog("Installing core database NOT completed.")
-                        MessageBox.Show("Installing server is NOT completed")
-                    End If
-
-                    Me.Cursor = Cursors.Default
-
-                End If
-            End If
         End If
 
         Return r
@@ -167,45 +122,46 @@ Public Class addServerFrm
     End Sub
 
     Private Sub addServerFrm_Load(sender As Object, e As EventArgs) Handles Me.Load
+        canClose = False
         Me.RadioButton1.Checked = True
         Me.TextBox1.Text = ""
         Me.TextBox2.Text = ""
         Me.TextBox3.Text = ""
-        Dim curName = mainFrm.TreeView1.SelectedNode.Text
-        Dim curTag = mainFrm.TreeView1.SelectedNode.Tag
-        Dim t = curTag.split(";")
-        For Each ct In t
-            curName = ""
+        Me.TextBox4.Text = ""
+        Me.TextBox1.Select()
 
-            If ct.split("=").length > 1 Then curName = ct.split("=")(1)
-            If ct.split("=")(0) = "type" Then
-                If curName = "2" Then
-                    Me.Text = "Server Properties"
-                    Me.TextBox1.Text = mainFrm.TreeView1.SelectedNode.Text
-                    Me.Button1.Text = "Save"
-                    Me.RadioButton1.Enabled = False
-                    Me.RadioButton2.Enabled = False
-                Else
-                    Me.Text = "Add Server"
-                    Me.Button1.Text = "Add"
-                    Me.RadioButton1.Enabled = True
-                    Me.RadioButton2.Enabled = True
-                End If
+        Dim curtype = f.getTag(mainFrm.TreeView1.SelectedNode, "type")
+        Dim curNode = mainFrm.TreeView1.SelectedNode
+        If curtype = "2" Then
+            Me.Text = "Server Properties"
+            Me.TextBox1.Text = mainFrm.TreeView1.SelectedNode.Text
+            Me.TextBox1.Enabled = False
+            Me.Button1.Text = "Save"
+            Me.RadioButton1.Enabled = False
+            Me.RadioButton2.Enabled = False
+
+            Dim curmode = f.getTag(mainFrm.TreeView1.SelectedNode, "mode")
+            If curmode = "instance" Then
+                Me.RadioButton1.Checked = True
+                Me.Label4.Visible = True
+                Me.TextBox4.Visible = True
+            Else
+                Me.RadioButton2.Checked = True
+                Me.Label4.Visible = False
+                Me.TextBox4.Visible = False
             End If
-            If ct.split("=")(0) = "mode" Then
-                If curName = "instance" Then
-                    Me.RadioButton1.Checked = True
-                Else
-                    Me.RadioButton2.Checked = True
-                End If
-            End If
-            If ct.split("=")(0) = "uid" Then
-                Me.TextBox2.Text = curName
-            End If
-            If ct.split("=")(0) = "pwd" Then
-                Me.TextBox3.Text = curName
-            End If
-        Next
+            Me.TextBox2.Text = f.getTag(mainFrm.TreeView1.SelectedNode, "uid")
+            Me.TextBox3.Text = f.getTag(mainFrm.TreeView1.SelectedNode, "pwd")
+            Me.TextBox4.Text = f.getTag(mainFrm.TreeView1.SelectedNode, "port")
+        Else
+            Me.Text = "Add Server"
+            Me.TextBox1.Enabled = True
+            Me.Button1.Text = "Add"
+            Me.RadioButton1.Enabled = True
+            Me.RadioButton2.Enabled = True
+            Me.RadioButton1.Checked = True
+        End If
+
     End Sub
 
     Private Sub RadioButton2_CheckedChanged(sender As Object, e As EventArgs) Handles RadioButton2.CheckedChanged
@@ -243,10 +199,14 @@ Public Class addServerFrm
             Me.Label1.Text = "Instance Name"
             Me.Label2.Text = "User ID"
             Me.Label3.Text = "Password"
+            Me.Label4.Visible = True
+            Me.TextBox4.Visible = True
         ElseIf RadioButton2.Checked Then
             Me.Label1.Text = "URL"
             Me.Label2.Text = "User ID"
             Me.Label3.Text = "Secret"
+            Me.Label4.Visible = False
+            Me.TextBox4.Visible = False
         End If
 
     End Sub

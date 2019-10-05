@@ -32,6 +32,8 @@ Partial Class addServerFrm
         Me.Button2 = New System.Windows.Forms.Button()
         Me.RadioButton1 = New System.Windows.Forms.RadioButton()
         Me.RadioButton2 = New System.Windows.Forms.RadioButton()
+        Me.TextBox4 = New System.Windows.Forms.TextBox()
+        Me.Label4 = New System.Windows.Forms.Label()
         Me.SuspendLayout()
         '
         'Label1
@@ -93,7 +95,7 @@ Partial Class addServerFrm
         '
         Me.Button1.DialogResult = System.Windows.Forms.DialogResult.OK
         Me.Button1.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button1.Location = New System.Drawing.Point(410, 286)
+        Me.Button1.Location = New System.Drawing.Point(412, 286)
         Me.Button1.Name = "Button1"
         Me.Button1.Size = New System.Drawing.Size(144, 44)
         Me.Button1.TabIndex = 10
@@ -104,7 +106,7 @@ Partial Class addServerFrm
         '
         Me.Button2.DialogResult = System.Windows.Forms.DialogResult.Cancel
         Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button2.Location = New System.Drawing.Point(260, 286)
+        Me.Button2.Location = New System.Drawing.Point(262, 286)
         Me.Button2.Name = "Button2"
         Me.Button2.Size = New System.Drawing.Size(144, 44)
         Me.Button2.TabIndex = 11
@@ -133,6 +135,24 @@ Partial Class addServerFrm
         Me.RadioButton2.Text = "URL"
         Me.RadioButton2.UseVisualStyleBackColor = True
         '
+        'TextBox4
+        '
+        Me.TextBox4.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
+        Me.TextBox4.Location = New System.Drawing.Point(237, 177)
+        Me.TextBox4.Name = "TextBox4"
+        Me.TextBox4.Size = New System.Drawing.Size(319, 26)
+        Me.TextBox4.TabIndex = 7
+        '
+        'Label4
+        '
+        Me.Label4.AutoSize = True
+        Me.Label4.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
+        Me.Label4.Location = New System.Drawing.Point(58, 180)
+        Me.Label4.Name = "Label4"
+        Me.Label4.Size = New System.Drawing.Size(63, 20)
+        Me.Label4.TabIndex = 12
+        Me.Label4.Text = "IIS Port"
+        '
         'addServerFrm
         '
         Me.AcceptButton = Me.Button1
@@ -140,6 +160,8 @@ Partial Class addServerFrm
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.CancelButton = Me.Button2
         Me.ClientSize = New System.Drawing.Size(621, 372)
+        Me.Controls.Add(Me.TextBox4)
+        Me.Controls.Add(Me.Label4)
         Me.Controls.Add(Me.RadioButton2)
         Me.Controls.Add(Me.RadioButton1)
         Me.Controls.Add(Me.Button2)
@@ -167,4 +189,6 @@ Partial Class addServerFrm
     Friend WithEvents Button2 As Button
     Friend WithEvents RadioButton1 As RadioButton
     Friend WithEvents RadioButton2 As RadioButton
+    Friend WithEvents TextBox4 As TextBox
+    Friend WithEvents Label4 As Label
 End Class

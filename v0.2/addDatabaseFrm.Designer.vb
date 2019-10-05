@@ -118,7 +118,7 @@ Partial Class addDatabaseFrm
         Me.TextBox4.Name = "TextBox4"
         Me.TextBox4.PasswordChar = Global.Microsoft.VisualBasic.ChrW(42)
         Me.TextBox4.Size = New System.Drawing.Size(319, 26)
-        Me.TextBox4.TabIndex = 19
+        Me.TextBox4.TabIndex = 4
         '
         'Label4
         '

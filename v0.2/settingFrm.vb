@@ -46,12 +46,89 @@ Public Class settingFrm
                     f.runCmd(ophPath & "\temp" & "\build-oph.bat", ophPath)
                     If Not Directory.Exists(ophPath & "\operahouse") Then
                         errStr = "Folder Building is failed"
+                    Else
+                        'add bin
+                        'For Each l In Directory.GetFiles(ophPath & "\temp", "*.dll")
+                        'Dim file = Path.GetFileName(l)
+                        'FileCopy(l, ophPath & "\operahouse\core\bin")
+                        'Next
+
                     End If
                 End If
             End If
         End If
 
         If errStr = "" Then
+            Dim pipename = My.Settings.localServer
+            Dim uid = My.Settings.localUserID
+            Dim pwd = My.Settings.LocalPwd
+            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+            Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
+            Dim iisport = Me.TextBox6.Text
+            Dim accountid = "oph"
+            Dim coredb = "oph_core"
+            Dim curnode = mainFrm.TreeView1.SelectedNode
+
+            'If ophcore = "" Then
+            '    Dim tuser = "sam"
+            '    Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
+
+            '    If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
+            '        'add to tree
+            '        odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+            '        f.runSQLwithResult("
+            '             update i
+            '             set infovalue=infovalue+';localhost:" & iisport & "/{accountid}'
+            '             --select i.* 
+            '             from acct a
+            '              inner join acctinfo i on a.AccountGUID=i.AccountGUID
+            '             where accountid='" & accountid & "' and i.InfoKey like '%address' and infovalue not like '%localhost:" & iisport & "/{accountid}%'
+
+            '             insert into acctinfo (accountguid, infokey, infovalue)
+            '             select a.accountguid, 'address', 'localhost:" & iisport & "/{accountid}' 
+            '             from acct a
+            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='address'
+            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+
+            '             insert into acctinfo (accountguid, infokey, infovalue)
+            '             select a.accountguid, 'whiteaddress', 'localhost:" & iisport & "/{accountid}' 
+            '             from acct a
+            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='whiteaddress'
+            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+
+            '             insert into acctinfo (accountguid, infokey, infovalue)
+            '             select a.accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd & "' 
+            '             from acct a
+            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='odbc'
+            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+
+            '            ", odbc)
+            '    Else
+            '        errStr = "Local Server is NOT setup properly."
+            '    End If
+            'End If
+            'odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+            'ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
+            'If ophcore <> "" Then
+            Dim isexists = False
+            For Each n In mainFrm.TreeView1.Nodes(0).Nodes
+                If n.text = pipename Then
+                    isexists = True
+                End If
+            Next
+            If Not isexists Then
+                '        Dim x = mainFrm.TreeView1.Nodes(0).Nodes.Add(pipename)
+                '        x.Tag = "type=2;mode=instance;server=" & pipename & ";uid=" & uid & ";pwd=" & pwd & ";port=" & Me.TextBox6.Text
+                '        Dim y = x.Nodes.Add("oph")
+                '        y.Tag = "type=3;dbname=oph_core"
+                '    End If
+                If IsNothing(curnode) Then curnode = mainFrm.TreeView1.Nodes(0)
+                f.addInstance(pipename, uid, pwd, coredb, iisport, ophPath, curnode)
+            End If
+
+        End If
+
+            If errStr = "" Then
             If My.Settings.isIISExpress Then
                 Dim iisExpressFolder = getIISLocation(My.Settings.ophFolder)
                 f.SetLog("IIS Express Location: " & iisExpressFolder)
@@ -62,42 +139,10 @@ Public Class settingFrm
             f.SetLog("Checking IIS Files...")
             Dim dataaccount = "oph"
             Dim port = My.Settings.IISPort
-            Dim folderdata = "data"
-            Dim foldertemp = "temp"
-            f.addAccounttoIIS(dataaccount, ophPath & "\", port, folderdata, foldertemp, False)
+            f.addAccounttoIIS(dataaccount, My.Settings.localServer, ophPath & "\", port, False)
             Dim isReady = f.addWebConfig(ophPath & "\")
             f.SetLog("Checking IIS Files completed.")
             If Not isReady Then errStr = "IIS is not set properly."
-        End If
-
-        If errStr = "" Then
-            Dim pipename = My.Settings.localServer
-            Dim uid = My.Settings.localUserID
-            Dim pwd = My.Settings.LocalPwd
-            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
-            Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
-            If ophcore = "" Then
-                Dim tuser = "sam"
-                Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
-
-                If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
-                    'add to tree
-                    Dim isexists = False
-                    For Each n In mainFrm.TreeView1.Nodes(0).Nodes
-                        If n.text = pipename Then
-                            isexists = True
-                        End If
-                    Next
-                    If Not isexists Then
-                        Dim x = mainFrm.TreeView1.Nodes(0).Nodes.Add(pipename)
-                        x.Tag = "type=2;server=" & pipename & ";uid=" & uid & ";pwd=" & pwd
-                        Dim y = x.Nodes.Add("oph")
-                        y.Tag = "type=3;dbname=oph_core"
-                    End If
-                Else
-                    errStr = "Local Server is NOT setup properly."
-                End If
-            End If
         End If
 
         If errStr = "" Then
@@ -116,6 +161,7 @@ Public Class settingFrm
         Me.TextBox5.Text = My.Settings.LocalPwd
         Me.TextBox6.Text = My.Settings.IISPort
         Me.CheckBox1.Checked = My.Settings.isIISExpress
+        Me.TextBox1.Select()
 
     End Sub
 
@@ -176,10 +222,10 @@ Public Class settingFrm
             r = f.findFile("C:\Program Files\IIS Express", "iisexpress.exe")
             If r <> "" Then My.Settings.IISExpressLocation = r
         End If
-            'Else
-            'r = True
-            'End If
-            Return r
+        'Else
+        'r = True
+        'End If
+        Return r
     End Function
 
     Private Sub TextBox3_TextChanged(sender As Object, e As EventArgs) Handles TextBox3.TextChanged

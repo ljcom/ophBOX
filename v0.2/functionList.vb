@@ -63,8 +63,8 @@ Public NotInheritable Class FunctionList
             Debug.Write("writelog " & ex.Message.ToString)
         End Try
     End Sub
-    Public Function runSQLwithResult(ByVal sqlstr As String, Optional ByVal sqlconstr As String = "") As String
-        Dim result As String, contentofError As String
+    Public Function runSQLwithResult(ByVal sqlstr As String, Optional ByVal sqlconstr As String = "", Optional ByRef contentofError As String = "") As String
+        Dim result As String ', contentofError As String
 
         ' If the connection string is null, usse a default.
         Dim myConnectionString As String = sqlconstr
@@ -134,10 +134,10 @@ Public NotInheritable Class FunctionList
         End If
     End Function
 
-    Public Function runScript(url, pipename, scriptFile, db, uid, pwd) As Boolean
+    Public Function runScript(url As String, pipename As String, scriptFile As String, db As String, uid As String, pwd As String, Optional isoverwrite As Boolean = True) As Boolean
         Dim r = True
-        If File.Exists(scriptFile) Then File.Delete(scriptFile)
-        If downloadFilename(url, scriptFile) Then
+        If File.Exists(scriptFile) And isoverwrite Then File.Delete(scriptFile)
+        If File.Exists(scriptFile) OrElse downloadFilename(url, scriptFile) Then
             Dim p As Process = New Process()
             p.StartInfo.UseShellExecute = False
             'p.StartInfo.RedirectStandardOutput = True
@@ -242,80 +242,122 @@ Public NotInheritable Class FunctionList
         Return document
     End Function
 
-    Public Function addAccounttoIIS(account As String, path As String, port As String, folderData As String, folderTemp As String, Optional isRemoved As Boolean = False) As Integer
+    Public Function addAccounttoIIS(account As String, server As String, path As String, port As String, Optional isRemoved As Boolean = False) As Integer
+        Dim folderTemp = "temp"
+        server = server.Replace("(", "").Replace(")", "").Replace("\", "")
         Try
-
-            Dim isexists = False ', port As Integer = 8080
-            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-                If k.Contains("<site name=""" & account & """") Then
-                    isexists = True
-                End If
-            Next
-            'If Not isexists Then
-            Dim n = 1
-            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-                If k.Contains("<site ") Then
-                    n = n + 1
-                End If
-            Next
-            Dim newfile As New List(Of String)()
-            Dim skipLine As Boolean = False
-            Dim curAccount = ""
-            Dim nn = 1
-            For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
-                If Not isexists Then
-                    If k.Contains("<siteDefaults>") Then
-                        Dim newline = {
-                    vbTab & vbTab & vbTab & "<site name=""" & account & """ id=""" & n & """>",
-                    vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
-                    vbTab & vbTab & vbTab & vbTab & "</application>",
-                    vbTab & vbTab & vbTab & vbTab & "<bindings>",
-                    vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
-                    vbTab & vbTab & vbTab & vbTab & "</bindings>",
-                    vbTab & vbTab & vbTab & "</site>"}
-
-                        For Each line As String In newline
-                            newfile.Add(line)
-                        Next
+            If account <> "" Then
+                Dim issite = False
+                Dim isexists = False ', port As Integer = 8080
+                For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+                    If k.Contains("<site name=""oph" & server & """") Then
+                        issite = True
                     End If
-                Else
-                    If k.Contains("<site name=""" & account & """") Then
-                        curAccount = account
+
+                    If k.Contains("<application path = ""/" & account & """") Then
+                        isexists = True
                     End If
-                    If curAccount = account And k.Contains("<binding protocol = ""http""") And Not isRemoved Then
+                Next
+                'If Not isexists Then
+                Dim n = 1
+                If Not issite Then
+                    For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+                        If k.Contains("<site name") Then
+                            n = n + 1
+                        End If
+                    Next
+                End If
+                Dim newfile As New List(Of String)()
+                Dim skipLine As Boolean = False
+                Dim curAccount = ""
+                Dim cursite = ""
+                Dim nn = 1
+                For Each k As String In IO.File.ReadLines(path & folderTemp & "\applicationhost.config")
+                    If k.Contains("<site ") Then
+                        cursite = ""
+                        If k.Contains("<site name=""oph" & server & """") Then
+                            cursite = server
+                        End If
+                    End If
+                    If k.Contains("<application path") Then
+                        If k.Contains("<application path = ""/" & account & """") Then
+                            curAccount = account
+                        Else
+                            curAccount = ""
+                        End If
+                    End If
+
+                    If Not issite And Not isexists Then
+                        If k.Contains("<siteDefaults>") Then
+                            Dim newline = {
+                                vbTab & vbTab & vbTab & "<site name=""oph" & server & """ id=""" & n & """>",
+                                vbTab & vbTab & vbTab & vbTab & "<application path = ""/"" applicationPool=""Clr4IntegratedAppPool"">",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\home"" />",
+                                vbTab & vbTab & vbTab & vbTab & "</application>",
+                                vbTab & vbTab & vbTab & vbTab & "<application path = ""/" & account & """ applicationPool=""Clr4IntegratedAppPool"">",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />",
+                                vbTab & vbTab & vbTab & vbTab & "</application>",
+                                vbTab & vbTab & vbTab & vbTab & "<bindings>",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />",
+                                vbTab & vbTab & vbTab & vbTab & "</bindings>",
+                                vbTab & vbTab & vbTab & "</site>"}
+                            For Each line As String In newline
+                                newfile.Add(line)
+                            Next
+                        End If
+                    ElseIf issite And Not isexists Then
+                        If cursite = server And k.Contains("operahouse\home") Then
+                            Dim newline = {
+                                vbTab & vbTab & vbTab & vbTab & "</application>",   'tutup yang sebelumnya
+                                vbTab & vbTab & vbTab & vbTab & "<application path = ""/" & account & """ applicationPool=""Clr4IntegratedAppPool"">",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/"" physicalPath=""" & path & "operahouse\core"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/cdn"" physicalPath=""" & path & "cdn"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/log"" physicalPath=""" & path & "log"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/themes"" physicalPath=""" & path & "operahouse\themes"" />",
+                                vbTab & vbTab & vbTab & vbTab & vbTab & "<virtualDirectory path = ""/OPHContent/documents"" physicalPath=""" & path & "operahouse\documents"" />"
+                                }
+                            skipLine = True
+                            newfile.Add(k)
+                            For Each line As String In newline
+                                newfile.Add(line)
+                            Next
+
+                        End If
+                    Else
+                    End If
+                    If cursite = server And k.Contains("<binding protocol = ""http""") And Not isRemoved Then
                         Dim line = vbTab & vbTab & vbTab & vbTab & vbTab & "<binding protocol = ""http"" bindingInformation=""*:" & port & ":localhost"" />"
                         newfile.Add(line)
                         skipLine = True
                         curAccount = ""
                     End If
-                    If curAccount = account And isRemoved Then
-                        If k.Contains("<site name") Or k.Contains("<application path") Or k.Contains("<virtualDirectory") Or k.Contains("</application>") Or k.Contains("<bindings>") Or k.Contains("<binding") Or k.Contains("</bindings>") Then
+                    If cursite = server And curAccount = account And isRemoved Then
+                        If k.Contains("<application path") Or k.Contains("<virtualDirectory") Or k.Contains("</application>") Then
                             skipLine = True
                         End If
                         If k.Contains("</site>") Then
-                            skipLine = True
+                            'skipLine = True
                             curAccount = ""
                         End If
                     End If
-                End If
-                If k.Contains("<site ") Then
-                    Dim line = k.Substring(0, k.IndexOf("id") - 1) & " id=""" & nn & """>"
-                    newfile.Add(line)
-                    skipLine = True
-                    nn += 1
-                End If
-                If Not skipLine Then newfile.Add(k)
-                skipLine = False
+                    'If k.Contains("<site ") Then
+                    'Dim line = k.Substring(0, k.IndexOf("id") - 1) & " id=""" & nn & """>"
+                    'newfile.Add(line)
+                    'skipLine = True
+                    'nn += 1
+                    'End If
+                    If Not skipLine Then newfile.Add(k)
+                    skipLine = False
 
-            Next
+                Next
 
-            File.Delete(path & folderTemp & "\applicationhost.config")
-            System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
+                File.Delete(path & folderTemp & "\applicationhost.config")
+                System.IO.File.WriteAllLines(path & folderTemp & "\applicationhost.config", newfile.ToArray())
+            End If
         Catch ex As Exception
             WriteLog(path)
         End Try
@@ -340,7 +382,7 @@ Public NotInheritable Class FunctionList
     Public Sub runCmd(filename As String, Optional workingPath As String = "")
         Dim p As Process = New Process()
         p.StartInfo.UseShellExecute = False
-        p.StartInfo.RedirectStandardOutput = True
+        'p.StartInfo.RedirectStandardOutput = True
         p.StartInfo.RedirectStandardError = True
 
         p.StartInfo.FileName = filename
@@ -349,10 +391,11 @@ Public NotInheritable Class FunctionList
         p.StartInfo.CreateNoWindow = True
         p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
         p.Start()
-        Dim sOutput As String = p.StandardOutput.ReadToEnd()
+
+        'Dim sOutput As String = p.StandardOutput.ReadToEnd()
         Dim sErr As String = p.StandardError.ReadToEnd()
         p.WaitForExit()
-        SetLog(sOutput, , )
+        'SetLog(sOutput, , )
         SetLog(sErr, , )
     End Sub
 
@@ -507,8 +550,8 @@ Public NotInheritable Class FunctionList
             SetLog(scriptFile1, , True)
 
             runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
-            runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
-            runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
+            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, False)
+            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, False)
             If File.Exists(scriptFile1) Then
                 Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
                 Dim sqlstr = "if not exists(select * from acct where accountid='oph') insert into acct (accountid) values ('oph')"
@@ -532,5 +575,95 @@ Public NotInheritable Class FunctionList
         Return r
     End Function
 
+    Public Function addInstance(pipename, uid, pwd, coreDB, iisport, ophPath, curNode) As Boolean
+        Dim r = False
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+        Dim errStr As String = ""
+        Dim ophcore = runSQLwithResult("select name from sys.databases where name='oph_core'", odbc, errStr)
+        If errStr <> "" Then
+        ElseIf ophcore <> "" Then
+            odbc = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";User Id=" & uid & ";password=" & pwd
+            Dim listofAccount = runSQLwithResult("select ';accountid='+accountid+',dbname='+d.DatabaseName from acct a inner join acctdbse d on d.accountguid=a.accountguid and d.ismaster=1 order by accountid for xml path('')", odbc)
+            If listofAccount <> "" Then
+                Dim curTag = curNode.Tag
+                For Each t In curTag.split(";")
+                    If t.split("=")(0) = "type" And t.split("=")(1) = "1" Then  'new
+                        Dim x = curNode.Nodes.Add(pipename)
+                        x.Tag = "type=2;mode=instance;uid=" & uid & ";pwd=" & pwd & ";port=" & iisport
+                        curNode = x
+                    Else
+                        curNode.Text = pipename
+                        curNode.Tag = "type=2;mode=instance;uid=" & uid & ";pwd=" & pwd & ";port=" & iisport
+                    End If
+                Next
+
+                curNode.Nodes.Clear()
+
+                For Each a In listofAccount.Split(";")
+                    Dim accountid = "", dbname = ""
+                    For Each ax In a.Split(",")
+                        If ax.Split("=")(0) = "accountid" Then
+                            accountid = ax.Split("=")(1)
+                        End If
+                        If ax.Split("=")(0) = "dbname" Then
+                            dbname = ax.Split("=")(1)
+                        End If
+                    Next
+                    If accountid <> "" Then
+                        Dim x = curNode.Nodes.Add(accountid)
+                        x.Tag = "type=3;dbname=" & dbname
+                    End If
+                    Dim n = addAccounttoIIS(accountid, pipename, My.Settings.ophFolder & "\", iisport, False)
+                    runSQLwithResult("
+	                        update i
+	                        set infovalue=infovalue+';localhost:" & iisport & "/{accountid}'
+	                        --select i.* 
+	                        from acct a
+		                        inner join acctinfo i on a.AccountGUID=i.AccountGUID
+	                        where accountid='" & accountid & "' and i.InfoKey like '%address' and infovalue not like '%localhost:" & iisport & "/{accountid}%'
+
+	                        insert into acctinfo (accountguid, infokey, infovalue)
+	                        select a.accountguid, 'address', 'localhost:" & iisport & "/{accountid}' 
+	                        from acct a
+		                        left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='address'
+	                        where accountid='" & accountid & "' and i.AccountInfoGUID is null
+
+	                        insert into acctinfo (accountguid, infokey, infovalue)
+	                        select a.accountguid, 'whiteaddress', 'localhost:" & iisport & "/{accountid}' 
+	                        from acct a
+		                        left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='whiteaddress'
+	                        where accountid='" & accountid & "' and i.AccountInfoGUID is null
+                            ", odbc)
+                Next
+                r = True
+            End If
+
+        Else
+            If MessageBox.Show("oph account is Not exists. Do you want to create one?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
+                Dim tuser = "sam"
+                Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
+
+                If createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
+                    Dim x = mainFrm.TreeView1.SelectedNode
+                    If getTag(mainFrm.TreeView1.SelectedNode, "type") = "1" Then
+                        x = mainFrm.TreeView1.SelectedNode.Nodes.Add(pipename)
+                    End If
+                    x.Tag = "type=2;mode=instance;uid=" & uid & ";pwd=" & pwd & ";port=" & iisport
+                    x.Nodes.Clear()
+                    Dim y = x.Nodes.Add("oph")
+                    y.Tag = "type=3;dbname=oph_core"
+
+                    SetLog("Installing core database completed.")
+                    MessageBox.Show("Installing server is completed")
+                Else
+                    SetLog("Installing core database NOT completed.")
+                    MessageBox.Show("Installing server is NOT completed")
+                End If
+
+
+            End If
+        End If
+        Return r
+    End Function
 
 End Class

@@ -1,5 +1,6 @@
 ﻿Imports System.ComponentModel
 Imports System.Data.SqlClient
+Imports System.IO
 Imports ophBox.FunctionList
 
 Public Class addDatabaseFrm
@@ -20,11 +21,21 @@ Public Class addDatabaseFrm
         Dim pipename = curNode.Text
         Dim uid = f.getTag(curNode, "uid")
         Dim pwd = f.getTag(curNode, "pwd")
+        Dim port = f.getTag(curNode, "port")
+        Dim datadb = "oph_core"
+        If Me.TextBox1.Text <> "oph" Then datadb = Me.TextBox1.Text & "_data"
 
         If checkDB(Me.TextBox1.Text, pipename, uid, pwd) Then
-            If addDB(Me.TextBox1.Text, pipename, uid, pwd, "", "") Then
-                Dim x = curNode.Nodes.Add(Me.TextBox1.Text)
-                x.Tag = "type=3;dbname=" & Me.TextBox1.Text & "_data"
+            Dim sqlstr = ""
+            If addDB(Me.TextBox1.Text, pipename, uid, pwd, "", "", port) Then
+                Dim isexists = False
+                For Each n In curNode.Nodes
+                    If n.text = Me.TextBox1.Text Then isexists = True
+                Next
+                If Not isexists Then
+                    Dim x = curNode.Nodes.Add(Me.TextBox1.Text)
+                    x.Tag = "type=3;dbname=" & datadb
+                End If
                 canClose = True
                 Me.Close()
             End If
@@ -39,9 +50,9 @@ Public Class addDatabaseFrm
                 Dim adminID = Me.TextBox2.Text
                 Dim adminPwd = Me.TextBox3.Text
 
-                If addDB(Me.TextBox1.Text, pipename, uid, pwd, adminID, adminPwd) Then
+                If addDB(Me.TextBox1.Text, pipename, uid, pwd, adminID, adminPwd, port) Then
                     Dim x = curNode.Nodes.Add(Me.TextBox1.Text)
-                    x.Tag = "type=3;dbname=" & Me.TextBox1.Text & "_data"
+                    x.Tag = "type=3;dbname=" & datadb
                     canClose = True
                     Me.Close()
                 End If
@@ -50,29 +61,216 @@ Public Class addDatabaseFrm
     End Sub
     Function checkDB(accountid, pipename, uid, pwd) As Boolean
         Dim r = False
+        Dim db = "oph_core"
+        If accountid <> "oph" Then db = accountid & "_data_data"
+
         Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
-        Dim sqlstr = "select name from sys.databases where name='" & accountid & "_data'"
+        Dim sqlstr = "select name from sys.databases where name='" & db & "'"
         Dim x = f.runSQLwithResult(sqlstr, odbc)
         If x <> "" Then r = True
         Return r
     End Function
-    Function addDB(accountid, pipename, uid, pwd, adminid, adminpwd) As Boolean
+    Function addDB(accountid, pipename, uid, pwd, adminid, adminpwd, iisport) As Boolean
         Me.Cursor = Cursors.WaitCursor
         Dim r = False
-        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
-        Dim sqlstr = "if not exists(select * from acct where accountid='" & accountid & "') insert into acct (accountid) values('" & accountid & "')"
-        f.runSQLwithResult(sqlstr, odbc)
+        Dim coreDB = "oph_core"
+        Dim datadb = "oph_core"
+        Dim ophserver = My.Settings.ophServer
+        Dim v4db = ""
+        Dim filedb = ""
+        If accountid <> "oph" Then
+            datadb = accountid & "_data"
+            v4db = accountid & "_v4"
+            filedb = accountid & "_file"
+        End If
+        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd & ""
 
-        'sqlstr = "if not exists(select * from acct where accountid='" & accountid & "') insert into acct (accountid) values('" & accountid & "')"
-        'insert user n password
+        Dim result = f.runSQLwithResult("if not exists(select * from sys.databases where name='" & datadb & "') CREATE DATABASE " & datadb, Odbc)
+        If v4db <> "" Then f.runSQLwithResult("if not exists(select * from sys.databases where name='" & datadb & "') CREATE DATABASE " & v4db, Odbc)
+        If filedb <> "" Then f.runSQLwithResult("if not exists(select * from sys.databases where name='" & filedb & "') CREATE DATABASE " & filedb, Odbc)
+        If result = "" Then
 
+            Dim tuser = "sam"
+            Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
+            Dim c_uri = ophserver & "/oph"
+            Dim ophpath = My.Settings.ophFolder
+            Dim token = ""
+            Do While token = ""
+                token = f.getToken(c_uri, tuser, secret)
+                If token = "" Then
+                    If MessageBox.Show("The connection is failed. Do you want to try again?", "Confirm", MessageBoxButtons.YesNo) = vbYes Then
+                    Else
+                        Exit Do
+                    End If
+                End If
+            Loop
+
+            If token <> "" Then
+                Dim folderTemp = "temp"
+                Dim url = c_uri & "/ophcore/api/sync.aspx?mode=reqcorescript&isnew=1&token=" & token
+                Dim scriptFile1 = ophpath & "\" & folderTemp & "\install_" & accountid & ".sql"
+                f.SetLog(scriptFile1, , True)
+                f.runScript(url, pipename, scriptFile1, datadb, uid, pwd)
+                f.runScript(url, pipename, scriptFile1, datadb, uid, pwd, False)
+                f.runScript(url, pipename, scriptFile1, datadb, uid, pwd, False)
+
+                Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                Dim sqlstr = "select accountguid from acct where accountid='" & accountid & "'"
+                Dim accountguid = f.runSQLwithResult(sqlstr, Odbc)
+
+
+                If accountguid = "" Then
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd & ""
+                    sqlstr = "
+				    if not exists(select * from oph_core.dbo.acct where accountid='" & accountid & "')
+                        insert into oph_core.dbo.acct(accountguid, accountid)
+				        values (newid(), '" & accountid & "')
+
+				    if not exists(
+                        select * from oph_core.dbo.acctdbse d 
+                            inner join oph_core.dbo.acct a on a.accountguid=d.accountguid  
+                        where a.accountid='" & accountid & "' and databasename='" & datadb & "')
+
+                        insert into oph_core.dbo.acctdbse (accountguid, databasename, ismaster, version)
+                        select accountguid, '" & datadb & "', 1, '4.0'
+                        from acct where accountid='" & accountid & "'
+
+				    if not exists(
+                        select * from oph_core.dbo.acctdbse d 
+                            inner join oph_core.dbo.acct a on a.accountguid=d.accountguid  
+                        where a.accountid='" & accountid & "' and databasename='" & accountid & "_v4')
+
+                        insert into oph_core.dbo.acctdbse (accountguid, databasename, ismaster, version)
+                        select accountguid, '" & accountid & "_v4', 0, '4.0'
+                        from acct where accountid='" & accountid & "'
+
+				    if not exists(
+                        select * from oph_core.dbo.acctinfo d 
+                            inner join oph_core.dbo.acct a on a.accountguid=d.accountguid  
+                        where a.accountid='" & accountid & "' and infokey='address')
+
+	                    insert into acctinfo (accountguid, infokey, infovalue)
+                        select accountguid, 'address', 'localhost:" & iisport & "/{accountid}' 
+                        from acct where accountid='" & accountid & "'
+
+				    if not exists(
+                        select * from oph_core.dbo.acctinfo d 
+                            inner join oph_core.dbo.acct a on a.accountguid=d.accountguid  
+                        where a.accountid='" & accountid & "' and infokey='whiteaddress')
+
+	                    insert into acctinfo (accountguid, infokey, infovalue)
+                        select accountguid, 'whiteaddress', 'localhost:" & iisport & "/{accountid}' 
+                        from acct where accountid='" & accountid & "'
+
+				    if not exists(
+                        select * from oph_core.dbo.acctinfo d 
+                            inner join oph_core.dbo.acct a on a.accountguid=d.accountguid  
+                        where a.accountid='" & accountid & "' and infokey='odbc')
+
+	                    insert into acctinfo (accountguid, infokey, infovalue)
+                        select accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & "' 
+                        from acct where accountid='" & accountid & "'
+
+                "
+                Else
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                    sqlstr = "
+				    if not exists(select * from oph_core.dbo.acct where accountid='" & accountid & "')
+                        insert into oph_core.dbo.acct(accountguid, accountid)
+				        values ('" & accountguid & "', '" & accountid & "')
+
+                    insert into oph_core.dbo.acctdbse (accountdbguid, accountguid, databasename, ismaster, version)
+                    select a.accountdbguid, a.accountguid, a.databasename, a.ismaster, a.version 
+                    from acctdbse a
+                         left join oph_core.dbo.acctdbse b on a.accountdbguid=b.accountdbguid
+                    where a.accountguid='" & accountguid & "' and b.accountdbguid is null
+
+                    insert into oph_core.dbo.acctinfo (accountinfoguid, accountguid, infokey, infovalue)
+                    select a.accountinfoguid, a.accountguid, a.infokey, a.infovalue
+                    from acctinfo a
+                         left join oph_core.dbo.acctinfo b on a.accountinfoguid=b.accountinfoguid
+                    where a.accountguid='" & accountguid & "' and b.accountinfoguid is null
+
+                "
+
+                End If
+                f.runSQLwithResult(sqlstr, Odbc)
+
+                Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                sqlstr = "
+                    insert into acct(accountguid, accountid)
+                    select a.accountguid, a.accountid 
+                    from oph_core.dbo.acct a
+                        left join acct b on a.accountid=b.accountid
+                    where a.accountid='" & accountid & "' and b.accountguid is null
+
+                    insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version)    
+                    select i.accountdbguid, i.accountguid, i.databasename, i.ismaster, i.version
+                    from oph_core.dbo.acctdbse i
+                        inner join oph_core.dbo.acct a on a.accountguid=i.accountguid
+                        inner join acct a2 on a2.accountid=a.accountid
+                        left join acctdbse i2 on a2.accountguid=i2.accountguid and i2.accountdbguid=i.accountdbguid
+                    where i2.accountdbguid is null and a.accountid='" & accountid & "'
+
+                    insert into acctinfo (accountinfoguid, accountguid, infokey, infovalue)    
+                    select i.accountinfoguid, i.accountguid, i.infokey, i.infovalue 
+                    from oph_core.dbo.acctinfo i
+                        inner join oph_core.dbo.acct a on a.accountguid=i.accountguid
+                        inner join acct a2 on a2.accountid=a.accountid
+                        left join acctinfo i2 on a2.accountguid=i2.accountguid and i2.accountinfoguid=i.accountinfoguid
+                    where i2.accountinfoguid is null and a.accountid='" & accountid & "'
+                    "
+                f.runSQLwithResult(sqlstr, Odbc)
+
+                url = c_uri & "/ophcore/api/sync.aspx?mode=reqmodules&token=" & token
+                scriptFile1 = ophpath & "\" & folderTemp & "\modules_" & accountid & ".sql"
+                If File.Exists(scriptFile1) Then File.Delete(scriptFile1)
+                Do While Not File.Exists(scriptFile1)
+                    f.downloadFilename(url, scriptFile1)
+
+                    If Not File.Exists(scriptFile1) Then
+                        If MessageBox.Show("The connection is failed. Do you want to try again?", "Confirm", MessageBoxButtons.YesNo) = vbYes Then
+                        Else
+                            Exit Do
+                        End If
+                    End If
+                Loop
+
+                If File.Exists(scriptFile1) Then
+
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                    sqlstr = "exec gen.savemodl @file='" & scriptFile1 & "', @updatemode=11"
+                    f.runSQLwithResult(sqlstr, Odbc)
+                    f.runSQLwithResult(sqlstr, Odbc)
+                    'f.runScript(url, pipename, scriptFile1, datadb, uid, pwd)
+                    If Me.TextBox2.Text <> "" Then
+                        sqlstr = "insert into [user] (accountguid, userid, username, email, password) 
+                        select accountguid, '" & Me.TextBox2.Text & "', '" & Me.TextBox2.Text & "', '" & Me.TextBox2.Text & "@', ''
+                        from acct where accountid='" & accountid & "'
+                        
+                        declare @userguid uniqueidentifier
+                        select @userguid=userguid from [user] where userid='" & Me.TextBox2.Text & "'
+                
+                        exec gen.resetPassword null, '" & Me.TextBox2.Text & "', @userguid, @password='" & Me.TextBox3.Text & "', @accountid='" & accountid & "'
+                        "
+                        f.runSQLwithResult(sqlstr, Odbc)
+                    End If
+                    Dim n = f.addAccounttoIIS(Me.TextBox1.Text, pipename, My.Settings.ophFolder & "\", iisport, False)
+                    r = True
+                End If
+            End If
+        End If
         Me.Cursor = Cursors.Default
-        r = True
         Return r
     End Function
 
     Private Sub addDatabaseFrm_Load(sender As Object, e As EventArgs) Handles Me.Load
+        canClose = False
         Me.TextBox1.Text = ""
+        Me.TextBox2.Text = ""
+        Me.TextBox3.Text = ""
+        Me.TextBox4.Text = ""
+        Me.TextBox1.Select()
 
         Dim curName = mainFrm.TreeView1.SelectedNode.Text
         'If curName = "Servers" Then
@@ -147,8 +345,9 @@ Public Class addDatabaseFrm
         Dim uid = f.getTag(curNode, "uid")
         Dim pwd = f.getTag(curNode, "pwd")
         If checkDB(Me.TextBox1.Text, pipename, uid, pwd) Then
-            Me.TextBox2.Enabled = False
-            Me.TextBox3.Enabled = False
+            'f.runSQLwithResult("select * f)
+            'Me.TextBox2.Enabled = False
+            'Me.TextBox3.Enabled = False
             Me.TextBox4.Enabled = False
         End If
     End Sub
