@@ -200,16 +200,26 @@ Public Class mainFrm
             Dim sqlStr = ""
             Dim r = ""
             If delFile Then
-                sqlStr = "select 'alter database '+databasename+' set single_user with rollback immediate; drop database '+databasename+';' from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "' for xml path('')"
-                Dim delStr = f.runSQLwithResult(sqlStr, odbc)
-                r = f.runSQLwithResult(delStr, odbc)
-            End If
-            sqlStr = "delete from d from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "'"
-            r = f.runSQLwithResult(sqlStr, odbc)
+                If accountid = "oph" Then
+                    odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+                    sqlStr = "drop database oph_core"
+                    Dim delStr = f.runSQLwithResult(sqlStr, odbc)
+                    sqlStr = "select name from sys.databases where name='oph_core'"
+                    r = f.runSQLwithResult(sqlStr, odbc)
+                Else
+                    odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+                    sqlStr = "select 'drop database '+databasename+';' from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "' for xml path('')"
+                    Dim delStr = f.runSQLwithResult(sqlStr, odbc)
+                    sqlStr = "delete from d from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "'"
+                    r = f.runSQLwithResult(sqlStr, odbc)
 
-            sqlStr = "delete from acct where accountid='" & accountid & "'"
-            r = f.runSQLwithResult(sqlStr, odbc)
-            rs = True
+                    sqlStr = "delete from acct where accountid='" & accountid & "'"
+                    r = f.runSQLwithResult(sqlStr, odbc)
+                End If
+            End If
+            If r = "" Then
+                rs = True
+            End If
         End If
         Return rs
     End Function

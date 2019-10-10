@@ -105,6 +105,7 @@ Public NotInheritable Class FunctionList
         Finally
             myCommand.Connection.Close()
             myConnection.Close()
+            myConnection.Dispose()
         End Try
         Return result
     End Function
@@ -645,8 +646,9 @@ Public NotInheritable Class FunctionList
 
                 If createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
                     Dim x = mainFrm.TreeView1.SelectedNode
-                    If getTag(mainFrm.TreeView1.SelectedNode, "type") = "1" Then
-                        x = mainFrm.TreeView1.SelectedNode.Nodes.Add(pipename)
+                    If (IsNothing(x)) Then x = mainFrm.TreeView1.Nodes(0)
+                    If getTag(x, "type") = "1" Then
+                        x = x.Nodes.Add(pipename)
                     End If
                     x.Tag = "type=2;mode=instance;uid=" & uid & ";pwd=" & pwd & ";port=" & iisport
                     x.Nodes.Clear()
@@ -655,6 +657,7 @@ Public NotInheritable Class FunctionList
 
                     SetLog("Installing core database completed.")
                     MessageBox.Show("Installing server is completed")
+                    r = True
                 Else
                     SetLog("Installing core database NOT completed.")
                     MessageBox.Show("Installing server is NOT completed")
