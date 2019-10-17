@@ -169,7 +169,8 @@ Public Class addServerFrm
     End Sub
 
     Private Sub TextBox1_TextChanged(sender As Object, e As EventArgs) Handles TextBox1.TextChanged
-        If Me.TextBox1.Text.IndexOf(".") >= 0 Then
+
+        If Me.TextBox1.Text.IndexOf(".") = 0 Then
             Me.TextBox1.Text = Me.TextBox1.Text.Replace(".", "(local)")
         End If
     End Sub
