@@ -20,7 +20,7 @@ Public Class settingFrm
             My.Settings.LocalPwd = Me.TextBox5.Text
             My.Settings.isIISExpress = Me.CheckBox1.Checked
             My.Settings.IISPort = Me.TextBox6.Text
-
+            My.Settings.isSQLAuth = Me.RadioButton2.Checked
             My.Settings.Save()
         End If
 
@@ -30,7 +30,7 @@ Public Class settingFrm
                 If Not Directory.Exists(Me.TextBox1.Text) Then Directory.CreateDirectory(Me.TextBox1.Text)
                 If Not Directory.Exists(Me.TextBox1.Text & "\temp") Then Directory.CreateDirectory(Me.TextBox1.Text & "\temp")
                 If Not Directory.Exists(Me.TextBox1.Text & "\data") Then Directory.CreateDirectory(Me.TextBox1.Text & "\data")
-                Dim gitLoc = getGITLocation(Me.TextBox1.Text)
+                'Dim gitLoc = getGITLocation(Me.TextBox1.Text)
 
                 Dim localFile1 = ophPath & "\temp\sync.zip"
 
@@ -43,7 +43,7 @@ Public Class settingFrm
                     End If
                 End If
                 If errStr = "" Then
-                    f.runCmd(ophPath & "\temp" & "\build-oph.bat", ophPath)
+                    f.runCmd(ophPath & "\temp" & "\build-oph.bat", ophPath, True)
                     If Not Directory.Exists(ophPath & "\operahouse") Then
                         errStr = "Folder Building is failed"
                     Else
@@ -62,7 +62,7 @@ Public Class settingFrm
             Dim pipename = My.Settings.localServer
             Dim uid = My.Settings.localUserID
             Dim pwd = My.Settings.LocalPwd
-            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
             Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
             Dim iisport = Me.TextBox6.Text
             Dim accountid = "oph"
@@ -161,6 +161,11 @@ Public Class settingFrm
         Me.TextBox5.Text = My.Settings.LocalPwd
         Me.TextBox6.Text = My.Settings.IISPort
         Me.CheckBox1.Checked = My.Settings.isIISExpress
+        If My.Settings.isSQLAuth Then
+            Me.RadioButton2.Checked = True
+        Else
+            Me.RadioButton1.Checked = True
+        End If
         Me.TextBox1.Select()
 
     End Sub
@@ -232,6 +237,21 @@ Public Class settingFrm
         If Me.TextBox3.Text.IndexOf(".") >= 0 Then
             Me.TextBox3.Text = Me.TextBox3.Text.Replace(".", "(local)")
         End If
+
+    End Sub
+
+    Private Sub RadioButton1_CheckedChanged(sender As Object, e As EventArgs) Handles RadioButton1.CheckedChanged
+        'Me.RadioButton1.Checked = True
+        'Me.RadioButton2.Checked = False
+        Me.TextBox4.Enabled = False
+        Me.TextBox5.Enabled = False
+    End Sub
+
+    Private Sub RadioButton2_CheckedChanged(sender As Object, e As EventArgs) Handles RadioButton2.CheckedChanged
+        'Me.RadioButton1.Checked = False
+        'Me.RadioButton2.Checked = True
+        Me.TextBox4.Enabled = True
+        Me.TextBox5.Enabled = True
 
     End Sub
 End Class

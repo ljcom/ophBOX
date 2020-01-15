@@ -11,7 +11,9 @@ Public Class addServerFrm
     End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
-        Me.TextBox1.Text = Replace(Me.TextBox1.Text, ".", "(local)")
+        If Me.TextBox1.Text.Substring(0, 1) = "." Then
+            Me.TextBox1.Text = Replace(Me.TextBox1.Text, ".", "(local)")
+        End If
         If Val(Me.TextBox4.Text) < 8080 Or Val(Me.TextBox4.Text) > 8100 Then
             MessageBox.Show("Please use port between 8080 and 8100.", "Error")
         ElseIf Not checkPort(Me.TextBox1.Text, Me.TextBox4.Text) Then
@@ -169,18 +171,18 @@ Public Class addServerFrm
     End Sub
 
     Private Sub TextBox1_TextChanged(sender As Object, e As EventArgs) Handles TextBox1.TextChanged
-
-        If Me.TextBox1.Text.IndexOf(".") = 0 Then
-            Me.TextBox1.Text = Me.TextBox1.Text.Replace(".", "(local)")
+        If Me.TextBox1.Text <> "" Then
+            If Me.TextBox1.Text.Substring(0, 1) = "." Then
+                Me.TextBox1.Text = Me.TextBox1.Text.Replace(".", "(local)")
+            End If
         End If
     End Sub
 
     Private Sub TextBox1_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBox1.KeyPress
         If TextBox1.Text.IndexOf("://") > 0 Then
-            Me.RadioButton2.Checked = True
+            If Not Me.RadioButton2.Checked Then Me.RadioButton2.Checked = True
         Else
-            Me.RadioButton1.Checked = True
-
+            If Not Me.RadioButton1.Checked Then Me.RadioButton1.Checked = True
         End If
     End Sub
 
@@ -206,9 +208,8 @@ Public Class addServerFrm
             Me.Label1.Text = "URL"
             Me.Label2.Text = "User ID"
             Me.Label3.Text = "Secret"
-            Me.Label4.Visible = False
-            Me.TextBox4.Visible = False
+            'Me.Label4.Visible = False
+            'Me.TextBox4.Visible = False
         End If
-
     End Sub
 End Class

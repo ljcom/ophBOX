@@ -1,4 +1,5 @@
 ﻿Imports System.ComponentModel
+Imports System.Data.SqlClient
 Imports System.IO
 Imports Newtonsoft.Json
 Imports ophBox.FunctionList
@@ -8,32 +9,217 @@ Public Class mainFrm
     Private eventHandled As Boolean = False
     Private elapsedTime As Integer
     Private iisId As Long
+    Private curDB As String
+    Private curServer As String
+    Private curUID As String
+    Private curPwd As String
+    Private curODBC As String
+    Private curTable As String
+    Private ds As DataSet
+    Private dsClone As DataSet
+    Private sqlDA As SqlDataAdapter
+    Private parentField As String
+    Private parentValue As String
+    Private handleNew = False
+    Private prevRow As Integer
+    Private prevCell As Integer
+    Private curTag As String
     Dim activePort As Dictionary(Of String, Long) = New Dictionary(Of String, Long)
+    Dim isLoading = False
+    Private Sub mainFrm_Load(sender As Object, e As EventArgs) Handles Me.Load
+        If My.Settings.ophFolder = "" Or Not Directory.Exists(My.Settings.ophFolder & "\OPERAHOUSE") Then
+            settingFrm.ShowDialog()
+            If Not Directory.Exists(My.Settings.ophFolder & "\OPERAHOUSE") Then
+                End
+            End If
+        Else
+            refreshServers()
+
+        End If
+    End Sub
+
+    Sub selectNode(node As TreeNode)
+        changeContext(node)
+        Dim showListView = False
+        Me.ListView1.Items.Clear()
+        Dim i = f.getTag(node, "type")
+        If i = 2 Then 'server
+            curServer = node.Text
+            curUID = f.getTag(node, "uid")
+            curPwd = f.getTag(node, "pwd")
+            showListView = True
+        ElseIf i = 3 Then
+            curDB = node.Text & IIf(node.Text = "oph", "_core", "_data")
+            'Dim accountid = node.Text
+            'Me.WebBrowser1.Visible = True
+            'Me.ListView1.Visible = False
+            'Me.WebBrowser1.ScriptErrorsSuppressed = False
+            'Me.WebBrowser1.Navigate("http://localhost:8080/" & accountid)
+            showListView = True
+        ElseIf i = 10 Then  'module
+            For Each n In node.Nodes
+                Dim ix = f.getTag(n, "type")
+
+                If ix = 100 Then  'core
+                    retrieveModules(n, 0, "")
+                ElseIf ix = 101 Then  'master
+                    retrieveModules(n, 1, "")
+                ElseIf ix = 104 Then  'transaction
+                    retrieveModules(n, 4, "")
+                ElseIf ix = 105 Then  'report
+                    retrieveModules(n, 5, "")
+                ElseIf ix = 106 Then  'blank
+                    retrieveModules(n, 6, "")
+                ElseIf ix = 107 Then  'view
+                    retrieveModules(n, 7, "")
+                ElseIf ix = 108 Then  'msta
+                    retrieveModuleStatus(n)
+                ElseIf ix = 109 Then  'modg
+                    retrieveModuleGroup(n)
+                End If
+            Next
+            showListView = True
+        ElseIf i = 100 Then  'core
+            retrieveModules(node, 0, "")
+        ElseIf i = 101 Then  'master
+            retrieveModules(node, 1, "")
+        ElseIf i = 104 Then  'transaction
+            retrieveModules(node, 4, "")
+        ElseIf i = 105 Then  'report
+            retrieveModules(node, 5, "")
+        ElseIf i = 106 Then  'blank
+            retrieveModules(node, 6, "")
+        ElseIf i = 107 Then  'view
+            retrieveModules(node, 7, "")
+        ElseIf i = 108 Then  'module status
+            retrieveModuleStatus(node)
+        ElseIf i = 1080 Then  'module status
+            retrieveModuleStatusStatus(node)
+        ElseIf i = 109 Then  'module group
+            retrieveModuleGroup(node)
+        ElseIf i = 1090 Then  'module group
+            retrieveModulegroupInfo(node)
+        ElseIf i = 1000 Then
+            For Each n In node.Nodes
+                Dim ix = f.getTag(n, "type")
+                If ix = 10001 Then
+                    retrieveModuleColumn(n, node.Parent.Text)
+                ElseIf ix = 10003 Then
+                    retrieveModuleChildren(n, node.Parent.Text)
+                End If
+            Next
+            retrieveModuleInfo(node, node.Text)
+
+        ElseIf i = 10002 Then
+            retrieveModuleInfo(node, node.Parent.Text)
+        ElseIf i = 10003 Then
+            'retrieveModuleInfo(node, node.Parent.Text)
+            retrieveModules(node, 0, node.Text)
+        ElseIf i = 10001 Then
+            retrieveModuleColumn(node, node.Parent.Text)
+            'ElseIf i = 10003 Then
+            'retrieveModuleChildren(node.Parent.Text)
+        ElseIf i = 10004 Then
+            retrieveModuleApprovals(node, node.Parent.Text)
+        ElseIf i = 10005 Then
+            retrieveModuleNumbering(node, node.Parent.Text)
+        ElseIf i = 10006 Then
+            retrieveModuleMail(node, node.Parent.Text)
+        ElseIf i = 100010 Then
+            retrieveModuleColumnInfo(node, node.Parent.Parent.Text, node.Text)
+        ElseIf i = 11 Then  'security
+            For Each n In node.Nodes
+                Dim ix = f.getTag(n, "type")
+                If ix = 110 Then
+                    retrieveUser(n)
+                ElseIf ix = 111 Then
+                    retrieveUserGroup(n)
+                End If
+            Next
+            showListView = True
+        ElseIf i = 110 Then  'user
+            retrieveUser(node)
+        ElseIf i = 1100 Then  'user
+            retrieveUserInfo(node)
+        ElseIf i = 111 Then  'user group
+            retrieveUserGroup(node)
+        ElseIf i = 1110 Then  'user group
+            retrieveUserGroupModule(node)
+
+        ElseIf i = 12 Then  'interfaces
+            For Each n In node.Nodes
+                Dim ix = f.getTag(n, "type")
+                If ix = 120 Then
+                    retrieveTheme(n)
+                ElseIf ix = 121 Then
+                    retrieveMenu(n)
+                ElseIf ix = 122 Then
+                    retrieveTranslator(n)
+                End If
+            Next
+            showListView = True
+        ElseIf i = 120 Then  'theme
+            retrieveTheme(node)
+        ElseIf i = 1200 Then  'theme
+            retrieveThemePage(node)
+        ElseIf i = 121 Then  'menu
+            retrieveMenu(node)
+        ElseIf i = 1210 Then  'menu
+            retrieveMenuSmnu(node)
+        ElseIf i = 122 Then  'translator
+            retrieveTranslator(node)
+        ElseIf i = 1220 Then  'translator
+            retrieveTranslatorLang(node)
+        ElseIf i = 13 Then  'account
+            For Each n In node.Nodes
+                Dim ix = f.getTag(n, "type")
+                If ix = 131 Then
+                    'retrieveDB(n)
+                ElseIf ix = 132 Then
+                    retrievePar(n)
+                ElseIf ix = 133 Then
+                    'retrieveWidget(n)
+                ElseIf ix = 134 Then
+                    'retrieveMail(n)
+                End If
+            Next
+            Dim sqlstr = "select accountinfoguid, accountguid, infokey, infovalue from acctinfo order by infokey"
+            curTable = "accinfo"
+            loadInfo(node, sqlstr, "accountguid")
+            'ElseIf i = 130 Then  'info
+        ElseIf i = 131 Then  'databases
+            retrieveDB(node)
+        ElseIf i = 132 Then  'parameters
+            retrievePar(node)
+        ElseIf i = 133 Then  'widgets
+            retrieveWidget(node)
+        ElseIf i = 134 Then  'mail
+            retrieveMail(node)
+        ElseIf i = 1320 Then  'parameters
+            retrieveParInfo(node)
+        Else
+            showListView = True
+        End If
+        If showListView Then
+            Me.WebBrowser1.Visible = False
+            Me.DataGridView1.Visible = False
+            Me.ListView1.Visible = True
+            For Each n In node.Nodes
+                Dim x = Me.ListView1.Items.Add(n.text)
+                x.ImageIndex = Val(i) - 1
+            Next
+
+        End If
+
+    End Sub
+    Private Sub TreeView1_AfterSelect(sender As Object, e As TreeViewEventArgs) Handles TreeView1.AfterSelect
+        selectNode(e.Node)
+    End Sub
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         Me.Close()
     End Sub
 
-    Private Sub TreeView1_AfterSelect(sender As Object, e As TreeViewEventArgs) Handles TreeView1.AfterSelect
-        changeContext(e.Node)
-
-        Me.ListView1.Items.Clear()
-        Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
-        If i = 3 Then
-            'Dim accountid = Me.TreeView1.SelectedNode.Text
-            'Me.WebBrowser1.Visible = True
-            'Me.ListView1.Visible = False
-            'Me.WebBrowser1.ScriptErrorsSuppressed = False
-            'Me.WebBrowser1.Navigate("http://localhost:8080/" & accountid)
-        Else
-            Me.WebBrowser1.Visible = False
-            Me.ListView1.Visible = True
-            For Each n In Me.TreeView1.SelectedNode.Nodes
-                Dim x = Me.ListView1.Items.Add(n.text)
-                x.ImageIndex = Val(i) - 1
-            Next
-        End If
-    End Sub
 
     Private Sub TreeView1_NodeMouseClick(sender As Object, e As TreeNodeMouseClickEventArgs) Handles TreeView1.NodeMouseClick
         TreeView1.SelectedNode = e.Node
@@ -65,6 +251,365 @@ Public Class mainFrm
         End If
     End Sub
 
+    Function loadData(nodbc As TreeNode, sqlstr As String, pf As String, pfval As String) As Boolean
+        Dim pipename = f.getTag(nodbc, "server") 'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
+        Dim accountid = f.getTag(nodbc, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
+        Dim db = "oph_core"
+        If accountid <> "oph" Then
+            db = accountid & "_data"
+        End If
+
+        Dim uid = f.getTag(nodbc, "uid")
+        Dim pwd = f.getTag(nodbc, "pwd")
+        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=" & db & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+        curODBC = Odbc
+
+        If pf = "accountguid" Then
+            pfval = f.runSQLwithResult("select accountguid from acct where accountid='" & accountid & "'", curODBC)
+        End If
+        Dim dt As DataTable = New DataTable
+        parentField = pf
+        parentValue = pfval
+        Return f.setDS(ds, sqlDA, sqlstr, Odbc)
+    End Function
+
+    Sub loadInfo(n As TreeNode, sqlstr As String, Optional pf As String = "", Optional pfval As String = "")
+        If loadData(n, sqlstr, pf, pfval) Then
+            isLoading = True
+            Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
+            Me.WebBrowser1.Visible = False
+            Me.ListView1.Visible = False
+            Me.DataGridView1.Visible = True
+            Me.DataGridView1.DataSource = ds.Tables(0)
+            dsClone = ds.Copy
+            Dim c As DataGridViewColumn = Me.DataGridView1.Columns(0)
+            c.Visible = False
+            For z = 0 To Me.DataGridView1.Columns.Count - 1
+                If Me.DataGridView1.Columns(z).Name = parentField Then
+                    Me.DataGridView1.Columns(z).Visible = False
+                End If
+                Me.DataGridView1.Columns(z).AutoSizeMode = IIf(z = Me.DataGridView1.Columns.Count - 1, DataGridViewAutoSizeColumnMode.Fill, DataGridViewAutoSizeColumnMode.AllCells)
+            Next
+            If curTag <> i Then
+                prevRow = Me.DataGridView1.Rows.Count - 1
+                If prevRow >= 0 Then
+                    prevCell = 2
+                    Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
+                End If
+            End If
+            curTag = i
+            isLoading = False
+
+        Else
+            'error
+        End If
+    End Sub
+    Sub loadDetail(n As TreeNode, sqlstr As String, m As TreeNode, Optional detailFlag As String = "0", Optional pf As String = "", Optional pfval As String = "")
+        If loadData(n, sqlstr, pf, pfval) Then
+            isLoading = True
+            Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
+            If i = detailFlag.Substring(0, detailFlag.Length - 1) Then
+                Me.WebBrowser1.Visible = False
+                Me.ListView1.Visible = False
+                Me.DataGridView1.Visible = True
+                Me.DataGridView1.DataSource = ds.Tables(0)
+                dsClone = ds.Copy
+                Dim c As DataGridViewColumn = Me.DataGridView1.Columns(0)
+                c.Visible = False
+                For z = 0 To Me.DataGridView1.Columns.Count - 1
+                    If Me.DataGridView1.Columns(z).Name = parentField Then
+                        Me.DataGridView1.Columns(z).Visible = False
+                    End If
+                    Me.DataGridView1.Columns(z).AutoSizeMode = IIf(z = Me.DataGridView1.Columns.Count - 1, DataGridViewAutoSizeColumnMode.Fill, DataGridViewAutoSizeColumnMode.AllCells)
+                Next
+                If curTag <> i Then
+                    prevRow = Me.DataGridView1.Rows.Count - 1
+                    If prevRow >= 0 Then
+                        prevCell = 2
+                        Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
+                    End If
+                End If
+                isLoading = False
+            End If
+            m.Nodes.Clear()
+            Dim dt = ds.Tables(0)
+            For ix As Integer = 0 To dt.Rows.Count - 1
+                Dim r As String = dt.Rows(ix).Item(2).ToString()
+                Dim guid1 As String = dt.Rows(ix).Item(0).ToString()
+                Dim t = m.Nodes.Add(r)
+                t.Tag = "type=" & detailFlag & ";guid=" & guid1
+                'Dim tc = t.Nodes.Add("Info")
+                'tc.Tag = "type=100011"
+            Next ix
+        Else
+            'error
+        End If
+    End Sub
+    Sub setCombo(dgv As DataGridView, sqlstr As String, odbc As String, col As Integer, fieldguid As String, fieldname As String)
+        Dim combo As DataTable
+        combo = f.SelectSqlSrvRows(sqlstr, odbc)
+
+
+        For z = 0 To Me.DataGridView1.Rows.Count - 1
+            Dim dgvcc As New DataGridViewComboBoxCell
+            With dgvcc
+                .DataSource = combo
+                .ValueMember = fieldguid
+                .DisplayMember = fieldname
+                .ValueType = GetType(Guid)
+            End With
+            dgv.Item(col, z) = dgvcc
+        Next
+    End Sub
+    Sub retrieveModules(n As TreeNode, settingmode As String, parentcode As String)
+        Dim pipename = f.getTag(n, "server") 'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
+        Dim accountid = f.getTag(n, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
+        Dim db = "oph_core"
+        If accountid <> "oph" Then
+            db = accountid & "_data"
+        End If
+        'Dim db = f.getTag(Me.TreeView1.SelectedNode.Parent, "db")
+
+        Dim uid = f.getTag(n, "uid") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "uid")
+        Dim pwd = f.getTag(n, "pwd") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "pwd")
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim filter = IIf(parentcode = "", "parentmoduleguid is null and settingmode=" & settingmode, "parentmoduleguid='" & guid & "'")
+        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=" & db & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+        curODBC = Odbc
+        Dim sqlstr = "select moduleguid, accountguid, moduleid, moduledescription, settingmode, accountdbguid, parentmoduleguid, orderno, needlogin, themepageguid, modulestatusguid, modulegroupguid from modl where " & filter & " order by moduleid"
+        curTable = "modl"
+        parentField = "accountguid"
+        parentValue = f.runSQLwithResult("select accountguid from acct where accountid='" & accountid & "'", curODBC)
+
+        If f.setDS(ds, sqlDA, sqlstr, Odbc) Then
+            Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
+            If i >= 100 And i <= 107 Or i = 10003 Then
+                Me.WebBrowser1.Visible = False
+                Me.ListView1.Visible = False
+                Me.DataGridView1.Visible = True
+                Me.DataGridView1.DataSource = ds.Tables(0)
+
+                sqlstr = "select accountdbguid, databasename from acctdbse"
+                setCombo(Me.DataGridView1, sqlstr, Odbc, 5, "accountdbguid", "databasename")
+                sqlstr = "select moduleguid, moduleid from modl"
+                setCombo(Me.DataGridView1, sqlstr, Odbc, 6, "moduleguid", "moduleid")
+                sqlstr = "select themepageguid, themecode+' - '+pageurl name from thmepage p inner join thme t on t.themeguid=p.themeguid"
+                setCombo(Me.DataGridView1, sqlstr, Odbc, 9, "themepageguid", "name")
+                sqlstr = "select modulestatusguid, modulestatusname from msta"
+                setCombo(Me.DataGridView1, sqlstr, Odbc, 10, "modulestatusguid", "modulestatusname")
+                sqlstr = "select modulegroupguid, modulegroupid from modg"
+                setCombo(Me.DataGridView1, sqlstr, Odbc, 11, "modulegroupguid", "modulegroupid")
+                If Me.DataGridView1.Columns.Count > 0 Then
+                    Dim c As DataGridViewColumn = Me.DataGridView1.Columns(0)
+                    c.Visible = False
+                    For z = 0 To Me.DataGridView1.Columns.Count - 1
+                        If Me.DataGridView1.Columns(z).Name = parentField Then
+                            Me.DataGridView1.Columns(z).Visible = False
+                        End If
+                        Me.DataGridView1.Columns(z).AutoSizeMode = IIf(z = Me.DataGridView1.Columns.Count - 1, DataGridViewAutoSizeColumnMode.Fill, DataGridViewAutoSizeColumnMode.AllCells)
+                    Next
+                End If
+                If curTag <> i Then
+                    prevRow = Me.DataGridView1.Rows.Count - 1
+                    If prevRow >= 0 Then
+                        prevCell = 2
+                        Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
+                    End If
+                End If
+                curTag = i
+
+            End If
+            n.Nodes.Clear()
+            Dim dt = ds.Tables(0)
+            For ix As Integer = 0 To dt.Rows.Count - 1
+                Dim r As String = dt.Rows(ix).Item(2).ToString()
+                Dim guid1 As String = dt.Rows(ix).Item(0).ToString()
+                Dim t = n.Nodes.Add(r)
+                t.Tag = "type=1000;guid=" & guid1
+                Dim tc = t.Nodes.Add("Columns")
+                tc.Tag = "type=10001"
+                'Dim ti = t.Nodes.Add("Info")
+                'ti.Tag = "type=10002"
+                Dim tm = t.Nodes.Add("Children")
+                'tm.Tag = "type=10003"
+                tm.Tag = "type=10003;server=" & pipename & ";db=" & accountid & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim ta = t.Nodes.Add("Approvals")
+                ta.Tag = "type=10004"
+                Dim tn = t.Nodes.Add("Numbering")
+                tn.Tag = "type=10005"
+                Dim tl = t.Nodes.Add("Mails")
+                tl.Tag = "type=10006"
+            Next ix
+        End If
+
+    End Sub
+    Sub retrieveModuleInfo(n As TreeNode, code As String)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select moduleinfoguid, moduleguid, infokey, infovalue from modlinfo where moduleguid='" & guid & "' order by infokey"
+        curTable = "modlinfo"
+        loadInfo(n.Parent, sqlstr, "moduleguid", guid)
+    End Sub
+
+    Sub retrieveModuleColumn(n As TreeNode, code As String)
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim sqlstr = "select columnguid, moduleguid, colkey, coltype, titleCaption, colOrder, collength from modlcolm where moduleguid='" & guid & "' order by colOrder"
+        curTable = "modlcolm"
+        loadDetail(n.Parent.Parent, sqlstr, n, 100010, "moduleguid", guid)
+    End Sub
+    Sub retrieveModuleApprovals(n As TreeNode, code As String)
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim sqlstr = "select ApprovalGUID, ModuleGUID, ApprovalGroupGUID, UpperGroupGUID, Lvl, SQLfilter, ZoneGroup from modlappr where moduleguid='" & guid & "'"
+        curTable = "modlappr"
+        loadInfo(n.Parent.Parent, sqlstr, "moduleguid", guid)
+        sqlstr = "select ugroupguid, groupid from ugrp"
+        setCombo(Me.DataGridView1, sqlstr, curODBC, 2, "ugroupguid", "groupid")
+        setCombo(Me.DataGridView1, sqlstr, curODBC, 3, "ugroupguid", "groupid")
+
+    End Sub
+    Sub retrieveModuleNumbering(n As TreeNode, code As String)
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim sqlstr = "select DocNumberGUID, ModuleGUID, Format, Month, No from modldocn where moduleguid='" & guid & "'"
+        curTable = "modldocn"
+        loadInfo(n.Parent.Parent, sqlstr, "moduleguid", guid)
+    End Sub
+    Sub retrieveModuleMail(n As TreeNode, code As String)
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim sqlstr = "select ModuleMailGUID, ModuleGUID, MailGUID, ActionGUID, TokenStatus, Additional, CC, Subject, Body, ReportAttachment, DefinedTable from modlmail where moduleguid='" & guid & "'"
+        curTable = "modlmail"
+        loadInfo(n.Parent.Parent, sqlstr, "moduleguid", guid)
+        sqlstr = "select mailguid, profilename from mail"
+        setCombo(Me.DataGridView1, sqlstr, curODBC, 2, "mailguid", "profilename")
+
+    End Sub
+
+    Sub retrieveModuleChildren(n As TreeNode, code As String)
+        retrieveModules(n, 0, code)
+
+    End Sub
+    Sub retrieveModuleColumnInfo(n As TreeNode, code As String, colkey As String)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select columninfoguid, columnguid, infokey, infovalue from modlcolminfo where columnguid='" & guid & "' order by infokey"
+        curTable = "modlcolminfo"
+
+        loadInfo(n.Parent.Parent.Parent, sqlstr, "columnguid", guid)
+    End Sub
+
+    Sub retrieveModuleStatus(n As TreeNode)
+        Dim sqlstr = "select modulestatusguid, accountguid, modulestatusname, modulestatusdescription from msta"
+        curTable = "msta"
+        loadDetail(n, sqlstr, n, 1080, "accountguid")
+    End Sub
+
+    Sub retrieveModuleStatusStatus(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select modulestatusdetailguid, modulestatusguid, stateid, statecode, statename, statedesc, isdefault from mstastat where modulestatusguid='" & guid & "'"
+        curTable = "mstastat"
+        loadInfo(n.Parent, sqlstr, "modulestatusguid", guid)
+    End Sub
+
+    Sub retrieveModuleGroup(n As TreeNode)
+        Dim sqlstr = "select modulegroupguid, accountguid, modulegroupid, modulegroupname, modulegroupdescription from modg"
+        curTable = "modg"
+        loadDetail(n, sqlstr, n, 1090, "accountguid")
+    End Sub
+
+    Sub retrieveModulegroupInfo(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select envinfoguid, modulegroupguid, infokey, infovalue from modginfo where modulegroupguid='" & guid & "' order by infokey"
+        curTable = "modginfo"
+        loadInfo(n.Parent, sqlstr, "modulegroupguid", guid)
+    End Sub
+    Sub retrieveUser(n As TreeNode)
+        Dim sqlstr = "select userGUID, accountguid, userId, userName, email, autologin, expirypwd, userprofilepath from [user]"
+        curTable = "user"
+        loadDetail(n.Parent, sqlstr, n, 1100, "accountguid")
+    End Sub
+    Sub retrieveUserInfo(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select userinfoguid, userguid, infokey, infovalue from userinfo where userguid='" & guid & "' order by infokey"
+        curTable = "userinfo"
+        loadInfo(n.Parent.Parent, sqlstr, "userguid", guid)
+    End Sub
+
+    Sub retrieveUserGroup(n As TreeNode)
+        Dim sqlstr = "select ugroupguid, accountguid, groupid, groupdescription from ugrp"
+        curTable = "ugrp"
+        loadDetail(n.Parent, sqlstr, n, 1110, "accountguid")
+    End Sub
+    Sub retrieveUserGroupModule(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select accessguid, groupguid, moduleguid, allowaccess, allowadd, allowedit, allowdelete, allowforce, allowwipe from ugrpmodl where ugroupguid='" & guid & "' order by moduleguid"
+        curTable = "ugrpmodl"
+        loadInfo(n.Parent.Parent, sqlstr, "groupguid", guid)
+    End Sub
+
+    Sub retrieveTheme(n As TreeNode)
+        Dim sqlstr = "select themeGUID, accountguid, themecode, themename, themefolder from thme"
+        curTable = "thme"
+        loadDetail(n.Parent, sqlstr, n, 1200, "accountguid")
+    End Sub
+    Sub retrieveThemePage(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select themepageguid, themeguid, pageurl, isdefault from thmepage where themeguid='" & guid & "'"
+        curTable = "thmepage"
+        loadInfo(n.Parent.Parent, sqlstr, "themeguid", guid)
+    End Sub
+    Sub retrieveMenu(n As TreeNode)
+        Dim sqlstr = "select menuguid, accountguid, menucode, menudescription from menu"
+        curTable = "menu"
+        loadDetail(n.Parent, sqlstr, n, 1210, "accountguid")
+    End Sub
+    Sub retrieveMenuSmnu(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select menudetailguid, menuguid, submenudescription, tag, url, orderno, caption, type, uppersubmenuguid, icon_fa, icon_url from menusmnu where menuguid='" & guid & "'"
+        curTable = "menusmnu"
+        loadInfo(n.Parent.Parent, sqlstr, "menuguid", guid)
+        sqlstr = "select menudetailguid, submenudescription from menusmnu"
+        setCombo(Me.DataGridView1, sqlstr, curODBC, 8, "menudetailguid", "submenudescription")
+    End Sub
+    Sub retrieveTranslator(n As TreeNode)
+        Dim sqlstr = "select wordguid, accountguid, originstatements from word"
+        curTable = "word"
+        loadDetail(n.Parent, sqlstr, n, 1220, "accountguid")
+    End Sub
+    Sub retrieveTranslatorLang(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select translateguid, wordguid, langid, translationwords from wordlang where wordguid='" & guid & "'"
+        curTable = "wordlang"
+        loadInfo(n.Parent.Parent, sqlstr, "wordguid", guid)
+    End Sub
+
+    Sub retrieveDB(n As TreeNode)
+        Dim sqlstr = "select accountdbguid, accountguid, databasename, ismaster, version from acctdbse"
+        curTable = "acctdbse"
+        loadInfo(n.Parent, sqlstr, "accountguid")
+    End Sub
+    Sub retrievePar(n As TreeNode)
+        Dim sqlstr = "select parameterguid, accountguid, parameterid, parameterdescription from para"
+        curTable = "para"
+        loadDetail(n.Parent, sqlstr, n, 1320, "accountguid")
+    End Sub
+
+    Sub retrieveParInfo(n As TreeNode)
+        Dim guid = f.getTag(n, "guid")
+        Dim sqlstr = "select parametervalueguid, parameterguid, parametervalue, parameterdescription from paravalu where parameterguid='" & guid & "'"
+        curTable = "paravalu"
+        loadInfo(n.Parent.Parent, sqlstr, "parameterguid", guid)
+    End Sub
+    Sub retrieveWidget(n As TreeNode)
+        Dim sqlstr = "select widgetguid, accountguid, widgetid, widgetdescription, sqlstr from widg"
+        curTable = "widg"
+        loadInfo(n.Parent, sqlstr, "accountguid")
+
+    End Sub
+
+    Sub retrieveMail(n As TreeNode)
+        Dim sqlstr = "select mailguid, accountguid, profilename, description, accountname, emailaddress, displayname, mailservername, port, timeout, bcc from mail"
+        curTable = "mail"
+        loadInfo(n.Parent, sqlstr, "accountguid")
+    End Sub
+
+
     Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
         settingFrm.ShowDialog()
     End Sub
@@ -84,35 +629,79 @@ Public Class mainFrm
         saveTree()
     End Sub
 
-    Private Sub mainFrm_Load(sender As Object, e As EventArgs) Handles Me.Load
-        If My.Settings.ophFolder = "" Or Not Directory.Exists(My.Settings.ophFolder & "\OPERAHOUSE") Then
-            settingFrm.ShowDialog()
-            If Not Directory.Exists(My.Settings.ophFolder & "\OPERAHOUSE") Then
-                End
-            End If
-        Else
-            Dim treeData = My.Settings.treeData
-            If treeData = "" Then treeData = "{servers:[]}"
 
-            Dim jsonResulttodict = JsonConvert.DeserializeObject(Of Dictionary(Of String, Object))(treeData)
-            Dim servers = jsonResulttodict.Item("servers")
-            Dim tag = jsonResulttodict.Item("tag")
-            Dim t = New TreeNode("Servers")
-            t.Tag = tag
+    Sub refreshServers()
+        Dim treeData = My.Settings.treeData
+        If treeData = "" Then treeData = "{servers:[]}"
 
-            For Each serverData In servers
-                Dim d = t.Nodes.Add(serverData("server").value)
-                d.tag = serverData("tag").value
-                For Each dbData In serverData("dbs")
-                    Dim c = d.Nodes.Add(dbData("db").value)
-                    c.tag = dbData("tag").value
-                Next
+        Dim jsonResulttodict = JsonConvert.DeserializeObject(Of Dictionary(Of String, Object))(treeData)
+        Dim servers = jsonResulttodict.Item("servers")
+        Dim tag = jsonResulttodict.Item("tag")
+        Dim t = New TreeNode("Servers")
+        t.Tag = tag
+        For Each serverData In servers
+            Dim d = t.Nodes.Add(serverData("server").value)
+            d.tag = serverData("tag").value
+            Dim uid = f.getTag(d, "uid")
+            Dim pwd = f.getTag(d, "pwd")
+            For Each dbData In serverData("dbs")
+                Dim c = d.Nodes.Add(dbData("db").value)
+                c.tag = dbData("tag").value
+                Dim md = c.Nodes.Add("Modules")
+                md.tag = "type=10"  ';db=" & c.Text
+                Dim accountid = c.Text
+
+                Dim mdc = md.Nodes.Add("Core")
+                mdc.tag = "type=100;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mdm = md.Nodes.Add("Master")
+                mdm.tag = "type=101;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mdt = md.Nodes.Add("Transaction")
+                mdt.tag = "type=104;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mdr = md.Nodes.Add("Report")
+                mdr.tag = "type=105;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mdb = md.Nodes.Add("Blank")
+                mdb.tag = "type=106;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mdv = md.Nodes.Add("View")
+                mdv.tag = "type=107;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim ms = md.Nodes.Add("Module Status")
+                ms.tag = "type=108;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim mg = md.Nodes.Add("Module Groups")
+                mg.tag = "type=109;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+
+                Dim sc = c.Nodes.Add("Security")
+                sc.tag = "type=11;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim us = sc.Nodes.Add("Users")
+                us.tag = "type=110;db=" & c.Text
+                Dim ug = sc.Nodes.Add("User Groups")
+                ug.tag = "type=111;db=" & c.Text
+
+                Dim it = c.Nodes.Add("Interface")
+                it.tag = "type=12;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                Dim th = it.Nodes.Add("Themes")
+                th.tag = "type=120;db=" & c.Text
+                Dim mn = it.Nodes.Add("Menus")
+                mn.tag = "type=121;db=" & c.Text
+                Dim tr = it.Nodes.Add("Translator")
+                tr.tag = "type=122;db=" & c.Text
+
+                Dim ac = c.Nodes.Add("Account")
+                ac.tag = "type=13;server=" & d.Text & ";db=" & c.Text & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+                'Dim aci = ac.Nodes.Add("Info")
+                'aci.tag = "type=130;db=" & c.Text
+                Dim db = ac.Nodes.Add("Databases")
+                db.tag = "type=131;db=" & c.Text
+                Dim pr = ac.Nodes.Add("Parameters")
+                pr.tag = "type=132;db=" & c.Text
+                Dim wd = ac.Nodes.Add("Widgets")
+                wd.tag = "type=133;db=" & c.Text
+                Dim ml = ac.Nodes.Add("Mail")
+                ml.tag = "type=134;db=" & c.Text
             Next
-            Me.TreeView1.Nodes.Clear()
-            Me.TreeView1.Nodes.Add(t)
-        End If
-    End Sub
+        Next
+        Me.TreeView1.Nodes.Clear()
+        Me.TreeView1.Nodes.Add(t)
 
+    End Sub
     Private Sub ContextMenuStrip2_Opening(sender As Object, e As System.ComponentModel.CancelEventArgs) Handles ContextMenuStrip2.Opening
 
     End Sub
@@ -166,6 +755,7 @@ Public Class mainFrm
         My.Settings.treeData = treedata
         My.Settings.Save()
 
+        refreshServers()
     End Sub
 
     Private Sub ToolStripMenuItem4_Click(sender As Object, e As EventArgs) Handles ToolStripMenuItem4.Click
@@ -192,22 +782,25 @@ Public Class mainFrm
             MessageBox.Show("You cannot delete OPH Database. You may delete the server instead.", "Warning")
         End If
     End Sub
-    Function delDb(accountid As String, pipename As String, uid As String, pwd As String, Optional delFile As Boolean = False) As Boolean
+    Function delDb(accountid As String, pipename As String, isSQL As Boolean, uid As String, pwd As String, Optional delFile As Boolean = False) As Boolean
         Dim rs = False
         'If accountid <> "oph" Then
         If MessageBox.Show("You are about to " & IIf(delFile, "delete", "remove") & " " & accountid & ". Continue?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
-            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+            If isSQL Then
+                odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+            End If
             Dim sqlStr = ""
             Dim r = ""
             If delFile Then
                 If accountid = "oph" Then
-                    odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+                    odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                     sqlStr = "drop database oph_core"
                     Dim delStr = f.runSQLwithResult(sqlStr, odbc)
                     sqlStr = "select name from sys.databases where name='oph_core'"
                     r = f.runSQLwithResult(sqlStr, odbc)
                 Else
-                    odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+                    odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                     sqlStr = "select 'drop database '+databasename+';' from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "' for xml path('')"
                     Dim delStr = f.runSQLwithResult(sqlStr, odbc)
                     sqlStr = "delete from d from acct a inner join acctdbse d on d.accountguid=a.accountguid where a.accountid='" & accountid & "'"
@@ -395,8 +988,7 @@ Public Class mainFrm
         End If
         saveTree()
     End Sub
-
-    Private Sub LoadScriptToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles LoadScriptToolStripMenuItem.Click
+    Private Sub LoadLoadScriptToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles LoadScriptToolStripMenuItem.Click
         Dim sqlstr = "exec.gen.loadmodl '*', 1"
         Dim pipename = Me.TreeView1.SelectedNode.Parent.Text
         Dim uid = f.getTag(Me.TreeView1.SelectedNode.Parent, "uid")
@@ -405,7 +997,7 @@ Public Class mainFrm
         Dim datadb = "oph_core"
         If accountid <> "oph" Then datadb = accountid & "_data"
 
-        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         Dim script = f.runSQLwithResult(sqlstr, odbc)
         SaveFileDialog1.Title = "Backup Script"
         SaveFileDialog1.Filter = "xml files (*.xml)|*.xml|All files (*.*)|*.*"
@@ -428,13 +1020,116 @@ Public Class mainFrm
         Dim datadb = "oph_core"
         If accountid <> "oph" Then datadb = accountid & "_data"
 
-        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         OpenFileDialog1.Title = "Restore Script to database"
         OpenFileDialog1.Filter = "xml files (*.xml)|*.xml|All files (*.*)|*.*"
         OpenFileDialog1.InitialDirectory = My.Settings.ophFolder
         If OpenFileDialog1.ShowDialog() = DialogResult.OK Then
             Dim sqlstr = "exec gen.savemodl @file='" & OpenFileDialog1.FileName & "', @updateMode=11"
             f.runSQLwithResult(sqlstr, odbc)
+        End If
+    End Sub
+
+    Private Sub DataGridView1_RowEnter(sender As Object, e As DataGridViewCellEventArgs) Handles DataGridView1.RowEnter
+        'For i = 0 To Me.DataGridView1.Columns.Count - 1
+        '    Me.DataGridView1.Item(i, e.RowIndex).Style.BackColor = Color.Yellow
+        'Next
+    End Sub
+
+    Private Sub DataGridView1_RowLeave(sender As Object, e As DataGridViewCellEventArgs) Handles DataGridView1.RowLeave
+        'For i = 0 To Me.DataGridView1.Columns.Count - 1
+        '    Me.DataGridView1.Item(i, e.RowIndex).Style.BackColor = Color.Empty
+        'Next
+    End Sub
+
+    Private Sub DataGridView1_RowValidating(sender As Object, e As DataGridViewCellCancelEventArgs) Handles DataGridView1.RowValidating
+        If (Me.DataGridView1.IsCurrentRowDirty) Then
+            'find real row
+            Dim realRow = Nothing
+            Dim n = 0
+            For n = 0 To dsClone.Tables(0).Rows.Count - 1
+                If dsClone.Tables(0).Rows(n).ItemArray(0).ToString = Me.DataGridView1.Rows(e.RowIndex).Cells(0).Value.ToString Then
+                    realRow = n
+                End If
+            Next
+            If realRow Is Nothing Then
+                dsClone.Tables(0).Rows.Add()
+                n = 1
+                realRow = dsClone.Tables(0).Rows.Count - 1
+            End If
+            n = 0
+            For r = n To Me.DataGridView1.Columns.Count - 1
+                If Me.DataGridView1.Columns(r).Name = parentField Then
+                    dsClone.Tables(0).Rows(realRow).Item(r) = parentValue
+                Else
+                    dsClone.Tables(0).Rows(realRow).Item(r) = Me.DataGridView1.Rows(e.RowIndex).Cells(r).Value
+                End If
+            Next
+            e.Cancel = Not saveChanges()
+            Me.Timer1.Enabled = True
+
+        End If
+    End Sub
+
+    Function saveChanges() As Boolean
+        Dim err As String = ""
+        Dim r = False
+        If Not handleNew Then
+            If Not f.saveDS(dsClone, sqlDA, curTable, err) Then
+                MessageBox.Show(err)
+            Else
+                r = True
+            End If
+        Else
+            r = True
+        End If
+        Return r
+    End Function
+
+    Private Sub DataGridView1_UserDeletingRow(sender As Object, e As DataGridViewRowCancelEventArgs) Handles DataGridView1.UserDeletingRow
+        Dim n = 0
+        dsClone.Tables(0).Rows(e.Row.Index).Delete()
+        e.Cancel = Not saveChanges()
+        Me.Timer1.Enabled = True
+    End Sub
+
+    Private Sub DataGridView1_RowValidated(sender As Object, e As DataGridViewCellEventArgs) Handles DataGridView1.RowValidated
+    End Sub
+
+    Private Sub mainFrm_KeyDown(sender As Object, e As KeyEventArgs) Handles Me.KeyDown
+        If e.KeyCode = 116 Then 'f5 
+            refreshTree()
+        End If
+    End Sub
+
+    Sub refreshTree()
+        selectNode(Me.TreeView1.SelectedNode)
+        Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
+    End Sub
+
+    Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
+        Me.Timer1.Enabled = False
+        refreshTree()
+
+    End Sub
+
+    Private Sub DataGridView1_DataError(sender As Object, e As DataGridViewDataErrorEventArgs) Handles DataGridView1.DataError
+        'Stop
+        If e.Exception.HResult = -2147024809 Then
+            'Stop
+        Else
+            MessageBox.Show(e.Exception.Message)
+        End If
+    End Sub
+
+    Private Sub DataGridView1_Sorted(sender As Object, e As EventArgs) Handles DataGridView1.Sorted
+        dsClone = ds.Copy
+    End Sub
+
+    Private Sub DataGridView1_CellEnter(sender As Object, e As DataGridViewCellEventArgs) Handles DataGridView1.CellEnter
+        If e.ColumnIndex >= 2 Then
+            prevCell = e.ColumnIndex
+            prevRow = e.RowIndex
         End If
     End Sub
 End Class

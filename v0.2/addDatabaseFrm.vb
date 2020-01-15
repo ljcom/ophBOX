@@ -64,7 +64,7 @@ Public Class addDatabaseFrm
         Dim db = "oph_core"
         If accountid <> "oph" Then db = accountid & "_data_data"
 
-        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         Dim sqlstr = "select name from sys.databases where name='" & db & "'"
         Dim x = f.runSQLwithResult(sqlstr, odbc)
         If x <> "" Then r = True
@@ -84,7 +84,7 @@ Public Class addDatabaseFrm
             v4db = accountid & "_v4"
             filedb = accountid & "_file"
         End If
-        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd & ""
+        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
 
         Dim result = f.runSQLwithResult("if not exists(select * from sys.databases where name='" & datadb & "') CREATE DATABASE " & datadb, Odbc)
         If v4db <> "" Then f.runSQLwithResult("if not exists(select * from sys.databases where name='" & v4db & "') CREATE DATABASE " & v4db, Odbc)
@@ -117,14 +117,14 @@ Public Class addDatabaseFrm
                 f.runScript(url, pipename, scriptFile1, datadb, uid, pwd, False)
                 f.runScript(url, pipename, scriptFile1, datadb, uid, pwd, False)
 
-                Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                 Dim sqlstr = "select accountguid from acct where accountid='" & accountid & "'"
                 Dim accountguid = f.runSQLwithResult(sqlstr, Odbc)
 
 
                 If accountguid = "" Then
                     'not exists
-                    Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd & ""
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                     sqlstr = "
 				        if not exists(select * from oph_core.dbo.acct where accountid='" & accountid & "')
                             insert into oph_core.dbo.acct(accountguid, accountid)
@@ -181,7 +181,7 @@ Public Class addDatabaseFrm
                             where a.accountid='" & accountid & "' and infokey='odbc')
 
 	                        insert into acctinfo (accountguid, infokey, infovalue)
-                            select accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & "' 
+                            select accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes") & "' 
                             from oph_core.dbo.acct where accountid='" & accountid & "'
 
 				        if not exists(
@@ -204,7 +204,7 @@ Public Class addDatabaseFrm
 
                         "
                 Else
-                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                     sqlstr = "
 				        if not exists(select * from oph_core.dbo.acct where accountid='" & accountid & "')
                             insert into oph_core.dbo.acct(accountguid, accountid)
@@ -232,7 +232,7 @@ Public Class addDatabaseFrm
                     'result = f.runSQLwithResult(sqlstr, Odbc)
 
                     'If result <> "" Then
-                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                    Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                     sqlstr = "
                         insert into acct(accountguid, accountid)
                         select a.accountguid, a.accountid 
@@ -275,7 +275,7 @@ Public Class addDatabaseFrm
 
                         If File.Exists(scriptFile1) Then
 
-                            Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";User Id=" & uid & ";password=" & pwd & ""
+                            Odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                             sqlstr = "exec gen.savemodl @file='" & scriptFile1 & "', @updatemode=11"
                             f.runSQLwithResult(sqlstr, Odbc)
                             f.runSQLwithResult(sqlstr, Odbc)

@@ -23,13 +23,15 @@ Partial Class mainFrm
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
-        Dim TreeNode1 As System.Windows.Forms.TreeNode = New System.Windows.Forms.TreeNode("Servers")
+        Dim TreeNode2 As System.Windows.Forms.TreeNode = New System.Windows.Forms.TreeNode("Servers")
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(mainFrm))
         Me.Button1 = New System.Windows.Forms.Button()
         Me.SplitContainer1 = New System.Windows.Forms.SplitContainer()
         Me.TreeView1 = New System.Windows.Forms.TreeView()
         Me.ContextMenuStrip1 = New System.Windows.Forms.ContextMenuStrip(Me.components)
         Me.AddServerToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.DataGridView1 = New System.Windows.Forms.DataGridView()
+        Me.WebBrowser1 = New System.Windows.Forms.WebBrowser()
         Me.ListView1 = New System.Windows.Forms.ListView()
         Me.ImageList1 = New System.Windows.Forms.ImageList(Me.components)
         Me.ContextMenuStrip2 = New System.Windows.Forms.ContextMenuStrip(Me.components)
@@ -43,18 +45,19 @@ Partial Class mainFrm
         Me.DatabasePropertiesToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RemoveFromListToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RemoveDatabaseToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
-        Me.Button2 = New System.Windows.Forms.Button()
-        Me.WebBrowser1 = New System.Windows.Forms.WebBrowser()
         Me.ToolStripMenuItem1 = New System.Windows.Forms.ToolStripSeparator()
         Me.LoadScriptToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.SaveScriptToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.Button2 = New System.Windows.Forms.Button()
         Me.SaveFileDialog1 = New System.Windows.Forms.SaveFileDialog()
         Me.OpenFileDialog1 = New System.Windows.Forms.OpenFileDialog()
+        Me.Timer1 = New System.Windows.Forms.Timer(Me.components)
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SplitContainer1.Panel1.SuspendLayout()
         Me.SplitContainer1.Panel2.SuspendLayout()
         Me.SplitContainer1.SuspendLayout()
         Me.ContextMenuStrip1.SuspendLayout()
+        CType(Me.DataGridView1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.ContextMenuStrip2.SuspendLayout()
         Me.ContextMenuStrip3.SuspendLayout()
         Me.SuspendLayout()
@@ -84,6 +87,7 @@ Partial Class mainFrm
         '
         'SplitContainer1.Panel2
         '
+        Me.SplitContainer1.Panel2.Controls.Add(Me.DataGridView1)
         Me.SplitContainer1.Panel2.Controls.Add(Me.WebBrowser1)
         Me.SplitContainer1.Panel2.Controls.Add(Me.ListView1)
         Me.SplitContainer1.Size = New System.Drawing.Size(776, 376)
@@ -97,10 +101,10 @@ Partial Class mainFrm
         Me.TreeView1.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
         Me.TreeView1.Location = New System.Drawing.Point(0, 0)
         Me.TreeView1.Name = "TreeView1"
-        TreeNode1.Name = "Node0"
-        TreeNode1.Tag = "type=1"
-        TreeNode1.Text = "Servers"
-        Me.TreeView1.Nodes.AddRange(New System.Windows.Forms.TreeNode() {TreeNode1})
+        TreeNode2.Name = "Node0"
+        TreeNode2.Tag = "type=1"
+        TreeNode2.Text = "Servers"
+        Me.TreeView1.Nodes.AddRange(New System.Windows.Forms.TreeNode() {TreeNode2})
         Me.TreeView1.Size = New System.Drawing.Size(258, 376)
         Me.TreeView1.TabIndex = 1
         '
@@ -116,6 +120,27 @@ Partial Class mainFrm
         Me.AddServerToolStripMenuItem.Name = "AddServerToolStripMenuItem"
         Me.AddServerToolStripMenuItem.Size = New System.Drawing.Size(172, 32)
         Me.AddServerToolStripMenuItem.Text = "&Add Server"
+        '
+        'DataGridView1
+        '
+        Me.DataGridView1.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize
+        Me.DataGridView1.Dock = System.Windows.Forms.DockStyle.Fill
+        Me.DataGridView1.Location = New System.Drawing.Point(0, 0)
+        Me.DataGridView1.Name = "DataGridView1"
+        Me.DataGridView1.RowHeadersWidth = 30
+        Me.DataGridView1.RowTemplate.Height = 28
+        Me.DataGridView1.Size = New System.Drawing.Size(514, 376)
+        Me.DataGridView1.TabIndex = 2
+        '
+        'WebBrowser1
+        '
+        Me.WebBrowser1.Dock = System.Windows.Forms.DockStyle.Fill
+        Me.WebBrowser1.Location = New System.Drawing.Point(0, 0)
+        Me.WebBrowser1.MinimumSize = New System.Drawing.Size(20, 20)
+        Me.WebBrowser1.Name = "WebBrowser1"
+        Me.WebBrowser1.Size = New System.Drawing.Size(514, 376)
+        Me.WebBrowser1.TabIndex = 1
+        Me.WebBrowser1.Visible = False
         '
         'ListView1
         '
@@ -184,53 +209,32 @@ Partial Class mainFrm
         Me.ContextMenuStrip3.ImageScalingSize = New System.Drawing.Size(24, 24)
         Me.ContextMenuStrip3.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.DatabasePropertiesToolStripMenuItem, Me.RemoveFromListToolStripMenuItem, Me.RemoveDatabaseToolStripMenuItem, Me.ToolStripMenuItem1, Me.LoadScriptToolStripMenuItem, Me.SaveScriptToolStripMenuItem})
         Me.ContextMenuStrip3.Name = "ContextMenuStrip3"
-        Me.ContextMenuStrip3.Size = New System.Drawing.Size(338, 203)
+        Me.ContextMenuStrip3.Size = New System.Drawing.Size(338, 170)
         '
         'DatabasePropertiesToolStripMenuItem
         '
         Me.DatabasePropertiesToolStripMenuItem.Font = New System.Drawing.Font("Segoe UI", 9.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
         Me.DatabasePropertiesToolStripMenuItem.ForeColor = System.Drawing.Color.Black
         Me.DatabasePropertiesToolStripMenuItem.Name = "DatabasePropertiesToolStripMenuItem"
-        Me.DatabasePropertiesToolStripMenuItem.Size = New System.Drawing.Size(271, 32)
+        Me.DatabasePropertiesToolStripMenuItem.Size = New System.Drawing.Size(337, 32)
         Me.DatabasePropertiesToolStripMenuItem.Text = "Database &Properties..."
         '
         'RemoveFromListToolStripMenuItem
         '
         Me.RemoveFromListToolStripMenuItem.Name = "RemoveFromListToolStripMenuItem"
-        Me.RemoveFromListToolStripMenuItem.Size = New System.Drawing.Size(271, 32)
+        Me.RemoveFromListToolStripMenuItem.Size = New System.Drawing.Size(337, 32)
         Me.RemoveFromListToolStripMenuItem.Text = "&Remove from List"
         '
         'RemoveDatabaseToolStripMenuItem
         '
         Me.RemoveDatabaseToolStripMenuItem.Name = "RemoveDatabaseToolStripMenuItem"
-        Me.RemoveDatabaseToolStripMenuItem.Size = New System.Drawing.Size(271, 32)
+        Me.RemoveDatabaseToolStripMenuItem.Size = New System.Drawing.Size(337, 32)
         Me.RemoveDatabaseToolStripMenuItem.Text = "&Delete Database"
-        '
-        'Button2
-        '
-        Me.Button2.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
-        Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button2.Location = New System.Drawing.Point(494, 394)
-        Me.Button2.Name = "Button2"
-        Me.Button2.Size = New System.Drawing.Size(144, 44)
-        Me.Button2.TabIndex = 6
-        Me.Button2.Text = "&Setting..."
-        Me.Button2.UseVisualStyleBackColor = True
-        '
-        'WebBrowser1
-        '
-        Me.WebBrowser1.Dock = System.Windows.Forms.DockStyle.Fill
-        Me.WebBrowser1.Location = New System.Drawing.Point(0, 0)
-        Me.WebBrowser1.MinimumSize = New System.Drawing.Size(20, 20)
-        Me.WebBrowser1.Name = "WebBrowser1"
-        Me.WebBrowser1.Size = New System.Drawing.Size(514, 376)
-        Me.WebBrowser1.TabIndex = 1
-        Me.WebBrowser1.Visible = False
         '
         'ToolStripMenuItem1
         '
         Me.ToolStripMenuItem1.Name = "ToolStripMenuItem1"
-        Me.ToolStripMenuItem1.Size = New System.Drawing.Size(268, 6)
+        Me.ToolStripMenuItem1.Size = New System.Drawing.Size(334, 6)
         '
         'LoadScriptToolStripMenuItem
         '
@@ -244,9 +248,23 @@ Partial Class mainFrm
         Me.SaveScriptToolStripMenuItem.Size = New System.Drawing.Size(337, 32)
         Me.SaveScriptToolStripMenuItem.Text = "&Restore Script to this database..."
         '
+        'Button2
+        '
+        Me.Button2.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
+        Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
+        Me.Button2.Location = New System.Drawing.Point(494, 394)
+        Me.Button2.Name = "Button2"
+        Me.Button2.Size = New System.Drawing.Size(144, 44)
+        Me.Button2.TabIndex = 6
+        Me.Button2.Text = "&Setting..."
+        Me.Button2.UseVisualStyleBackColor = True
+        '
         'OpenFileDialog1
         '
         Me.OpenFileDialog1.FileName = "OpenFileDialog1"
+        '
+        'Timer1
+        '
         '
         'mainFrm
         '
@@ -256,6 +274,7 @@ Partial Class mainFrm
         Me.Controls.Add(Me.Button2)
         Me.Controls.Add(Me.SplitContainer1)
         Me.Controls.Add(Me.Button1)
+        Me.KeyPreview = True
         Me.Name = "mainFrm"
         Me.Text = "OPH Installer"
         Me.SplitContainer1.Panel1.ResumeLayout(False)
@@ -263,6 +282,7 @@ Partial Class mainFrm
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.SplitContainer1.ResumeLayout(False)
         Me.ContextMenuStrip1.ResumeLayout(False)
+        CType(Me.DataGridView1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.ContextMenuStrip2.ResumeLayout(False)
         Me.ContextMenuStrip3.ResumeLayout(False)
         Me.ResumeLayout(False)
@@ -293,4 +313,6 @@ Partial Class mainFrm
     Friend WithEvents SaveScriptToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents SaveFileDialog1 As SaveFileDialog
     Friend WithEvents OpenFileDialog1 As OpenFileDialog
+    Friend WithEvents DataGridView1 As DataGridView
+    Friend WithEvents Timer1 As Timer
 End Class

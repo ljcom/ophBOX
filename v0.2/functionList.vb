@@ -1,4 +1,5 @@
-﻿Imports System.Data.SqlClient
+﻿Imports System.Data.OleDb
+Imports System.Data.SqlClient
 Imports System.IO
 Imports System.IO.Compression
 Imports System.Net
@@ -7,6 +8,7 @@ Imports System.Text
 Public NotInheritable Class FunctionList
 
     Private Shared oInstance As FunctionList = New FunctionList
+    Private sqlError As String
 
     Private Sub New()
     End Sub
@@ -80,7 +82,7 @@ Public NotInheritable Class FunctionList
         Dim myCommand As New SqlCommand(myInsertQuery)
         Try
             Dim Reader As SqlClient.SqlDataReader
-
+            myCommand.CommandTimeout = 600
             myCommand.Connection = myConnection
             myConnection.Open()
 
@@ -110,14 +112,90 @@ Public NotInheritable Class FunctionList
         Return result
     End Function
 
-    Public Function syncLocalScript(sqlstr, db, pipename, uid, pwd) As Boolean
+    Public Function setDS(ByRef ds As DataSet, ByRef adapter As SqlDataAdapter, ByVal query As String, ByVal Optional sqlconstr As String = "", Optional ByRef contentofError As String = "") As Boolean
+        Dim r As Boolean = False
+        Dim myConnectionString As String = sqlconstr
+
+        ds = New DataSet
+        Dim conn As New SqlConnection(myConnectionString)
+        adapter = New SqlDataAdapter
+        Try
+            adapter.SelectCommand = New SqlCommand(query, conn)
+            adapter.SelectCommand.CommandTimeout = 0
+            adapter.Fill(ds)
+            ds.AcceptChanges()
+            r = True
+        Catch ex As SqlException
+            contentofError = query & ex.Message & "<br>"
+        Catch ex As Exception
+            contentofError = query & ex.Message & "<br>"
+        Finally
+            conn.Close()
+
+        End Try
+        Return r
+
+    End Function
+
+    Public Function saveDS(ByRef ds As DataSet, ByRef adapter As SqlDataAdapter, table As String, Optional ByRef contentofError As String = "") As Boolean
+        Dim r = False
+        Dim builder As SqlCommandBuilder = New SqlCommandBuilder(adapter)
+        Try
+            adapter.UpdateCommand = builder.GetUpdateCommand(True)
+            adapter.InsertCommand = builder.GetInsertCommand(True)
+            adapter.DeleteCommand = builder.GetDeleteCommand(True)
+            ds.Tables(0).TableName = table
+            adapter.Update(ds, table)
+            'ds.AcceptChanges
+            r = True
+        Catch ex As SqlException
+            contentofError = table & ex.Message & "<br>"
+        Catch ex As Exception
+            contentofError = table & ex.Message & "<br>"
+        Finally
+        End Try
+        Return r
+
+    End Function
+
+    Public Function SelectSqlSrvRows(ByVal query As String, ByVal Optional sqlconstr As String = "", Optional ByRef contentofError As String = "") As DataTable
+
+        Dim dt As DataTable = Nothing
+        Dim myConnectionString As String = sqlconstr
+        'If sqlconstr = "" Then myConnectionString = contentOfdbODBC
+
+        Dim conn As New SqlConnection(myConnectionString)
+        Dim adapter As New SqlDataAdapter
+        Dim dataSet As New DataSet
+        Try
+            adapter.SelectCommand = New SqlCommand(query, conn)
+            adapter.SelectCommand.CommandTimeout = 0
+            adapter.Fill(dataSet)
+
+        Catch ex As SqlException
+            contentofError = query & ex.Message & "<br>"
+        Catch ex As Exception
+            contentofError = query & ex.Message & "<br>"
+        Finally
+            conn.Close()
+
+        End Try
+        adapter = Nothing
+        'GC.Collect()
+        If dataSet.Tables.Count > 0 Then
+            dt = dataSet.Tables(0)
+        End If
+        Return dt
+
+    End Function
+    Public Function syncLocalScript(sqlstr As String, db As String, pipename As String, uid As String, pwd As String, Optional isSQLAuth As Boolean = True) As Boolean
         Dim p As Process = New Process()
         p.StartInfo.UseShellExecute = False
         p.StartInfo.RedirectStandardOutput = True
         p.StartInfo.RedirectStandardError = True
 
         p.StartInfo.FileName = "sqlcmd.exe"
-        p.StartInfo.Arguments = "-S " & pipename & " -Q """ & sqlstr & """" & IIf(db <> "", " -d " & db, "") & IIf(uid <> "", " -U " & uid & " -P " & pwd, "")
+        p.StartInfo.Arguments = "-S " & pipename & " -Q """ & sqlstr & """" & IIf(db <> "", " -d " & db, "") & IIf(uid <> "", " -U " & uid & " -P " & pwd, "-E")
         p.StartInfo.CreateNoWindow = True
         p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
 
@@ -135,7 +213,7 @@ Public NotInheritable Class FunctionList
         End If
     End Function
 
-    Public Function runScript(url As String, pipename As String, scriptFile As String, db As String, uid As String, pwd As String, Optional isoverwrite As Boolean = True) As Boolean
+    Public Function runScript(url As String, pipename As String, scriptFile As String, db As String, uid As String, pwd As String, Optional isSQLAuth As Boolean = True, Optional isoverwrite As Boolean = True) As Boolean
         Dim r = True
         If File.Exists(scriptFile) And isoverwrite Then File.Delete(scriptFile)
         If File.Exists(scriptFile) OrElse downloadFilename(url, scriptFile) Then
@@ -144,7 +222,7 @@ Public NotInheritable Class FunctionList
             'p.StartInfo.RedirectStandardOutput = True
             p.StartInfo.RedirectStandardError = True
             p.StartInfo.FileName = "sqlcmd.exe"
-            p.StartInfo.Arguments = "-S " & pipename & " -d " & db & " -i """ & scriptFile & """" & IIf(uid <> "", " -U " & uid & " -P " & pwd, "")
+            p.StartInfo.Arguments = "-S " & pipename & " -d " & db & " -i """ & scriptFile & """" & IIf(uid <> "", " -U " & uid & " -P " & pwd, "-E")
             p.StartInfo.CreateNoWindow = True
             p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
             p.Start()
@@ -380,16 +458,16 @@ Public NotInheritable Class FunctionList
     Public Sub unZip(zipPath, extractPath)
         ZipFile.ExtractToDirectory(zipPath, extractPath)
     End Sub
-    Public Sub runCmd(filename As String, Optional workingPath As String = "")
+    Public Sub runCmd(filename As String, Optional workingPath As String = "", Optional isVisible As Boolean = False)
         Dim p As Process = New Process()
         p.StartInfo.UseShellExecute = False
-        'p.StartInfo.RedirectStandardOutput = True
+        If isVisible Then p.StartInfo.RedirectStandardOutput = True
         p.StartInfo.RedirectStandardError = True
 
         p.StartInfo.FileName = filename
         If workingPath <> "" Then p.StartInfo.WorkingDirectory = workingPath
         p.StartInfo.Arguments = " "
-        p.StartInfo.CreateNoWindow = True
+        p.StartInfo.CreateNoWindow = Not isVisible
         p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
         p.Start()
 
@@ -536,9 +614,9 @@ Public NotInheritable Class FunctionList
         Return r
 
     End Function
-    Public Function createServer(pipename, uid, pwd, tuser, secret, ophPath, ophserver) As Boolean
+    Public Function createServer(pipename As String, isSQLAuth As Boolean, uid As String, pwd As String, tuser As String, secret As String, ophPath As String, ophserver As String) As Boolean
         Dim r = False
-        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd & ""
+        Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         Dim coreDB = "oph_core"
         Dim folderTemp = "temp"
         Dim result = runSQLwithResult("CREATE DATABASE " & coreDB, Odbc)
@@ -550,11 +628,11 @@ Public NotInheritable Class FunctionList
             Dim scriptFile1 = ophPath & "\" & folderTemp & "\install_core.sql"
             SetLog(scriptFile1, , True)
 
-            runScript(url, pipename, scriptFile1, coreDB, uid, pwd)
-            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, False)
-            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, False)
+            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, isSQLAuth)
+            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, isSQLAuth, False)
+            runScript(url, pipename, scriptFile1, coreDB, uid, pwd, isSQLAuth, False)
             If File.Exists(scriptFile1) Then
-                Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+                Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
                 Dim sqlstr = "if not exists(select * from acct where accountid='oph') insert into acct (accountid) values ('oph')"
                 runSQLwithResult(sqlstr, Odbc)
 
@@ -563,7 +641,7 @@ Public NotInheritable Class FunctionList
                             if not exists(select * from acctdbse where databasename='oph_core' and accountguid=@accountguid) insert into acctdbse (accountdbguid, accountguid, databasename, ismaster, version) values (newid(), @accountguid, 'oph_core', '1', '4.0')"
                 runSQLwithResult(sqlstr, Odbc)
             End If
-            Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+            Odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
             Dim isexists1 = runSQLwithResult("select name from sys.databases where name='oph_core'", Odbc)
             Dim isexists2 = runSQLwithResult("select name from sys.objects where name='acct'", Odbc)
             Dim isexists3 = runSQLwithResult("select accountid from acct where accountid='oph'", Odbc)
@@ -578,13 +656,13 @@ Public NotInheritable Class FunctionList
 
     Public Function addInstance(pipename, uid, pwd, coreDB, iisport, ophPath, curNode) As Boolean
         Dim r = False
-        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+        Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         Dim errStr As String = ""
         Dim ophcore = runSQLwithResult("select name from sys.databases where name='oph_core'", odbc, errStr)
         If errStr <> "" Then
         ElseIf ophcore <> "" Then
-            odbc = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";User Id=" & uid & ";password=" & pwd
-            Dim listofAccount = runSQLwithResult("select ';accountid='+accountid+',dbname='+d.DatabaseName from acct a inner join acctdbse d on d.accountguid=a.accountguid and d.ismaster=1 order by accountid for xml path('')", odbc)
+            odbc = "Data Source=" & pipename & ";Initial Catalog=" & coreDB & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+            Dim listofAccount = runSQLwithResult("select ';accountid='+accountid+',dbname='+d.DatabaseName from acct a inner join acctdbse d on d.accountguid=a.accountguid and d.ismaster=1 and version='4.0' order by accountid for xml path('')", odbc)
             If listofAccount <> "" Then
                 Dim curTag = curNode.Tag
                 For Each t In curTag.split(";")
@@ -643,8 +721,8 @@ Public NotInheritable Class FunctionList
             If MessageBox.Show("oph account is Not exists. Do you want to create one?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
                 Dim tuser = "sam"
                 Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
-
-                If createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
+                Dim isSQL As Boolean = My.Settings.isSQLAuth
+                If createServer(pipename, isSQL, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
                     Dim x = mainFrm.TreeView1.SelectedNode
                     If (IsNothing(x)) Then x = mainFrm.TreeView1.Nodes(0)
                     If getTag(x, "type") = "1" Then
