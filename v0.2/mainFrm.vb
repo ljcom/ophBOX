@@ -633,15 +633,15 @@ Public Class mainFrm
     Sub refreshServers()
         Dim treeData = My.Settings.treeData
         If treeData = "" Then treeData = "{servers:[]}"
-
+        treeData = treeData.Replace("\", "\\")
         Dim jsonResulttodict = JsonConvert.DeserializeObject(Of Dictionary(Of String, Object))(treeData)
         Dim servers = jsonResulttodict.Item("servers")
         Dim tag = jsonResulttodict.Item("tag")
         Dim t = New TreeNode("Servers")
         t.Tag = tag
         For Each serverData In servers
-            Dim d = t.Nodes.Add(serverData("server").value)
-            d.tag = serverData("tag").value
+            Dim d = t.Nodes.Add(serverData("server").value.replace("\\", "\"))
+            d.tag = serverData("tag").value.replace("\\", "\")
             Dim uid = f.getTag(d, "uid")
             Dim pwd = f.getTag(d, "pwd")
             For Each dbData In serverData("dbs")
@@ -743,8 +743,10 @@ Public Class mainFrm
                 For Each d In s.nodes
                     dbs = dbs & ", {""db"":""" & d.text & """, ""tag"":""" & d.tag & """}"
                 Next
-                If dbs.Substring(0, 1) = "," Then dbs = dbs.Substring(2, dbs.Length - 2)
-                servers = servers & ", {""server"":""" & s.text & """, ""dbs"":[" & dbs & "], ""tag"":""" & s.tag & """}"
+                If dbs <> "" Then
+                    If dbs.Substring(0, 1) = "," Then dbs = dbs.Substring(2, dbs.Length - 2)
+                    servers = servers & ", {""server"":""" & s.text & """, ""dbs"":[" & dbs & "], ""tag"":""" & s.tag & """}"
+                End If
             Next
             If servers <> "" Then
                 If servers.Substring(0, 1) = "," Then servers = servers.Substring(2, servers.Length - 2)

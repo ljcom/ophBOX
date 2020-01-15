@@ -137,15 +137,15 @@ Public Class settingFrm
                 f.SetLog("IIS Express Location: " & iisExpressFolder)
                 'run iis
                 'If iisid = 0 And iisExpressFolder <> "" Then f.runIIS(dataaccount)
-            End If
 
-            f.SetLog("Checking IIS Files...")
-            Dim dataaccount = "oph"
-            Dim port = My.Settings.IISPort
-            f.addAccounttoIIS(dataaccount, My.Settings.localServer, ophPath & "\", port, False)
-            Dim isReady = f.addWebConfig(ophPath & "\")
-            f.SetLog("Checking IIS Files completed.")
-            If Not isReady Then errStr = "IIS is not set properly."
+                f.SetLog("Checking IIS Files...")
+                Dim dataaccount = "oph"
+                Dim port = My.Settings.IISPort
+                f.addAccounttoIIS(dataaccount, My.Settings.localServer, ophPath & "\", port, False)
+                Dim isReady = f.addWebConfig(ophPath & "\")
+                f.SetLog("Checking IIS Files completed.")
+                If Not isReady Then errStr = "IIS is not set properly."
+            End If
         End If
 
         If errStr = "" Then
