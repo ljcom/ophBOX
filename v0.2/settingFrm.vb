@@ -19,6 +19,7 @@ Public Class settingFrm
             My.Settings.localUserID = Me.TextBox4.Text
             My.Settings.LocalPwd = Me.TextBox5.Text
             My.Settings.isIISExpress = Me.CheckBox1.Checked
+            My.Settings.isLocalServer = Me.CheckBox2.Checked
             My.Settings.IISPort = Me.TextBox6.Text
             My.Settings.isSQLAuth = Me.RadioButton2.Checked
             My.Settings.Save()
@@ -59,76 +60,78 @@ Public Class settingFrm
         End If
 
         If errStr = "" Then
-            Dim pipename = My.Settings.localServer
-            Dim uid = My.Settings.localUserID
-            Dim pwd = My.Settings.LocalPwd
-            Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
-            Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
-            Dim iisport = Me.TextBox6.Text
-            Dim accountid = "oph"
-            Dim coredb = "oph_core"
-            Dim curnode = mainFrm.TreeView1.SelectedNode
+            If My.Settings.isLocalServer Then
+                Dim pipename = My.Settings.localServer
+                Dim uid = My.Settings.localUserID
+                Dim pwd = My.Settings.LocalPwd
+                Dim odbc = "Data Source=" & pipename & ";Initial Catalog=master;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+                Dim ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
+                Dim iisport = Me.TextBox6.Text
+                Dim accountid = "oph"
+                Dim coredb = "oph_core"
+                Dim curnode = mainFrm.TreeView1.SelectedNode
 
-            'If ophcore = "" Then
-            '    Dim tuser = "sam"
-            '    Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
+                'If ophcore = "" Then
+                '    Dim tuser = "sam"
+                '    Dim secret = "D627AFEB-9D77-40E4-B060-7C976DA05260"
 
-            '    If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
-            '        'add to tree
-            '        odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
-            '        f.runSQLwithResult("
-            '             update i
-            '             set infovalue=infovalue+';localhost:" & iisport & "/{accountid}'
-            '             --select i.* 
-            '             from acct a
-            '              inner join acctinfo i on a.AccountGUID=i.AccountGUID
-            '             where accountid='" & accountid & "' and i.InfoKey like '%address' and infovalue not like '%localhost:" & iisport & "/{accountid}%'
+                '    If f.createServer(pipename, uid, pwd, tuser, secret, ophPath, My.Settings.ophServer) Then
+                '        'add to tree
+                '        odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd
+                '        f.runSQLwithResult("
+                '             update i
+                '             set infovalue=infovalue+';localhost:" & iisport & "/{accountid}'
+                '             --select i.* 
+                '             from acct a
+                '              inner join acctinfo i on a.AccountGUID=i.AccountGUID
+                '             where accountid='" & accountid & "' and i.InfoKey like '%address' and infovalue not like '%localhost:" & iisport & "/{accountid}%'
 
-            '             insert into acctinfo (accountguid, infokey, infovalue)
-            '             select a.accountguid, 'address', 'localhost:" & iisport & "/{accountid}' 
-            '             from acct a
-            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='address'
-            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+                '             insert into acctinfo (accountguid, infokey, infovalue)
+                '             select a.accountguid, 'address', 'localhost:" & iisport & "/{accountid}' 
+                '             from acct a
+                '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='address'
+                '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
 
-            '             insert into acctinfo (accountguid, infokey, infovalue)
-            '             select a.accountguid, 'whiteaddress', 'localhost:" & iisport & "/{accountid}' 
-            '             from acct a
-            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='whiteaddress'
-            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+                '             insert into acctinfo (accountguid, infokey, infovalue)
+                '             select a.accountguid, 'whiteaddress', 'localhost:" & iisport & "/{accountid}' 
+                '             from acct a
+                '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='whiteaddress'
+                '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
 
-            '             insert into acctinfo (accountguid, infokey, infovalue)
-            '             select a.accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd & "' 
-            '             from acct a
-            '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='odbc'
-            '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
+                '             insert into acctinfo (accountguid, infokey, infovalue)
+                '             select a.accountguid, 'odbc', 'Data Source=" & pipename & ";Initial Catalog=oph_core;User Id=" & uid & ";password=" & pwd & "' 
+                '             from acct a
+                '              left join acctinfo i on a.AccountGUID=i.AccountGUID and i.infokey='odbc'
+                '             where accountid='" & accountid & "' and i.AccountInfoGUID is null
 
-            '            ", odbc)
-            '    Else
-            '        errStr = "Local Server is NOT setup properly."
-            '    End If
-            'End If
-            'odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
-            'ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
-            'If ophcore <> "" Then
-            Dim isexists = False
-            For Each n In mainFrm.TreeView1.Nodes(0).Nodes
-                If n.text = pipename Then
-                    isexists = True
-                End If
-            Next
-            If Not isexists Then
-                '        Dim x = mainFrm.TreeView1.Nodes(0).Nodes.Add(pipename)
-                '        x.Tag = "type=2;mode=instance;server=" & pipename & ";uid=" & uid & ";pwd=" & pwd & ";port=" & Me.TextBox6.Text
-                '        Dim y = x.Nodes.Add("oph")
-                '        y.Tag = "type=3;dbname=oph_core"
+                '            ", odbc)
+                '    Else
+                '        errStr = "Local Server is NOT setup properly."
                 '    End If
-                If IsNothing(curnode) Then curnode = mainFrm.TreeView1.Nodes(0)
-                f.addInstance(pipename, uid, pwd, coredb, iisport, ophPath, curnode)
-            End If
+                'End If
+                'odbc = "Data Source=" & pipename & ";Initial Catalog=master;User Id=" & uid & ";password=" & pwd
+                'ophcore = f.runSQLwithResult("select name from sys.databases where name='oph_core'", odbc)
+                'If ophcore <> "" Then
+                Dim isexists = False
+                For Each n In mainFrm.TreeView1.Nodes(0).Nodes
+                    If n.text = pipename Then
+                        isexists = True
+                    End If
+                Next
+                If Not isexists Then
+                    '        Dim x = mainFrm.TreeView1.Nodes(0).Nodes.Add(pipename)
+                    '        x.Tag = "type=2;mode=instance;server=" & pipename & ";uid=" & uid & ";pwd=" & pwd & ";port=" & Me.TextBox6.Text
+                    '        Dim y = x.Nodes.Add("oph")
+                    '        y.Tag = "type=3;dbname=oph_core"
+                    '    End If
+                    If IsNothing(curnode) Then curnode = mainFrm.TreeView1.Nodes(0)
+                    f.addInstance(pipename, uid, pwd, coredb, iisport, ophPath, curnode)
+                End If
 
+            End If
         End If
 
-            If errStr = "" Then
+        If errStr = "" Then
             If My.Settings.isIISExpress Then
                 Dim iisExpressFolder = getIISLocation(My.Settings.ophFolder)
                 f.SetLog("IIS Express Location: " & iisExpressFolder)
@@ -161,6 +164,7 @@ Public Class settingFrm
         Me.TextBox5.Text = My.Settings.LocalPwd
         Me.TextBox6.Text = My.Settings.IISPort
         Me.CheckBox1.Checked = My.Settings.isIISExpress
+        Me.CheckBox2.Checked = My.Settings.isLocalServer
         If My.Settings.isSQLAuth Then
             Me.RadioButton2.Checked = True
         Else
@@ -190,7 +194,6 @@ Public Class settingFrm
     End Function
 
     Function getGITLocation(ophPath As String) As String
-        'Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         Dim r = "C:\Program Files\GIT\git-bash.exe"
         If r = "" Or Not File.Exists(r) Then
             Dim c = MsgBox("We cannot find GIT. Press Yes to location it for us. Press No to install from our repository or Cancel do it later.", vbYesNoCancel, "GIT")
@@ -212,8 +215,6 @@ Public Class settingFrm
         Dim folderTemp = "temp"
         Dim folderData = "data"
         Dim r = ""
-        'If My.Settings.isIISExpress Then
-        'Dim ophPath = IIf(My.Settings.isIISExpress = 1 Or My.Settings.OPHPath = "", Directory.GetCurrentDirectory, My.Settings.OPHPath)
         r = My.Settings.IISExpressLocation
         If r = "" Or Not File.Exists(r) Then
             r = f.findFile("C:\Program Files\IIS Express", "iisexpress.exe")
@@ -253,5 +254,13 @@ Public Class settingFrm
         Me.TextBox4.Enabled = True
         Me.TextBox5.Enabled = True
 
+    End Sub
+
+    Private Sub CheckBox2_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBox2.CheckedChanged
+        Me.TextBox3.Enabled = CheckBox2.Checked
+        Me.TextBox4.Enabled = CheckBox2.Checked
+        Me.TextBox5.Enabled = CheckBox2.Checked
+        Me.RadioButton1.Enabled = CheckBox2.Checked
+        Me.RadioButton2.Enabled = CheckBox2.Checked
     End Sub
 End Class

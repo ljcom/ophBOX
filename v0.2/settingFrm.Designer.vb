@@ -40,6 +40,7 @@ Partial Class settingFrm
         Me.Label6 = New System.Windows.Forms.Label()
         Me.RadioButton1 = New System.Windows.Forms.RadioButton()
         Me.RadioButton2 = New System.Windows.Forms.RadioButton()
+        Me.CheckBox2 = New System.Windows.Forms.CheckBox()
         Me.SuspendLayout()
         '
         'TextBox1
@@ -63,20 +64,20 @@ Partial Class settingFrm
         'Button2
         '
         Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button2.Location = New System.Drawing.Point(262, 332)
+        Me.Button2.Location = New System.Drawing.Point(262, 355)
         Me.Button2.Name = "Button2"
         Me.Button2.Size = New System.Drawing.Size(144, 44)
-        Me.Button2.TabIndex = 9
+        Me.Button2.TabIndex = 11
         Me.Button2.Text = "Cancel"
         Me.Button2.UseVisualStyleBackColor = True
         '
         'Button1
         '
         Me.Button1.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button1.Location = New System.Drawing.Point(412, 332)
+        Me.Button1.Location = New System.Drawing.Point(412, 355)
         Me.Button1.Name = "Button1"
         Me.Button1.Size = New System.Drawing.Size(144, 44)
-        Me.Button1.TabIndex = 8
+        Me.Button1.TabIndex = 12
         Me.Button1.Text = "Save"
         Me.Button1.UseVisualStyleBackColor = True
         '
@@ -101,26 +102,26 @@ Partial Class settingFrm
         'CheckBox1
         '
         Me.CheckBox1.AutoSize = True
-        Me.CheckBox1.Location = New System.Drawing.Point(237, 254)
+        Me.CheckBox1.Location = New System.Drawing.Point(237, 277)
         Me.CheckBox1.Name = "CheckBox1"
         Me.CheckBox1.Size = New System.Drawing.Size(159, 24)
-        Me.CheckBox1.TabIndex = 6
+        Me.CheckBox1.TabIndex = 9
         Me.CheckBox1.Text = "Use IIS Express?"
         Me.CheckBox1.UseVisualStyleBackColor = True
         '
         'TextBox3
         '
         Me.TextBox3.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.TextBox3.Location = New System.Drawing.Point(237, 126)
+        Me.TextBox3.Location = New System.Drawing.Point(237, 143)
         Me.TextBox3.Name = "TextBox3"
         Me.TextBox3.Size = New System.Drawing.Size(319, 26)
-        Me.TextBox3.TabIndex = 11
+        Me.TextBox3.TabIndex = 4
         '
         'Label3
         '
         Me.Label3.AutoSize = True
         Me.Label3.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Label3.Location = New System.Drawing.Point(58, 129)
+        Me.Label3.Location = New System.Drawing.Point(58, 146)
         Me.Label3.Name = "Label3"
         Me.Label3.Size = New System.Drawing.Size(109, 20)
         Me.Label3.TabIndex = 12
@@ -129,16 +130,16 @@ Partial Class settingFrm
         'TextBox4
         '
         Me.TextBox4.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.TextBox4.Location = New System.Drawing.Point(237, 190)
+        Me.TextBox4.Location = New System.Drawing.Point(237, 207)
         Me.TextBox4.Name = "TextBox4"
         Me.TextBox4.Size = New System.Drawing.Size(319, 26)
-        Me.TextBox4.TabIndex = 13
+        Me.TextBox4.TabIndex = 7
         '
         'Label4
         '
         Me.Label4.AutoSize = True
         Me.Label4.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Label4.Location = New System.Drawing.Point(58, 193)
+        Me.Label4.Location = New System.Drawing.Point(58, 210)
         Me.Label4.Name = "Label4"
         Me.Label4.Size = New System.Drawing.Size(119, 20)
         Me.Label4.TabIndex = 14
@@ -147,17 +148,17 @@ Partial Class settingFrm
         'TextBox5
         '
         Me.TextBox5.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.TextBox5.Location = New System.Drawing.Point(237, 222)
+        Me.TextBox5.Location = New System.Drawing.Point(237, 239)
         Me.TextBox5.Name = "TextBox5"
         Me.TextBox5.PasswordChar = Global.Microsoft.VisualBasic.ChrW(42)
         Me.TextBox5.Size = New System.Drawing.Size(319, 26)
-        Me.TextBox5.TabIndex = 15
+        Me.TextBox5.TabIndex = 8
         '
         'Label5
         '
         Me.Label5.AutoSize = True
         Me.Label5.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Label5.Location = New System.Drawing.Point(58, 225)
+        Me.Label5.Location = New System.Drawing.Point(58, 242)
         Me.Label5.Name = "Label5"
         Me.Label5.Size = New System.Drawing.Size(134, 20)
         Me.Label5.TabIndex = 16
@@ -166,16 +167,16 @@ Partial Class settingFrm
         'TextBox6
         '
         Me.TextBox6.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.TextBox6.Location = New System.Drawing.Point(237, 284)
+        Me.TextBox6.Location = New System.Drawing.Point(237, 307)
         Me.TextBox6.Name = "TextBox6"
         Me.TextBox6.Size = New System.Drawing.Size(319, 26)
-        Me.TextBox6.TabIndex = 17
+        Me.TextBox6.TabIndex = 10
         '
         'Label6
         '
         Me.Label6.AutoSize = True
         Me.Label6.Font = New System.Drawing.Font("Microsoft Sans Serif", 8.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Label6.Location = New System.Drawing.Point(58, 287)
+        Me.Label6.Location = New System.Drawing.Point(58, 310)
         Me.Label6.Name = "Label6"
         Me.Label6.Size = New System.Drawing.Size(71, 20)
         Me.Label6.TabIndex = 18
@@ -184,10 +185,10 @@ Partial Class settingFrm
         'RadioButton1
         '
         Me.RadioButton1.AutoSize = True
-        Me.RadioButton1.Location = New System.Drawing.Point(237, 159)
+        Me.RadioButton1.Location = New System.Drawing.Point(237, 176)
         Me.RadioButton1.Name = "RadioButton1"
         Me.RadioButton1.Size = New System.Drawing.Size(138, 24)
-        Me.RadioButton1.TabIndex = 19
+        Me.RadioButton1.TabIndex = 5
         Me.RadioButton1.TabStop = True
         Me.RadioButton1.Text = "WIndows Auth"
         Me.RadioButton1.UseVisualStyleBackColor = True
@@ -195,19 +196,30 @@ Partial Class settingFrm
         'RadioButton2
         '
         Me.RadioButton2.AutoSize = True
-        Me.RadioButton2.Location = New System.Drawing.Point(381, 159)
+        Me.RadioButton2.Location = New System.Drawing.Point(381, 176)
         Me.RadioButton2.Name = "RadioButton2"
         Me.RadioButton2.Size = New System.Drawing.Size(104, 24)
-        Me.RadioButton2.TabIndex = 20
+        Me.RadioButton2.TabIndex = 6
         Me.RadioButton2.TabStop = True
         Me.RadioButton2.Text = "SQL Auth"
         Me.RadioButton2.UseVisualStyleBackColor = True
+        '
+        'CheckBox2
+        '
+        Me.CheckBox2.AutoSize = True
+        Me.CheckBox2.Location = New System.Drawing.Point(237, 113)
+        Me.CheckBox2.Name = "CheckBox2"
+        Me.CheckBox2.Size = New System.Drawing.Size(165, 24)
+        Me.CheckBox2.TabIndex = 3
+        Me.CheckBox2.Text = "Use Local Server?"
+        Me.CheckBox2.UseVisualStyleBackColor = True
         '
         'settingFrm
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(9.0!, 20.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.ClientSize = New System.Drawing.Size(621, 418)
+        Me.Controls.Add(Me.CheckBox2)
         Me.Controls.Add(Me.RadioButton2)
         Me.Controls.Add(Me.RadioButton1)
         Me.Controls.Add(Me.TextBox6)
@@ -250,4 +262,5 @@ Partial Class settingFrm
     Friend WithEvents Label6 As Label
     Friend WithEvents RadioButton1 As RadioButton
     Friend WithEvents RadioButton2 As RadioButton
+    Friend WithEvents CheckBox2 As CheckBox
 End Class
