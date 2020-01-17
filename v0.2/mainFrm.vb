@@ -255,7 +255,7 @@ Public Class mainFrm
         Dim pipename = f.getTag(nodbc, "server") 'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
         Dim accountid = f.getTag(nodbc, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
         Dim db = "oph_core"
-        If accountid <> "oph" Then
+        If accountid.ToLower <> "oph" Then
             db = accountid & "_data"
         End If
 
@@ -349,98 +349,107 @@ Public Class mainFrm
         Dim combo As DataTable
         combo = f.SelectSqlSrvRows(sqlstr, odbc)
 
-
         For z = 0 To Me.DataGridView1.Rows.Count - 1
             Dim dgvcc As New DataGridViewComboBoxCell
             With dgvcc
+                .FlatStyle = FlatStyle.Flat
                 .DataSource = combo
                 .ValueMember = fieldguid
                 .DisplayMember = fieldname
                 .ValueType = GetType(Guid)
             End With
             dgv.Item(col, z) = dgvcc
+            'dgv.Item(col, z) = dgvcc
         Next
     End Sub
     Sub retrieveModules(n As TreeNode, settingmode As String, parentcode As String)
-        Dim pipename = f.getTag(n, "server") 'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
+        Dim pipename = f.getTag(n, "server")
+        'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
         Dim accountid = f.getTag(n, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
         Dim db = "oph_core"
-        If accountid <> "oph" Then
+        If accountid.ToLower <> "oph" Then
             db = accountid & "_data"
         End If
         'Dim db = f.getTag(Me.TreeView1.SelectedNode.Parent, "db")
 
         Dim uid = f.getTag(n, "uid") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "uid")
         Dim pwd = f.getTag(n, "pwd") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "pwd")
-        Dim guid = f.getTag(n.Parent, "guid")
-        Dim filter = IIf(parentcode = "", "parentmoduleguid is null and settingmode=" & settingmode, "parentmoduleguid='" & guid & "'")
         Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=" & db & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         curODBC = Odbc
+
+        Dim guid = f.getTag(n.Parent, "guid")
+        Dim filter = IIf(parentcode = "", "parentmoduleguid is null and settingmode=" & settingmode, "parentmoduleguid='" & guid & "'")
         Dim sqlstr = "select moduleguid, accountguid, moduleid, moduledescription, settingmode, accountdbguid, parentmoduleguid, orderno, needlogin, themepageguid, modulestatusguid, modulegroupguid from modl where " & filter & " order by moduleid"
+
         curTable = "modl"
         parentField = "accountguid"
         parentValue = f.runSQLwithResult("select accountguid from acct where accountid='" & accountid & "'", curODBC)
 
-        If f.setDS(ds, sqlDA, sqlstr, Odbc) Then
-            Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
-            If i >= 100 And i <= 107 Or i = 10003 Then
-                Me.WebBrowser1.Visible = False
-                Me.ListView1.Visible = False
-                Me.DataGridView1.Visible = True
-                Me.DataGridView1.DataSource = ds.Tables(0)
+        If loadData(n, sqlstr, parentField, parentValue) Then
 
-                sqlstr = "select accountdbguid, databasename from acctdbse"
-                setCombo(Me.DataGridView1, sqlstr, Odbc, 5, "accountdbguid", "databasename")
-                sqlstr = "select moduleguid, moduleid from modl"
-                setCombo(Me.DataGridView1, sqlstr, Odbc, 6, "moduleguid", "moduleid")
-                sqlstr = "select themepageguid, themecode+' - '+pageurl name from thmepage p inner join thme t on t.themeguid=p.themeguid"
-                setCombo(Me.DataGridView1, sqlstr, Odbc, 9, "themepageguid", "name")
-                sqlstr = "select modulestatusguid, modulestatusname from msta"
-                setCombo(Me.DataGridView1, sqlstr, Odbc, 10, "modulestatusguid", "modulestatusname")
-                sqlstr = "select modulegroupguid, modulegroupid from modg"
-                setCombo(Me.DataGridView1, sqlstr, Odbc, 11, "modulegroupguid", "modulegroupid")
-                If Me.DataGridView1.Columns.Count > 0 Then
-                    Dim c As DataGridViewColumn = Me.DataGridView1.Columns(0)
-                    c.Visible = False
-                    For z = 0 To Me.DataGridView1.Columns.Count - 1
-                        If Me.DataGridView1.Columns(z).Name = parentField Then
-                            Me.DataGridView1.Columns(z).Visible = False
-                        End If
-                        Me.DataGridView1.Columns(z).AutoSizeMode = IIf(z = Me.DataGridView1.Columns.Count - 1, DataGridViewAutoSizeColumnMode.Fill, DataGridViewAutoSizeColumnMode.AllCells)
-                    Next
-                End If
-                If curTag <> i Then
-                    prevRow = Me.DataGridView1.Rows.Count - 1
-                    If prevRow >= 0 Then
-                        prevCell = 2
-                        Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
-                    End If
-                End If
-                curTag = i
-
-            End If
-            n.Nodes.Clear()
-            Dim dt = ds.Tables(0)
-            For ix As Integer = 0 To dt.Rows.Count - 1
-                Dim r As String = dt.Rows(ix).Item(2).ToString()
-                Dim guid1 As String = dt.Rows(ix).Item(0).ToString()
-                Dim t = n.Nodes.Add(r)
-                t.Tag = "type=1000;guid=" & guid1
-                Dim tc = t.Nodes.Add("Columns")
-                tc.Tag = "type=10001"
-                'Dim ti = t.Nodes.Add("Info")
-                'ti.Tag = "type=10002"
-                Dim tm = t.Nodes.Add("Children")
-                'tm.Tag = "type=10003"
-                tm.Tag = "type=10003;server=" & pipename & ";db=" & accountid & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
-                Dim ta = t.Nodes.Add("Approvals")
-                ta.Tag = "type=10004"
-                Dim tn = t.Nodes.Add("Numbering")
-                tn.Tag = "type=10005"
-                Dim tl = t.Nodes.Add("Mails")
-                tl.Tag = "type=10006"
-            Next ix
         End If
+
+        'If f.setDS(ds, sqlDA, sqlstr, Odbc) Then
+        dsClone = ds.Copy
+        Dim i = f.getTag(Me.TreeView1.SelectedNode, "type")
+        If i >= 100 And i <= 107 Or i = 10003 Then
+            Me.WebBrowser1.Visible = False
+            Me.ListView1.Visible = False
+            Me.DataGridView1.Visible = True
+            Me.DataGridView1.DataSource = ds.Tables(0)
+
+            sqlstr = "select accountdbguid, databasename from acctdbse"
+            setCombo(Me.DataGridView1, sqlstr, Odbc, 5, "accountdbguid", "databasename")
+            sqlstr = "select moduleguid, moduleid from modl"
+            setCombo(Me.DataGridView1, sqlstr, Odbc, 6, "moduleguid", "moduleid")
+            sqlstr = "select themepageguid, themecode+' - '+pageurl name from thmepage p inner join thme t on t.themeguid=p.themeguid"
+            setCombo(Me.DataGridView1, sqlstr, Odbc, 9, "themepageguid", "name")
+            sqlstr = "select modulestatusguid, modulestatusname from msta"
+            setCombo(Me.DataGridView1, sqlstr, Odbc, 10, "modulestatusguid", "modulestatusname")
+            sqlstr = "select modulegroupguid, modulegroupid from modg"
+            setCombo(Me.DataGridView1, sqlstr, Odbc, 11, "modulegroupguid", "modulegroupid")
+            If Me.DataGridView1.Columns.Count > 0 Then
+                Dim c As DataGridViewColumn = Me.DataGridView1.Columns(0)
+                c.Visible = False
+                For z = 0 To Me.DataGridView1.Columns.Count - 1
+                    If Me.DataGridView1.Columns(z).Name = parentField Then
+                        Me.DataGridView1.Columns(z).Visible = False
+                    End If
+                    Me.DataGridView1.Columns(z).AutoSizeMode = IIf(z = Me.DataGridView1.Columns.Count - 1, DataGridViewAutoSizeColumnMode.Fill, DataGridViewAutoSizeColumnMode.AllCells)
+                Next
+            End If
+            If curTag <> i Then
+                prevRow = Me.DataGridView1.Rows.Count - 1
+                If prevRow >= 0 Then
+                    prevCell = 2
+                    Me.DataGridView1.CurrentCell = Me.DataGridView1.Rows(prevRow).Cells(prevCell)
+                End If
+            End If
+            curTag = i
+
+        End If
+        n.Nodes.Clear()
+        Dim dt = ds.Tables(0)
+        For ix As Integer = 0 To dt.Rows.Count - 1
+            Dim r As String = dt.Rows(ix).Item(2).ToString()
+            Dim guid1 As String = dt.Rows(ix).Item(0).ToString()
+            Dim t = n.Nodes.Add(r)
+            t.Tag = "type=1000;guid=" & guid1
+            Dim tc = t.Nodes.Add("Columns")
+            tc.Tag = "type=10001"
+            'Dim ti = t.Nodes.Add("Info")
+            'ti.Tag = "type=10002"
+            Dim tm = t.Nodes.Add("Children")
+            'tm.Tag = "type=10003"
+            tm.Tag = "type=10003;server=" & pipename & ";db=" & accountid & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+            Dim ta = t.Nodes.Add("Approvals")
+            ta.Tag = "type=10004"
+            Dim tn = t.Nodes.Add("Numbering")
+            tn.Tag = "type=10005"
+            Dim tl = t.Nodes.Add("Mails")
+            tl.Tag = "type=10006"
+        Next ix
+        'End If
 
     End Sub
     Sub retrieveModuleInfo(n As TreeNode, code As String)
@@ -771,11 +780,11 @@ Public Class mainFrm
     Private Sub RemoveDatabaseToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles RemoveDatabaseToolStripMenuItem.Click
         Dim pipename = Me.TreeView1.SelectedNode.Parent.Text
         Dim accountid = Me.TreeView1.SelectedNode.Text
-        If accountid <> "oph" Then
+        If accountid.ToLower <> "oph" Then
             Dim uid = f.getTag(Me.TreeView1.SelectedNode.Parent, "uid")
             Dim pwd = f.getTag(Me.TreeView1.SelectedNode.Parent, "pwd")
-
-            If delDb(accountid, pipename, uid, pwd, True) Then
+            Dim issql = pwd <> ""
+            If delDb(accountid, pipename, issql, uid, pwd, True) Then
                 Me.TreeView1.SelectedNode.Remove()
                 saveTree()
                 Dim n = f.addAccounttoIIS(accountid, pipename, My.Settings.ophFolder & "\", My.Settings.IISPort, True)
@@ -786,7 +795,7 @@ Public Class mainFrm
     End Sub
     Function delDb(accountid As String, pipename As String, isSQL As Boolean, uid As String, pwd As String, Optional delFile As Boolean = False) As Boolean
         Dim rs = False
-        'If accountid <> "oph" Then
+        'If accountid.ToLower <> "oph" Then
         If MessageBox.Show("You are about to " & IIf(delFile, "delete", "remove") & " " & accountid & ". Continue?", "Confirmation", MessageBoxButtons.YesNo) = vbYes Then
             Dim odbc = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
             If isSQL Then
@@ -823,11 +832,11 @@ Public Class mainFrm
             If f.getTag(Me.TreeView1.SelectedNode, "type") = "3" Then
                 Dim pipename = Me.TreeView1.SelectedNode.Parent.Text
                 Dim accountid = Me.TreeView1.SelectedNode.Text
-                If accountid <> "oph" Then
+                If accountid.ToLower <> "oph" Then
                     Dim uid = f.getTag(Me.TreeView1.SelectedNode.Parent, "uid")
                     Dim pwd = f.getTag(Me.TreeView1.SelectedNode.Parent, "pwd")
-
-                    If delDb(accountid, pipename, uid, pwd, True) Then
+                    Dim issql = pwd <> ""
+                    If delDb(accountid, pipename, issql, uid, pwd, True) Then
                         Me.TreeView1.SelectedNode.Remove()
                         saveTree()
                         Dim n = f.addAccounttoIIS(accountid, pipename, My.Settings.ophFolder & "\", My.Settings.IISPort, True)
@@ -844,8 +853,8 @@ Public Class mainFrm
             Dim pipename = Me.TreeView1.SelectedNode.Text
             Dim uid = f.getTag(Me.TreeView1.SelectedNode, "uid")
             Dim pwd = f.getTag(Me.TreeView1.SelectedNode, "pwd")
-
-            If delDb("oph", pipename, uid, pwd, True) Then
+            Dim issql = pwd <> ""
+            If delDb("oph", pipename, issql, uid, pwd, True) Then
                 saveTree()
                 Dim n = f.addAccounttoIIS("oph", pipename, My.Settings.ophFolder & "\", My.Settings.IISPort, True)
             End If
@@ -935,11 +944,11 @@ Public Class mainFrm
     Private Sub RemoveFromListToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles RemoveFromListToolStripMenuItem.Click
         Dim pipename = Me.TreeView1.SelectedNode.Parent.Text
         Dim accountid = Me.TreeView1.SelectedNode.Text
-        If accountid <> "oph" Then
+        If accountid.ToLower <> "oph" Then
             Dim uid = f.getTag(Me.TreeView1.SelectedNode.Parent, "uid")
             Dim pwd = f.getTag(Me.TreeView1.SelectedNode.Parent, "pwd")
-
-            If delDb(accountid, pipename, uid, pwd, False) Then
+            Dim issql = pwd <> ""
+            If delDb(accountid, pipename, issql, uid, pwd, False) Then
                 Me.TreeView1.SelectedNode.Remove()
                 saveTree()
                 Dim n = f.addAccounttoIIS(accountid, pipename, My.Settings.ophFolder & "\", My.Settings.IISPort, True)
@@ -997,7 +1006,7 @@ Public Class mainFrm
         Dim pwd = f.getTag(Me.TreeView1.SelectedNode.Parent, "pwd")
         Dim accountid = Me.TreeView1.SelectedNode.Text
         Dim datadb = "oph_core"
-        If accountid <> "oph" Then datadb = accountid & "_data"
+        If accountid.ToLower <> "oph" Then datadb = accountid & "_data"
 
         Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         Dim script = f.runSQLwithResult(sqlstr, odbc)
@@ -1020,7 +1029,7 @@ Public Class mainFrm
         Dim pwd = f.getTag(Me.TreeView1.SelectedNode.Parent, "pwd")
         Dim accountid = Me.TreeView1.SelectedNode.Text
         Dim datadb = "oph_core"
-        If accountid <> "oph" Then datadb = accountid & "_data"
+        If accountid.ToLower <> "oph" Then datadb = accountid & "_data"
 
         Dim odbc = "Data Source=" & pipename & ";Initial Catalog=" & datadb & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         OpenFileDialog1.Title = "Restore Script to database"
@@ -1056,7 +1065,7 @@ Public Class mainFrm
             Next
             If realRow Is Nothing Then
                 dsClone.Tables(0).Rows.Add()
-                n = 1
+                'n = 1
                 realRow = dsClone.Tables(0).Rows.Count - 1
             End If
             n = 0
@@ -1065,6 +1074,7 @@ Public Class mainFrm
                     dsClone.Tables(0).Rows(realRow).Item(r) = parentValue
                 Else
                     dsClone.Tables(0).Rows(realRow).Item(r) = Me.DataGridView1.Rows(e.RowIndex).Cells(r).Value
+
                 End If
             Next
             e.Cancel = Not saveChanges()
@@ -1125,7 +1135,6 @@ Public Class mainFrm
     End Sub
 
     Private Sub DataGridView1_Sorted(sender As Object, e As EventArgs) Handles DataGridView1.Sorted
-        dsClone = ds.Copy
     End Sub
 
     Private Sub DataGridView1_CellEnter(sender As Object, e As DataGridViewCellEventArgs) Handles DataGridView1.CellEnter
