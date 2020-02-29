@@ -746,5 +746,81 @@ Public NotInheritable Class FunctionList
         End If
         Return r
     End Function
+    Public Function addServer(treeview1 As TreeView, mode As String, pipename As String, uid As String, pwd As String, isNew As Boolean, iisport As String) As Boolean
+        Dim r = False
+
+        Dim coreDB = "oph_core"
+        Dim folderData As String = "data"
+        Dim isLocalDb = False
+        Dim ophPath = My.Settings.ophFolder
+        Dim remoteUrl = My.Settings.ophServer
+        Dim folderTemp = "temp"
+        Dim dataAccount = "oph"
+        Dim token = ""
+        If mode = "url" Then
+            token = getToken(pipename, uid, pwd)
+            If token <> "" Then
+                Dim curnode = treeview1.SelectedNode
+                If getTag(mainFrm.TreeView1.SelectedNode, "type") = "1" Then
+                    Dim x = mainFrm.TreeView1.SelectedNode.Nodes.Add(pipename)
+                    x.Tag = "type=2;mode=" & mode & ";uid=" & uid & ";pwd=" & pwd
+                    curnode = x
+                Else
+                    mainFrm.TreeView1.SelectedNode.Text = pipename
+                    mainFrm.TreeView1.SelectedNode.Tag = "type=2;mode=" & mode & ";uid=" & uid & ";pwd=" & pwd
+                End If
+
+                Dim urlstr = pipename & "/ophcore/api/sync.aspx?mode=dbinfo&token=" & token
+                Dim dbinfo = postHttp(urlstr)
+
+                Dim sep() As String = {"<?xml version=""1.0"" encoding=""utf-8""?>", "<sqroot>", "<databases>", "<database>", "</database>", "</databases>", "</sqroot>"}
+                Dim r1 = dbinfo.Split(sep, StringSplitOptions.RemoveEmptyEntries)
+                Dim accountGUID As String = ""
+                Dim accountid = ""
+                Dim info1() As String = {"<info>", "</info>", "<data ", "/>"}
+                For Each r1x In r1
+                    Dim r2 = r1x.Split(info1, StringSplitOptions.RemoveEmptyEntries)
+                    If r2.Length > 1 Then
+                        For Each r2x In r2
+                            Dim r3 = r2x.Split({"key=""", "value=""", """ "}, StringSplitOptions.RemoveEmptyEntries)
+                            If r3.Length > 1 Then   'not empty
+                                If r3(0) = "accountid" Then
+                                    accountid = r3(1)
+                                End If
+                            End If
+                        Next
+
+                    End If
+
+                Next
+
+                Dim sep1() As String = {"<AccountGUID>", "<AccountDBGUID>", "<databasename>", "<isMaster>", "<version>", "</AccountGUID>", "</AccountDBGUID>", "</databasename>", "</isMaster>", "</version>"}
+                For Each r1x In r1
+                    Dim r2 = r1x.Split(sep1, StringSplitOptions.RemoveEmptyEntries)
+                    If r2.Length = 5 Then
+                        accountGUID = r2(0)
+                        Dim accountDBGUID = r2(1)
+                        Dim dbname = r2(2)
+                        Dim ismaster = r2(3)
+                        Dim Version = r2(4)
+                        If dbname <> "" And ismaster = "1" Then
+                            Dim x = curnode.Nodes.Add(accountid)
+                            x.Tag = "type=3;dbname=" & dbname
+                        End If
+
+                    End If
+                Next
+
+
+                r = True
+            End If
+        Else
+            Dim curnode = mainFrm.TreeView1.SelectedNode
+            r = addInstance(pipename, uid, pwd, coreDB, iisport, ophPath, curnode)
+
+        End If
+
+        Return r
+    End Function
 
 End Class

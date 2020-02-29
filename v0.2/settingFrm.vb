@@ -26,8 +26,8 @@ Public Class settingFrm
         End If
 
         If Not Directory.Exists(Me.TextBox1.Text & "\OPERAHOUSE") Then
-
-            If MessageBox.Show("Folder not exists, we will setup the OPERAHOUSE folder. Continue?", "Start", MessageBoxButtons.OKCancel) = vbOK Then
+            Dim r = MessageBox.Show("Folder not exists, we will setup the OPERAHOUSE folder. YES to Continue. No to skip. Cancel to exit.", "Start", MessageBoxButtons.YesNoCancel)
+            If r = vbYes Then
                 If Not Directory.Exists(Me.TextBox1.Text) Then Directory.CreateDirectory(Me.TextBox1.Text)
                 If Not Directory.Exists(Me.TextBox1.Text & "\temp") Then Directory.CreateDirectory(Me.TextBox1.Text & "\temp")
                 If Not Directory.Exists(Me.TextBox1.Text & "\data") Then Directory.CreateDirectory(Me.TextBox1.Text & "\data")
@@ -56,6 +56,8 @@ Public Class settingFrm
 
                     End If
                 End If
+            ElseIf r = vbNo Then
+                Directory.CreateDirectory(Me.TextBox1.Text & "\OPERAHOUSE")
             End If
         End If
 
