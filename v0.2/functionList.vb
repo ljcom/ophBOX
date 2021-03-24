@@ -238,7 +238,7 @@ Public NotInheritable Class FunctionList
     Public Function getToken(remoteUrl As String, user As String, secret As String) As String
         Dim token = ""
         'Dim p_uri = remoteUrl & dataAccount
-        Dim p_uri = remoteUrl   '"http://springroll/" & dataAccount
+        Dim p_uri = remoteUrl   '"https://springroll.operahouse.systems/" & dataAccount
         'Dim curAccount = accountList(dataAccount)
         'Dim user = curAccount.user
         'Dim secret = curAccount.secret

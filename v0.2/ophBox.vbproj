@@ -27,7 +27,7 @@
     <MapFileExtensions>true</MapFileExtensions>
     <ProductName>OPHBOX</ProductName>
     <PublisherName>OPERAHOUSE</PublisherName>
-    <ApplicationRevision>42</ApplicationRevision>
+    <ApplicationRevision>80</ApplicationRevision>
     <ApplicationVersion>0.2.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
@@ -66,10 +66,11 @@
     <OptionInfer>On</OptionInfer>
   </PropertyGroup>
   <PropertyGroup>
-    <ManifestCertificateThumbprint>EC395F653D8213E179A53FEA6102A7F1CB0ADAF5</ManifestCertificateThumbprint>
+    <ManifestCertificateThumbprint>08F321BB586DA7AB4B121EC50D36C0C2D49EE679</ManifestCertificateThumbprint>
   </PropertyGroup>
   <PropertyGroup>
-    <ManifestKeyFile>ophBox_TemporaryKey.pfx</ManifestKeyFile>
+    <ManifestKeyFile>
+    </ManifestKeyFile>
   </PropertyGroup>
   <PropertyGroup>
     <GenerateManifests>true</GenerateManifests>
@@ -232,6 +233,7 @@
       <LastGenOutput>Settings.Designer.vb</LastGenOutput>
     </None>
     <None Include="App.config" />
+    <None Include="ophBox_1_TemporaryKey.pfx" />
     <None Include="ophBox_TemporaryKey.pfx" />
     <None Include="packages.config" />
   </ItemGroup>

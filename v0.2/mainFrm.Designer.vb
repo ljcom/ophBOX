@@ -1,9 +1,9 @@
-﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()> _
+﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
 Partial Class mainFrm
     Inherits System.Windows.Forms.Form
 
     'Form overrides dispose to clean up the component list.
-    <System.Diagnostics.DebuggerNonUserCode()> _
+    <System.Diagnostics.DebuggerNonUserCode()>
     Protected Overrides Sub Dispose(ByVal disposing As Boolean)
         Try
             If disposing AndAlso components IsNot Nothing Then
@@ -20,7 +20,7 @@ Partial Class mainFrm
     'NOTE: The following procedure is required by the Windows Form Designer
     'It can be modified using the Windows Form Designer.  
     'Do not modify it using the code editor.
-    <System.Diagnostics.DebuggerStepThrough()> _
+    <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
         Dim TreeNode1 As System.Windows.Forms.TreeNode = New System.Windows.Forms.TreeNode("Servers")
@@ -31,6 +31,12 @@ Partial Class mainFrm
         Me.ContextMenuStrip1 = New System.Windows.Forms.ContextMenuStrip(Me.components)
         Me.AddServerToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ImageList1 = New System.Windows.Forms.ImageList(Me.components)
+        Me.Panel1 = New System.Windows.Forms.Panel()
+        Me.Panel2 = New System.Windows.Forms.Panel()
+        Me.Label3 = New System.Windows.Forms.Label()
+        Me.TextBox1 = New System.Windows.Forms.TextBox()
+        Me.Label2 = New System.Windows.Forms.Label()
+        Me.Label1 = New System.Windows.Forms.Label()
         Me.DataGridView1 = New System.Windows.Forms.DataGridView()
         Me.WebBrowser1 = New System.Windows.Forms.WebBrowser()
         Me.ListView1 = New System.Windows.Forms.ListView()
@@ -42,6 +48,7 @@ Partial Class mainFrm
         Me.PropertiesToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripMenuItem4 = New System.Windows.Forms.ToolStripMenuItem()
         Me.DeleteServerToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RefreshToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ContextMenuStrip3 = New System.Windows.Forms.ContextMenuStrip(Me.components)
         Me.DatabasePropertiesToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.RemoveFromListToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
@@ -49,21 +56,26 @@ Partial Class mainFrm
         Me.ToolStripMenuItem1 = New System.Windows.Forms.ToolStripSeparator()
         Me.LoadScriptToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.SaveScriptToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RefreshToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
         Me.Button2 = New System.Windows.Forms.Button()
         Me.SaveFileDialog1 = New System.Windows.Forms.SaveFileDialog()
         Me.OpenFileDialog1 = New System.Windows.Forms.OpenFileDialog()
         Me.Timer1 = New System.Windows.Forms.Timer(Me.components)
         Me.ContextMenuStrip4 = New System.Windows.Forms.ContextMenuStrip(Me.components)
         Me.AddModuleToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RefreshToolStripMenuItem2 = New System.Windows.Forms.ToolStripMenuItem()
         Me.ContextMenuStrip5 = New System.Windows.Forms.ContextMenuStrip(Me.components)
         Me.DeleteModuleToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.RefreshToolStripMenuItem4 = New System.Windows.Forms.ToolStripMenuItem()
         Me.ContextMenuStrip6 = New System.Windows.Forms.ContextMenuStrip(Me.components)
-        Me.RefreshToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.lblVersion = New System.Windows.Forms.Label()
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SplitContainer1.Panel1.SuspendLayout()
         Me.SplitContainer1.Panel2.SuspendLayout()
         Me.SplitContainer1.SuspendLayout()
         Me.ContextMenuStrip1.SuspendLayout()
+        Me.Panel1.SuspendLayout()
+        Me.Panel2.SuspendLayout()
         CType(Me.DataGridView1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.ContextMenuStrip2.SuspendLayout()
         Me.ContextMenuStrip3.SuspendLayout()
@@ -96,7 +108,7 @@ Partial Class mainFrm
         '
         'SplitContainer1.Panel2
         '
-        Me.SplitContainer1.Panel2.Controls.Add(Me.DataGridView1)
+        Me.SplitContainer1.Panel2.Controls.Add(Me.Panel1)
         Me.SplitContainer1.Panel2.Controls.Add(Me.WebBrowser1)
         Me.SplitContainer1.Panel2.Controls.Add(Me.ListView1)
         Me.SplitContainer1.Size = New System.Drawing.Size(776, 376)
@@ -176,16 +188,78 @@ Partial Class mainFrm
         Me.ImageList1.Images.SetKeyName(36, "widget-01.png")
         Me.ImageList1.Images.SetKeyName(37, "word-01.png")
         '
+        'Panel1
+        '
+        Me.Panel1.Controls.Add(Me.Panel2)
+        Me.Panel1.Controls.Add(Me.DataGridView1)
+        Me.Panel1.Dock = System.Windows.Forms.DockStyle.Fill
+        Me.Panel1.Location = New System.Drawing.Point(0, 0)
+        Me.Panel1.Name = "Panel1"
+        Me.Panel1.Size = New System.Drawing.Size(514, 376)
+        Me.Panel1.TabIndex = 3
+        Me.Panel1.Visible = False
+        '
+        'Panel2
+        '
+        Me.Panel2.Controls.Add(Me.Label3)
+        Me.Panel2.Controls.Add(Me.TextBox1)
+        Me.Panel2.Controls.Add(Me.Label2)
+        Me.Panel2.Controls.Add(Me.Label1)
+        Me.Panel2.Dock = System.Windows.Forms.DockStyle.Top
+        Me.Panel2.Location = New System.Drawing.Point(0, 0)
+        Me.Panel2.Name = "Panel2"
+        Me.Panel2.Size = New System.Drawing.Size(514, 95)
+        Me.Panel2.TabIndex = 1
+        '
+        'Label3
+        '
+        Me.Label3.Anchor = CType((System.Windows.Forms.AnchorStyles.Top Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
+        Me.Label3.AutoSize = True
+        Me.Label3.Location = New System.Drawing.Point(253, 51)
+        Me.Label3.Name = "Label3"
+        Me.Label3.Size = New System.Drawing.Size(60, 20)
+        Me.Label3.TabIndex = 3
+        Me.Label3.Text = "Search"
+        '
+        'TextBox1
+        '
+        Me.TextBox1.Anchor = CType((System.Windows.Forms.AnchorStyles.Top Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
+        Me.TextBox1.Location = New System.Drawing.Point(319, 48)
+        Me.TextBox1.Name = "TextBox1"
+        Me.TextBox1.Size = New System.Drawing.Size(181, 26)
+        Me.TextBox1.TabIndex = 2
+        '
+        'Label2
+        '
+        Me.Label2.AutoSize = True
+        Me.Label2.Location = New System.Drawing.Point(18, 48)
+        Me.Label2.Name = "Label2"
+        Me.Label2.Size = New System.Drawing.Size(57, 20)
+        Me.Label2.TabIndex = 1
+        Me.Label2.Text = "Label2"
+        '
+        'Label1
+        '
+        Me.Label1.AutoSize = True
+        Me.Label1.Font = New System.Drawing.Font("Microsoft Sans Serif", 14.0!, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
+        Me.Label1.Location = New System.Drawing.Point(12, 12)
+        Me.Label1.Name = "Label1"
+        Me.Label1.Size = New System.Drawing.Size(108, 32)
+        Me.Label1.TabIndex = 0
+        Me.Label1.Text = "Label1"
+        '
         'DataGridView1
         '
+        Me.DataGridView1.Anchor = CType((((System.Windows.Forms.AnchorStyles.Top Or System.Windows.Forms.AnchorStyles.Bottom) _
+            Or System.Windows.Forms.AnchorStyles.Left) _
+            Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.DataGridView1.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize
-        Me.DataGridView1.Dock = System.Windows.Forms.DockStyle.Fill
-        Me.DataGridView1.Location = New System.Drawing.Point(0, 0)
+        Me.DataGridView1.Location = New System.Drawing.Point(3, 101)
         Me.DataGridView1.Name = "DataGridView1"
         Me.DataGridView1.RowHeadersWidth = 30
         Me.DataGridView1.RowTemplate.Height = 28
-        Me.DataGridView1.Size = New System.Drawing.Size(514, 376)
-        Me.DataGridView1.TabIndex = 2
+        Me.DataGridView1.Size = New System.Drawing.Size(508, 272)
+        Me.DataGridView1.TabIndex = 0
         '
         'WebBrowser1
         '
@@ -257,7 +331,7 @@ Partial Class mainFrm
         Me.ContextMenuStrip2.ImageScalingSize = New System.Drawing.Size(24, 24)
         Me.ContextMenuStrip2.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.AddDatabaseToolStripMenuItem, Me.ToolStripMenuItem2, Me.StartIISExpessToolStripMenuItem, Me.PropertiesToolStripMenuItem, Me.ToolStripMenuItem4, Me.DeleteServerToolStripMenuItem, Me.RefreshToolStripMenuItem})
         Me.ContextMenuStrip2.Name = "ContextMenuStrip2"
-        Me.ContextMenuStrip2.Size = New System.Drawing.Size(274, 235)
+        Me.ContextMenuStrip2.Size = New System.Drawing.Size(274, 202)
         '
         'AddDatabaseToolStripMenuItem
         '
@@ -295,12 +369,18 @@ Partial Class mainFrm
         Me.DeleteServerToolStripMenuItem.Size = New System.Drawing.Size(273, 32)
         Me.DeleteServerToolStripMenuItem.Text = "&Delete Server"
         '
+        'RefreshToolStripMenuItem
+        '
+        Me.RefreshToolStripMenuItem.Name = "RefreshToolStripMenuItem"
+        Me.RefreshToolStripMenuItem.Size = New System.Drawing.Size(273, 32)
+        Me.RefreshToolStripMenuItem.Text = "&Refresh"
+        '
         'ContextMenuStrip3
         '
         Me.ContextMenuStrip3.ImageScalingSize = New System.Drawing.Size(24, 24)
-        Me.ContextMenuStrip3.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.DatabasePropertiesToolStripMenuItem, Me.RemoveFromListToolStripMenuItem, Me.RemoveDatabaseToolStripMenuItem, Me.ToolStripMenuItem1, Me.LoadScriptToolStripMenuItem, Me.SaveScriptToolStripMenuItem})
+        Me.ContextMenuStrip3.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.DatabasePropertiesToolStripMenuItem, Me.RemoveFromListToolStripMenuItem, Me.RemoveDatabaseToolStripMenuItem, Me.ToolStripMenuItem1, Me.LoadScriptToolStripMenuItem, Me.SaveScriptToolStripMenuItem, Me.RefreshToolStripMenuItem1})
         Me.ContextMenuStrip3.Name = "ContextMenuStrip3"
-        Me.ContextMenuStrip3.Size = New System.Drawing.Size(338, 170)
+        Me.ContextMenuStrip3.Size = New System.Drawing.Size(338, 202)
         '
         'DatabasePropertiesToolStripMenuItem
         '
@@ -339,6 +419,12 @@ Partial Class mainFrm
         Me.SaveScriptToolStripMenuItem.Size = New System.Drawing.Size(337, 32)
         Me.SaveScriptToolStripMenuItem.Text = "&Restore Script to this database..."
         '
+        'RefreshToolStripMenuItem1
+        '
+        Me.RefreshToolStripMenuItem1.Name = "RefreshToolStripMenuItem1"
+        Me.RefreshToolStripMenuItem1.Size = New System.Drawing.Size(337, 32)
+        Me.RefreshToolStripMenuItem1.Text = "Refresh"
+        '
         'Button2
         '
         Me.Button2.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
@@ -360,9 +446,9 @@ Partial Class mainFrm
         'ContextMenuStrip4
         '
         Me.ContextMenuStrip4.ImageScalingSize = New System.Drawing.Size(24, 24)
-        Me.ContextMenuStrip4.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.AddModuleToolStripMenuItem})
+        Me.ContextMenuStrip4.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.AddModuleToolStripMenuItem, Me.RefreshToolStripMenuItem2})
         Me.ContextMenuStrip4.Name = "ContextMenuStrip4"
-        Me.ContextMenuStrip4.Size = New System.Drawing.Size(185, 36)
+        Me.ContextMenuStrip4.Size = New System.Drawing.Size(185, 68)
         '
         'AddModuleToolStripMenuItem
         '
@@ -370,12 +456,18 @@ Partial Class mainFrm
         Me.AddModuleToolStripMenuItem.Size = New System.Drawing.Size(184, 32)
         Me.AddModuleToolStripMenuItem.Text = "&Add Module"
         '
+        'RefreshToolStripMenuItem2
+        '
+        Me.RefreshToolStripMenuItem2.Name = "RefreshToolStripMenuItem2"
+        Me.RefreshToolStripMenuItem2.Size = New System.Drawing.Size(184, 32)
+        Me.RefreshToolStripMenuItem2.Text = "Refresh"
+        '
         'ContextMenuStrip5
         '
         Me.ContextMenuStrip5.ImageScalingSize = New System.Drawing.Size(24, 24)
-        Me.ContextMenuStrip5.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.DeleteModuleToolStripMenuItem})
+        Me.ContextMenuStrip5.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.DeleteModuleToolStripMenuItem, Me.RefreshToolStripMenuItem4})
         Me.ContextMenuStrip5.Name = "ContextMenuStrip5"
-        Me.ContextMenuStrip5.Size = New System.Drawing.Size(201, 36)
+        Me.ContextMenuStrip5.Size = New System.Drawing.Size(201, 68)
         '
         'DeleteModuleToolStripMenuItem
         '
@@ -383,23 +475,34 @@ Partial Class mainFrm
         Me.DeleteModuleToolStripMenuItem.Size = New System.Drawing.Size(200, 32)
         Me.DeleteModuleToolStripMenuItem.Text = "&Delete Module"
         '
+        'RefreshToolStripMenuItem4
+        '
+        Me.RefreshToolStripMenuItem4.Name = "RefreshToolStripMenuItem4"
+        Me.RefreshToolStripMenuItem4.Size = New System.Drawing.Size(200, 32)
+        Me.RefreshToolStripMenuItem4.Text = "Refresh"
+        '
         'ContextMenuStrip6
         '
         Me.ContextMenuStrip6.ImageScalingSize = New System.Drawing.Size(24, 24)
         Me.ContextMenuStrip6.Name = "ContextMenuStrip6"
         Me.ContextMenuStrip6.Size = New System.Drawing.Size(61, 4)
         '
-        'RefreshToolStripMenuItem
+        'lblVersion
         '
-        Me.RefreshToolStripMenuItem.Name = "RefreshToolStripMenuItem"
-        Me.RefreshToolStripMenuItem.Size = New System.Drawing.Size(273, 32)
-        Me.RefreshToolStripMenuItem.Text = "&Refresh"
+        Me.lblVersion.Anchor = CType((System.Windows.Forms.AnchorStyles.Bottom Or System.Windows.Forms.AnchorStyles.Left), System.Windows.Forms.AnchorStyles)
+        Me.lblVersion.AutoSize = True
+        Me.lblVersion.Location = New System.Drawing.Point(12, 408)
+        Me.lblVersion.Name = "lblVersion"
+        Me.lblVersion.Size = New System.Drawing.Size(59, 20)
+        Me.lblVersion.TabIndex = 7
+        Me.lblVersion.Text = "v. 0.0.0"
         '
         'mainFrm
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(9.0!, 20.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.ClientSize = New System.Drawing.Size(800, 450)
+        Me.Controls.Add(Me.lblVersion)
         Me.Controls.Add(Me.Button2)
         Me.Controls.Add(Me.SplitContainer1)
         Me.Controls.Add(Me.Button1)
@@ -411,12 +514,16 @@ Partial Class mainFrm
         CType(Me.SplitContainer1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.SplitContainer1.ResumeLayout(False)
         Me.ContextMenuStrip1.ResumeLayout(False)
+        Me.Panel1.ResumeLayout(False)
+        Me.Panel2.ResumeLayout(False)
+        Me.Panel2.PerformLayout()
         CType(Me.DataGridView1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.ContextMenuStrip2.ResumeLayout(False)
         Me.ContextMenuStrip3.ResumeLayout(False)
         Me.ContextMenuStrip4.ResumeLayout(False)
         Me.ContextMenuStrip5.ResumeLayout(False)
         Me.ResumeLayout(False)
+        Me.PerformLayout()
 
     End Sub
     Friend WithEvents Button1 As Button
@@ -443,7 +550,6 @@ Partial Class mainFrm
     Friend WithEvents SaveScriptToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents SaveFileDialog1 As SaveFileDialog
     Friend WithEvents OpenFileDialog1 As OpenFileDialog
-    Friend WithEvents DataGridView1 As DataGridView
     Friend WithEvents Timer1 As Timer
     Friend WithEvents ImageList1 As ImageList
     Friend WithEvents ImageList2 As ImageList
@@ -453,4 +559,15 @@ Partial Class mainFrm
     Friend WithEvents DeleteModuleToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ContextMenuStrip6 As ContextMenuStrip
     Friend WithEvents RefreshToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents Panel1 As Panel
+    Friend WithEvents Panel2 As Panel
+    Friend WithEvents Label2 As Label
+    Friend WithEvents Label1 As Label
+    Friend WithEvents DataGridView1 As DataGridView
+    Friend WithEvents Label3 As Label
+    Friend WithEvents TextBox1 As TextBox
+    Friend WithEvents RefreshToolStripMenuItem1 As ToolStripMenuItem
+    Friend WithEvents RefreshToolStripMenuItem2 As ToolStripMenuItem
+    Friend WithEvents RefreshToolStripMenuItem4 As ToolStripMenuItem
+    Friend WithEvents lblVersion As Label
 End Class

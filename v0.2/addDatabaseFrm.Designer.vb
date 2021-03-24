@@ -32,16 +32,19 @@ Partial Class addDatabaseFrm
         Me.Label3 = New System.Windows.Forms.Label()
         Me.TextBox4 = New System.Windows.Forms.TextBox()
         Me.Label4 = New System.Windows.Forms.Label()
+        Me.CheckBox1 = New System.Windows.Forms.CheckBox()
+        Me.TextBox5 = New System.Windows.Forms.TextBox()
+        Me.Label5 = New System.Windows.Forms.Label()
         Me.SuspendLayout()
         '
         'Button2
         '
         Me.Button2.DialogResult = System.Windows.Forms.DialogResult.Cancel
         Me.Button2.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button2.Location = New System.Drawing.Point(262, 201)
+        Me.Button2.Location = New System.Drawing.Point(262, 252)
         Me.Button2.Name = "Button2"
         Me.Button2.Size = New System.Drawing.Size(144, 44)
-        Me.Button2.TabIndex = 5
+        Me.Button2.TabIndex = 8
         Me.Button2.Text = "Cancel"
         Me.Button2.UseVisualStyleBackColor = True
         '
@@ -49,10 +52,10 @@ Partial Class addDatabaseFrm
         '
         Me.Button1.DialogResult = System.Windows.Forms.DialogResult.OK
         Me.Button1.Font = New System.Drawing.Font("Microsoft Sans Serif", 10.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Button1.Location = New System.Drawing.Point(412, 201)
+        Me.Button1.Location = New System.Drawing.Point(412, 252)
         Me.Button1.Name = "Button1"
         Me.Button1.Size = New System.Drawing.Size(144, 44)
-        Me.Button1.TabIndex = 4
+        Me.Button1.TabIndex = 7
         Me.Button1.Text = "Add"
         Me.Button1.UseVisualStyleBackColor = True
         '
@@ -130,13 +133,46 @@ Partial Class addDatabaseFrm
         Me.Label4.TabIndex = 20
         Me.Label4.Text = "Confirm Password"
         '
+        'CheckBox1
+        '
+        Me.CheckBox1.AutoSize = True
+        Me.CheckBox1.Checked = True
+        Me.CheckBox1.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.CheckBox1.Location = New System.Drawing.Point(237, 171)
+        Me.CheckBox1.Name = "CheckBox1"
+        Me.CheckBox1.Size = New System.Drawing.Size(155, 24)
+        Me.CheckBox1.TabIndex = 5
+        Me.CheckBox1.Text = "local OPH Server"
+        Me.CheckBox1.UseVisualStyleBackColor = True
+        '
+        'TextBox5
+        '
+        Me.TextBox5.Enabled = False
+        Me.TextBox5.Location = New System.Drawing.Point(237, 201)
+        Me.TextBox5.Name = "TextBox5"
+        Me.TextBox5.Size = New System.Drawing.Size(319, 26)
+        Me.TextBox5.TabIndex = 6
+        Me.TextBox5.Text = "https://springroll.operahouse.systems"
+        '
+        'Label5
+        '
+        Me.Label5.AutoSize = True
+        Me.Label5.Location = New System.Drawing.Point(58, 204)
+        Me.Label5.Name = "Label5"
+        Me.Label5.Size = New System.Drawing.Size(93, 20)
+        Me.Label5.TabIndex = 23
+        Me.Label5.Text = "OPH Server"
+        '
         'addDatabaseFrm
         '
         Me.AcceptButton = Me.Button1
         Me.AutoScaleDimensions = New System.Drawing.SizeF(9.0!, 20.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.CancelButton = Me.Button2
-        Me.ClientSize = New System.Drawing.Size(621, 288)
+        Me.ClientSize = New System.Drawing.Size(621, 336)
+        Me.Controls.Add(Me.Label5)
+        Me.Controls.Add(Me.TextBox5)
+        Me.Controls.Add(Me.CheckBox1)
         Me.Controls.Add(Me.TextBox4)
         Me.Controls.Add(Me.Label4)
         Me.Controls.Add(Me.TextBox3)
@@ -164,4 +200,7 @@ Partial Class addDatabaseFrm
     Friend WithEvents Label3 As Label
     Friend WithEvents TextBox4 As TextBox
     Friend WithEvents Label4 As Label
+    Friend WithEvents CheckBox1 As CheckBox
+    Friend WithEvents TextBox5 As TextBox
+    Friend WithEvents Label5 As Label
 End Class
