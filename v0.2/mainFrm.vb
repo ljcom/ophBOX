@@ -372,12 +372,22 @@ Public Class mainFrm
         Dim pipename = f.getTag(nodbc, "server") 'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
         Dim accountid = f.getTag(nodbc, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
         Dim db = "oph_core"
+        Dim uid = f.getTag(nodbc, "uid")
+        Dim pwd = f.getTag(nodbc, "pwd")
+        Dim sqlstr2 = "select compact from acct where accountid='" & accountid & "'"
+        Dim ophODBC = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+
+        Dim compact = f.runSQLwithResult(sqlstr2, ophODBC)
+
         If accountid.ToLower <> "oph" Then
-            db = accountid & "_data"
+            If compact Then
+                db = accountid
+            Else
+                db = accountid & "_data"
+            End If
         End If
+
         If pipename <> "" Then
-            Dim uid = f.getTag(nodbc, "uid")
-            Dim pwd = f.getTag(nodbc, "pwd")
             Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=" & db & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
             curODBC = Odbc
 
@@ -463,6 +473,8 @@ Public Class mainFrm
                     'Dim tc = t.Nodes.Add("Info")
                     'tc.Tag = "type=100011"
                     t.ImageIndex = imageindex
+                Else
+
                 End If
             Next ix
             'remove unused nodes
@@ -515,13 +527,22 @@ Public Class mainFrm
         'Me.TreeView1.SelectedNode.Parent.Parent.Parent.Text
         Dim accountid = f.getTag(n, "accountid") 'Me.TreeView1.SelectedNode.Parent.Parent.Text
         Dim db = "oph_core"
+        Dim uid = f.getTag(n, "uid") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "uid")
+        Dim pwd = f.getTag(n, "pwd") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "pwd")
+
+        Dim sqlstr2 = "select compact from acct where accountid='" & accountid & "'"
+        Dim ophODBC = "Data Source=" & pipename & ";Initial Catalog=oph_core;" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
+
+        Dim compact = f.runSQLwithResult(sqlstr2, ophODBC)
         If accountid.ToLower <> "oph" Then
-            db = accountid & "_data"
+            If compact Then
+                db = accountid
+            Else
+                db = accountid & "_data"
+            End If
         End If
         'Dim db = f.getTag(Me.TreeView1.SelectedNode.Parent, "db")
 
-        Dim uid = f.getTag(n, "uid") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "uid")
-        Dim pwd = f.getTag(n, "pwd") 'f.getTag(Me.TreeView1.SelectedNode.Parent.Parent.Parent, "pwd")
         Dim Odbc = "Data Source=" & pipename & ";Initial Catalog=" & db & ";" & IIf(uid <> "", "User Id=" & uid & ";password=" & pwd, "trusted connection=yes")
         curODBC = Odbc
 
@@ -949,7 +970,7 @@ Public Class mainFrm
         Dim pipename = f.getTag(n.Parent.Parent, "server").ToString
         Dim uid = f.getTag(n.Parent.Parent, "uid").ToString
         Dim pwd = f.getTag(n.Parent.Parent, "pwd").ToString
-        t.Tag = "type=1310;server=" & pipename & ";db=" & accountid & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
+        t.Tag = "type=1310;guid=" & guid & ";server=" & pipename & ";db=" & accountid & ";uid=" & uid & ";pwd=" & pwd & ";accountid=" & accountid
 
         If Not nodeCheck(t, "Users") Then
             Dim tc = t.Nodes.Add("Users")
