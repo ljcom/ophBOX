@@ -1,12 +1,15 @@
 import type {
-  NavigationItem,
+  OphConnectionConfig,
   OphApproval,
   OphDatabase,
   OphModule,
   OphModuleColumn,
   OphServer,
+  OphTreeNode,
   ValidationItem,
 } from '../types/domain'
+
+const connectionConfigKey = 'oph-control-studio.connection-config'
 
 const servers: OphServer[] = [
   {
@@ -215,17 +218,119 @@ const validations: ValidationItem[] = [
   },
 ]
 
-export const navigationItems: NavigationItem[] = [
-  { path: '/dashboard', label: 'Dashboard', description: 'Overview and health' },
-  { path: '/servers', label: 'Servers', description: 'Connection manager' },
-  { path: '/databases', label: 'Databases', description: 'OPH database explorer' },
-  { path: '/modules', label: 'Modules', description: 'Legacy module metadata' },
-  { path: '/query', label: 'Query', description: 'SQL workbench' },
-  { path: '/migration', label: 'Migration', description: 'MSSQL to EventDB' },
-  { path: '/settings', label: 'Settings', description: 'Local preferences' },
-]
+function buildDatabaseChildren(database: OphDatabase): OphTreeNode[] {
+  return [
+    {
+      id: `${database.id}:modules`,
+      label: 'Modules',
+      kind: 'modules',
+      databaseId: database.id,
+      children: [
+        { id: `${database.id}:modules:core`, label: 'Core', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:master`, label: 'Master', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:transaction`, label: 'Transaction', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:report`, label: 'Report', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:blank`, label: 'Blank', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:view`, label: 'View', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:status`, label: 'Module Status', kind: 'module-category', databaseId: database.id },
+        { id: `${database.id}:modules:groups`, label: 'Module Groups', kind: 'module-category', databaseId: database.id },
+      ],
+    },
+    {
+      id: `${database.id}:security`,
+      label: 'Security',
+      kind: 'security',
+      databaseId: database.id,
+      children: [
+        { id: `${database.id}:security:users`, label: 'Users', kind: 'security', databaseId: database.id },
+        { id: `${database.id}:security:user-groups`, label: 'User Groups', kind: 'security', databaseId: database.id },
+      ],
+    },
+    {
+      id: `${database.id}:interface`,
+      label: 'Interface',
+      kind: 'interface',
+      databaseId: database.id,
+      children: [
+        { id: `${database.id}:interface:themes`, label: 'Themes', kind: 'interface', databaseId: database.id },
+        { id: `${database.id}:interface:menus`, label: 'Menus', kind: 'interface', databaseId: database.id },
+        { id: `${database.id}:interface:translator`, label: 'Translator', kind: 'interface', databaseId: database.id },
+      ],
+    },
+    {
+      id: `${database.id}:account`,
+      label: 'Account',
+      kind: 'account',
+      databaseId: database.id,
+      children: [
+        { id: `${database.id}:account:sub-accounts`, label: 'Sub Accounts', kind: 'account', databaseId: database.id },
+        { id: `${database.id}:account:databases`, label: 'Databases', kind: 'account', databaseId: database.id },
+        { id: `${database.id}:account:parameters`, label: 'Parameters', kind: 'account', databaseId: database.id },
+        { id: `${database.id}:account:widgets`, label: 'Widgets', kind: 'account', databaseId: database.id },
+        { id: `${database.id}:account:mail`, label: 'Mail', kind: 'account', databaseId: database.id },
+      ],
+    },
+  ]
+}
+
+function buildTree(config: OphConnectionConfig): OphTreeNode {
+  return {
+    id: 'servers',
+    label: 'Servers',
+    kind: 'root',
+    children: config.servers.map((server) => ({
+      id: server.id,
+      label: server.name,
+      kind: 'server',
+      description: `${server.host}:${server.port}`,
+      status: server.status,
+      serverId: server.id,
+      children: databases
+        .filter((database) => database.serverId === server.id)
+        .map((database) => ({
+          id: database.id,
+          label: database.name,
+          kind: 'database',
+          description: database.type === 'core' ? 'OPH core database' : 'Account database from oph_core',
+          status: database.status,
+          serverId: server.id,
+          databaseId: database.id,
+          children: buildDatabaseChildren(database),
+        })),
+    })),
+  }
+}
+
+function loadConnectionConfig(): OphConnectionConfig | null {
+  const rawConfig = window.localStorage.getItem(connectionConfigKey)
+  if (!rawConfig) return null
+
+  try {
+    const config = JSON.parse(rawConfig) as OphConnectionConfig
+    return config.servers.length > 0 ? config : null
+  } catch {
+    return null
+  }
+}
+
+function saveConnectionConfig(config: OphConnectionConfig): OphConnectionConfig {
+  window.localStorage.setItem(connectionConfigKey, JSON.stringify(config))
+  return config
+}
+
+function createSampleConnectionConfig(): OphConnectionConfig {
+  return {
+    servers: [servers[0]],
+    selectedServerId: servers[0].id,
+  }
+}
 
 export const ophAdminService = {
+  loadConnectionConfig,
+  saveConnectionConfig,
+  createSampleConnectionConfig,
+  clearConnectionConfig: () => window.localStorage.removeItem(connectionConfigKey),
+  buildTree,
   listServers: () => servers,
   listDatabases: () => databases,
   listModules: () => modules,

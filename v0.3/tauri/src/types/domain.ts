@@ -15,6 +15,11 @@ export type OphServer = {
   lastChecked: string
 }
 
+export type OphConnectionConfig = {
+  servers: OphServer[]
+  selectedServerId?: string
+}
+
 export type OphDatabase = {
   id: string
   name: string
@@ -71,8 +76,32 @@ export type ValidationItem = {
   detail: string
 }
 
-export type NavigationItem = {
-  path: string
+export type TreeNodeKind =
+  | 'root'
+  | 'server'
+  | 'database'
+  | 'modules'
+  | 'module-category'
+  | 'security'
+  | 'interface'
+  | 'account'
+
+export type OphTreeNode = {
+  id: string
   label: string
-  description: string
+  kind: TreeNodeKind
+  description?: string
+  status?: string
+  databaseId?: string
+  serverId?: string
+  children?: OphTreeNode[]
+}
+
+export type WorkspaceSelection = {
+  id: string
+  label: string
+  kind: TreeNodeKind
+  description?: string
+  databaseId?: string
+  serverId?: string
 }

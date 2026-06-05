@@ -2,31 +2,35 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Database,
   FileCode2,
   Gauge,
+  KeyRound,
+  Layers3,
   Mail,
+  MonitorCog,
   Play,
   Search,
   Server,
   Settings,
   ShieldCheck,
-  Shuffle,
   Table2,
+  UserRoundCog,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { navigationItems, ophAdminService } from './services/mockOphAdminService'
-import type { NavigationItem, OphModule, OphServer, ValidationItem } from './types/domain'
-
-type AppRoute =
-  | '/dashboard'
-  | '/servers'
-  | '/databases'
-  | '/modules'
-  | '/query'
-  | '/migration'
-  | '/settings'
+import { FormEvent, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import { ophAdminService } from './services/mockOphAdminService'
+import type {
+  OphConnectionConfig,
+  OphModule,
+  OphServer,
+  OphTreeNode,
+  TreeNodeKind,
+  ValidationItem,
+  WorkspaceSelection,
+} from './types/domain'
 
 type MetricCardProps = {
   label: string
@@ -39,79 +43,65 @@ type SectionHeaderProps = {
   title: string
   description: string
   action?: string
+  onAction?: () => void
 }
 
-const routeIcons: Record<AppRoute, typeof Gauge> = {
-  '/dashboard': Gauge,
-  '/servers': Server,
-  '/databases': Database,
-  '/modules': Table2,
-  '/query': FileCode2,
-  '/migration': Shuffle,
-  '/settings': Settings,
-}
-
-function getInitialRoute(): AppRoute {
-  const hash = window.location.hash.replace('#', '')
-  const knownRoutes = navigationItems.map((item) => item.path)
-  if (hash.startsWith('/modules/')) return '/modules'
-  return knownRoutes.includes(hash) ? (hash as AppRoute) : '/dashboard'
-}
-
-function getInitialModuleGuid(): string {
-  const hash = window.location.hash.replace('#', '')
-  return hash.startsWith('/modules/') ? hash.split('/')[2] || 'mod-invoice' : 'mod-invoice'
-}
-
-function getStatusClass(status: string): string {
-  if (['online', 'healthy', 'active'].includes(status)) return 'status status-good'
-  if (['warning', 'needs-review', 'review'].includes(status)) return 'status status-warning'
-  return 'status status-bad'
+const treeIcons: Record<TreeNodeKind, typeof Server> = {
+  root: Server,
+  server: Server,
+  database: Database,
+  modules: Layers3,
+  'module-category': Table2,
+  security: ShieldCheck,
+  interface: MonitorCog,
+  account: UserRoundCog,
 }
 
 function App() {
-  const [route, setRoute] = useState<AppRoute>(getInitialRoute)
-  const [selectedModuleGuid, setSelectedModuleGuid] = useState(getInitialModuleGuid)
-  const servers = ophAdminService.listServers()
-  const databases = ophAdminService.listDatabases()
+  const [connectionConfig, setConnectionConfig] = useState<OphConnectionConfig | null>(() =>
+    ophAdminService.loadConnectionConfig(),
+  )
+  const tree = useMemo(
+    () => (connectionConfig ? ophAdminService.buildTree(connectionConfig) : null),
+    [connectionConfig],
+  )
+  const firstDatabase = tree?.children?.[0]?.children?.[0]
+  const [selection, setSelection] = useState<WorkspaceSelection>(() => ({
+    id: firstDatabase?.id ?? 'servers',
+    label: firstDatabase?.label ?? 'Servers',
+    kind: firstDatabase?.kind ?? 'root',
+    description: firstDatabase?.description,
+    databaseId: firstDatabase?.databaseId,
+    serverId: firstDatabase?.serverId,
+  }))
+
+  const servers = connectionConfig?.servers ?? []
   const modules = ophAdminService.listModules()
   const validations = ophAdminService.listValidations()
-  const selectedModule = ophAdminService.getModule(selectedModuleGuid) ?? modules[0]
+  const selectedModule = modules[0]
 
-  const content = useMemo(() => {
-    switch (route) {
-      case '/servers':
-        return <ServersPage servers={servers} />
-      case '/databases':
-        return <DatabasesPage />
-      case '/modules':
-        return (
-          <ModulesPage
-            modules={modules}
-            selectedModule={selectedModule}
-            onSelectModule={selectModule}
-          />
-        )
-      case '/query':
-        return <QueryPage />
-      case '/migration':
-        return <MigrationPage />
-      case '/settings':
-        return <SettingsPage />
-      default:
-        return <DashboardPage />
-    }
-  }, [modules, route, selectedModule, servers])
-
-  function changeRoute(nextRoute: string) {
-    setRoute(nextRoute as AppRoute)
-    window.location.hash = nextRoute
+  function saveConnection(config: OphConnectionConfig) {
+    const savedConfig = ophAdminService.saveConnectionConfig(config)
+    const savedTree = ophAdminService.buildTree(savedConfig)
+    const savedDatabase = savedTree.children?.[0]?.children?.[0]
+    setConnectionConfig(savedConfig)
+    setSelection({
+      id: savedDatabase?.id ?? 'servers',
+      label: savedDatabase?.label ?? 'Servers',
+      kind: savedDatabase?.kind ?? 'root',
+      description: savedDatabase?.description,
+      databaseId: savedDatabase?.databaseId,
+      serverId: savedDatabase?.serverId,
+    })
   }
 
-  function selectModule(moduleGuid: string) {
-    setSelectedModuleGuid(moduleGuid)
-    setRoute('/modules')
-    window.location.hash = `/modules/${moduleGuid}`
+  function resetConnection() {
+    ophAdminService.clearConnectionConfig()
+    setConnectionConfig(null)
+  }
+
+  if (!connectionConfig || !tree) {
+    return <AddConnectionScreen onSave={saveConnection} />
   }
 
   return (
@@ -121,17 +111,17 @@ function App() {
           <div className="brand-mark">OPH</div>
           <div>
             <strong>OPH Control Studio</strong>
-            <span>Legacy admin workspace</span>
+            <span>Connection workspace</span>
           </div>
         </div>
-        <nav className="nav-list">
-          {navigationItems.map((item) => (
-            <NavButton key={item.path} item={item} active={route === item.path} onClick={changeRoute} />
-          ))}
-        </nav>
+        <div className="tree-toolbar">
+          <span>Saved Config</span>
+          <button onClick={resetConnection}>Reset</button>
+        </div>
+        <TreeView root={tree} selectionId={selection.id} onSelect={setSelection} />
         <div className="sidebar-footer">
-          <span>Current scope</span>
-          <strong>Copy legacy features cleanly</strong>
+          <span>Navigation flow</span>
+          <strong>Server → Database → Domain groups</strong>
         </div>
       </aside>
 
@@ -139,34 +129,225 @@ function App() {
         <header className="topbar">
           <div className="search-box">
             <Search size={16} />
-            <span>Search servers, databases, modules...</span>
+            <span>Search current OPH connection...</span>
           </div>
           <button className="primary-button">Test Connection</button>
         </header>
         <div className="content-grid">
-          <section className="main-panel">{content}</section>
-          <RightPanel validations={validations} selectedModule={selectedModule} />
+          <section className="main-panel">
+            <Workspace selection={selection} servers={servers} selectedModule={selectedModule} />
+          </section>
+          <RightPanel validations={validations} selectedModule={selectedModule} selection={selection} />
         </div>
       </main>
     </div>
   )
 }
 
-function NavButton({ item, active, onClick }: { item: NavigationItem; active: boolean; onClick: (path: string) => void }) {
-  const Icon = routeIcons[item.path as AppRoute]
+function AddConnectionScreen({ onSave }: { onSave: (config: OphConnectionConfig) => void }) {
+  const [authType, setAuthType] = useState<'sql' | 'windows'>('sql')
+
+  function submitConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const server: OphServer = {
+      id: 'srv-user-config',
+      name: String(form.get('name') || 'Production OPH'),
+      host: String(form.get('host') || 'localhost'),
+      port: Number(form.get('port') || 1433),
+      authType,
+      username: authType === 'sql' ? String(form.get('username') || '') : undefined,
+      password: authType === 'sql' ? String(form.get('password') || '') : undefined,
+      trustServerCertificate: form.get('trustServerCertificate') === 'on',
+      encrypt: form.get('encrypt') === 'on',
+      status: 'online',
+      databases: 1,
+      lastChecked: 'Just now',
+    }
+
+    onSave({ servers: [server], selectedServerId: server.id })
+  }
 
   return (
-    <button className={`nav-button ${active ? 'nav-button-active' : ''}`} onClick={() => onClick(item.path)}>
-      <Icon size={18} />
-      <span>
-        <strong>{item.label}</strong>
-        <small>{item.description}</small>
-      </span>
-    </button>
+    <main className="connection-screen">
+      <section className="connection-card">
+        <div className="brand-block connection-brand">
+          <div className="brand-mark">OPH</div>
+          <div>
+            <strong>OPH Control Studio</strong>
+            <span>No saved connection found</span>
+          </div>
+        </div>
+        <SectionHeader
+          eyebrow="Add Connection"
+          title="Connect to OPH core"
+          description="Save a server profile first. After the connection exists, the workspace opens with a server and database tree."
+        />
+        <form className="connection-form" onSubmit={submitConnection}>
+          <label>
+            Connection Name
+            <input name="name" defaultValue="Production OPH" />
+          </label>
+          <label>
+            SQL Server Host
+            <input name="host" defaultValue="10.10.1.20" />
+          </label>
+          <label>
+            Port
+            <input name="port" type="number" defaultValue={1433} />
+          </label>
+          <label>
+            Authentication
+            <select value={authType} onChange={(event) => setAuthType(event.target.value as 'sql' | 'windows')}>
+              <option value="sql">SQL Login</option>
+              <option value="windows">Windows Authentication</option>
+            </select>
+          </label>
+          {authType === 'sql' ? (
+            <>
+              <label>
+                Username
+                <input name="username" defaultValue="oph_admin" />
+              </label>
+              <label>
+                Password
+                <input name="password" type="password" defaultValue="password" />
+              </label>
+            </>
+          ) : null}
+          <label className="check-row">
+            <span>Encrypt connection</span>
+            <input name="encrypt" type="checkbox" defaultChecked />
+          </label>
+          <label className="check-row">
+            <span>Trust server certificate</span>
+            <input name="trustServerCertificate" type="checkbox" defaultChecked />
+          </label>
+          <div className="connection-actions">
+            <button className="primary-button" type="submit">
+              Save Connection
+            </button>
+            <button className="ghost-button" type="button" onClick={() => onSave(ophAdminService.createSampleConnectionConfig())}>
+              Use Sample Config
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
   )
 }
 
-function SectionHeader({ eyebrow, title, description, action }: SectionHeaderProps) {
+function TreeView({
+  root,
+  selectionId,
+  onSelect,
+}: {
+  root: OphTreeNode
+  selectionId: string
+  onSelect: (selection: WorkspaceSelection) => void
+}) {
+  return (
+    <div className="tree-view">
+      <TreeNodeView node={root} depth={0} selectionId={selectionId} onSelect={onSelect} />
+    </div>
+  )
+}
+
+function TreeNodeView({
+  node,
+  depth,
+  selectionId,
+  onSelect,
+}: {
+  node: OphTreeNode
+  depth: number
+  selectionId: string
+  onSelect: (selection: WorkspaceSelection) => void
+}) {
+  const [expanded, setExpanded] = useState(depth < 3)
+  const hasChildren = Boolean(node.children?.length)
+  const Icon = treeIcons[node.kind]
+
+  function selectNode() {
+    onSelect({
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      description: node.description,
+      databaseId: node.databaseId,
+      serverId: node.serverId,
+    })
+  }
+
+  return (
+    <div>
+      <button
+        className={`tree-node ${selectionId === node.id ? 'tree-node-active' : ''}`}
+        style={{ paddingLeft: 10 + depth * 16 }}
+        onClick={selectNode}
+      >
+        <span className="tree-expander" onClick={(event) => {
+          event.stopPropagation()
+          setExpanded(!expanded)
+        }}>
+          {hasChildren ? expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : null}
+        </span>
+        <Icon size={16} />
+        <span>
+          <strong>{node.label}</strong>
+          {node.description ? <small>{node.description}</small> : null}
+        </span>
+      </button>
+      {expanded && hasChildren ? (
+        <div>
+          {node.children?.map((child) => (
+            <TreeNodeView
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              selectionId={selectionId}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function Workspace({
+  selection,
+  servers,
+  selectedModule,
+}: {
+  selection: WorkspaceSelection
+  servers: OphServer[]
+  selectedModule: OphModule
+}) {
+  if (selection.kind === 'server' || selection.kind === 'root') {
+    return <ServersPage servers={servers} />
+  }
+
+  if (selection.kind === 'database') {
+    return <DatabaseWorkspace selection={selection} />
+  }
+
+  if (selection.kind === 'modules' || selection.kind === 'module-category') {
+    return <ModulesWorkspace selection={selection} selectedModule={selectedModule} />
+  }
+
+  if (selection.kind === 'security') {
+    return <DomainWorkspace icon={<ShieldCheck size={22} />} selection={selection} title="Security" />
+  }
+
+  if (selection.kind === 'interface') {
+    return <DomainWorkspace icon={<MonitorCog size={22} />} selection={selection} title="Interface" />
+  }
+
+  return <DomainWorkspace icon={<UserRoundCog size={22} />} selection={selection} title="Account" />
+}
+
+function SectionHeader({ eyebrow, title, description, action, onAction }: SectionHeaderProps) {
   return (
     <div className="section-header">
       <div>
@@ -174,7 +355,7 @@ function SectionHeader({ eyebrow, title, description, action }: SectionHeaderPro
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
-      {action ? <button className="primary-button">{action}</button> : null}
+      {action ? <button className="primary-button" onClick={onAction}>{action}</button> : null}
     </div>
   )
 }
@@ -189,51 +370,14 @@ function MetricCard({ label, value, detail }: MetricCardProps) {
   )
 }
 
-function DashboardPage() {
-  return (
-    <div className="page-stack">
-      <SectionHeader
-        eyebrow="Dashboard"
-        title="OPH estate overview"
-        description="A compact view of legacy OPH servers, metadata health, and migration readiness."
-        action="Run Validation"
-      />
-      <div className="metrics-grid">
-        <MetricCard label="Servers" value="3" detail="2 reachable, 1 offline" />
-        <MetricCard label="Databases" value="29" detail="1 core, 28 account/event" />
-        <MetricCard label="Modules" value="190" detail="3 require metadata review" />
-        <MetricCard label="Migration" value="12%" detail="EventDB preview coverage" />
-      </div>
-      <div className="two-column">
-        <div className="panel-card">
-          <h2>Active workbench</h2>
-          <ul className="timeline-list">
-            <li><CheckCircle2 size={16} />Production OPH connection passed.</li>
-            <li><AlertTriangle size={16} />HR module status requires review.</li>
-            <li><Activity size={16} />EventDB schema mapping is in progress.</li>
-          </ul>
-        </div>
-        <div className="panel-card">
-          <h2>Recommended next actions</h2>
-          <div className="action-list">
-            <button>Open module validation</button>
-            <button>Review server certificates</button>
-            <button>Prepare EventDB migration plan</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function ServersPage({ servers }: { servers: OphServer[] }) {
   return (
     <div className="page-stack">
       <SectionHeader
-        eyebrow="Server Explorer"
-        title="Connection manager"
-        description="Add, edit, delete, test, and save OPH server connection profiles locally."
-        action="Add Server"
+        eyebrow="Servers"
+        title="Saved OPH connections"
+        description="Connection config is loaded before the workspace opens. Use the tree to select a server or database."
+        action="Add Connection"
       />
       <div className="table-card">
         <table>
@@ -265,74 +409,57 @@ function ServersPage({ servers }: { servers: OphServer[] }) {
   )
 }
 
-function DatabasesPage() {
-  const databases = ophAdminService.listDatabases()
-
+function DatabaseWorkspace({ selection }: { selection: WorkspaceSelection }) {
   return (
     <div className="page-stack">
       <SectionHeader
-        eyebrow="Database Explorer"
-        title="OPH database inventory"
-        description="Detect oph_core, account databases, status, module count, and metadata entry points."
-        action="Refresh"
+        eyebrow="Database"
+        title={selection.label}
+        description="This database was listed from OPH core account metadata. Domain groups are available under this database node."
+        action="Refresh Database"
       />
-      <div className="database-grid">
-        {databases.map((database) => (
-          <article className="database-card" key={database.id}>
-            <div className="card-title-row">
-              <Database size={20} />
-              <strong>{database.name}</strong>
-            </div>
-            <span className={getStatusClass(database.status)}>{database.status}</span>
-            <dl>
-              <dt>Type</dt><dd>{database.type}</dd>
-              <dt>Modules</dt><dd>{database.modules}</dd>
-              <dt>Size</dt><dd>{database.size}</dd>
-              <dt>Updated</dt><dd>{database.updatedAt}</dd>
-            </dl>
-            <button className="ghost-button">Open Metadata</button>
-          </article>
-        ))}
+      <div className="metrics-grid">
+        <MetricCard label="Modules" value="128" detail="Grouped by setting mode" />
+        <MetricCard label="Security" value="42" detail="Users and groups" />
+        <MetricCard label="Interface" value="18" detail="Themes, menus, translator" />
+        <MetricCard label="Account" value="5" detail="Parameters and mail" />
+      </div>
+      <div className="panel-card">
+        <h2>Database workflow</h2>
+        <ul className="timeline-list">
+          <li><CheckCircle2 size={16} />Connection config loaded.</li>
+          <li><CheckCircle2 size={16} />Database list read from OPH core.</li>
+          <li><Activity size={16} />Select Modules, Security, Interface, or Account to continue.</li>
+        </ul>
       </div>
     </div>
   )
 }
 
-function ModulesPage({
-  modules,
-  selectedModule,
-  onSelectModule,
-}: {
-  modules: OphModule[]
-  selectedModule: OphModule
-  onSelectModule: (moduleGuid: string) => void
-}) {
+function ModulesWorkspace({ selection, selectedModule }: { selection: WorkspaceSelection; selectedModule: OphModule }) {
+  const modules = ophAdminService.listModules()
   const columns = ophAdminService.listModuleColumns(selectedModule.moduleGuid)
   const approvals = ophAdminService.listModuleApprovals(selectedModule.moduleGuid)
 
   return (
     <div className="page-stack">
       <SectionHeader
-        eyebrow="Module Explorer"
-        title="Legacy module metadata"
-        description="Inspect module definitions, columns, approvals, numbering, and mail configuration."
+        eyebrow="Modules"
+        title={selection.label}
+        description="Module groups follow the legacy OPH tree while keeping the workspace clean and editable."
         action="Save Module"
       />
       <div className="module-layout">
         <div className="module-list panel-card">
-          <h2>Modules</h2>
+          <h2>Module List</h2>
           {modules.map((module) => (
-            <button
-              className={`module-row ${module.moduleGuid === selectedModule.moduleGuid ? 'module-row-active' : ''}`}
-              key={module.moduleGuid}
-              onClick={() => onSelectModule(module.moduleGuid)}
-            >
+            <div className="module-row" key={module.moduleGuid}>
               <span>
                 <strong>{module.moduleId}</strong>
                 <small>{module.description}</small>
               </span>
               <ChevronRight size={16} />
-            </button>
+            </div>
           ))}
         </div>
         <div className="module-detail">
@@ -381,74 +508,51 @@ function ModulesPage({
   )
 }
 
-function QueryPage() {
+function DomainWorkspace({
+  icon,
+  selection,
+  title,
+}: {
+  icon: ReactNode
+  selection: WorkspaceSelection
+  title: string
+}) {
   return (
     <div className="page-stack">
       <SectionHeader
-        eyebrow="Query Studio"
-        title="SQL workbench"
-        description="Run focused metadata queries against selected OPH databases with clear result grids."
-        action="Run Query"
+        eyebrow={title}
+        title={selection.label}
+        description="This area mirrors the legacy tree flow, with actions and detail editing moved into a cleaner workspace."
+        action="Refresh"
       />
-      <div className="query-card">
-        <div className="query-toolbar"><span>oph_core / modl</span><button><Play size={14} />Execute</button></div>
-        <pre>{`select moduleguid, moduleid, moduledescription\nfrom modl\norder by moduleid`}</pre>
-      </div>
-      <div className="empty-result">Query results will appear here after a connection is selected.</div>
-    </div>
-  )
-}
-
-function MigrationPage() {
-  return (
-    <div className="page-stack">
-      <SectionHeader
-        eyebrow="Migration Center"
-        title="Legacy MSSQL to EventDB"
-        description="Plan metadata extraction, validate mappings, and track staged migration progress."
-        action="Create Plan"
-      />
-      <div className="migration-track">
-        {['Extract legacy metadata', 'Validate module model', 'Map EventDB schema', 'Dry run migration'].map((step, index) => (
-          <article className="migration-step" key={step}>
-            <span>{index + 1}</span>
-            <strong>{step}</strong>
-            <small>{index === 0 ? 'Ready' : 'Pending'}</small>
-          </article>
-        ))}
+      <div className="domain-grid">
+        <article className="domain-card">{icon}<strong>Browse</strong><span>Open records for this area.</span></article>
+        <article className="domain-card"><FileCode2 size={22} /><strong>Edit Details</strong><span>Update metadata using a focused form.</span></article>
+        <article className="domain-card"><KeyRound size={22} /><strong>Validate</strong><span>Check required fields and references.</span></article>
       </div>
     </div>
   )
 }
 
-function SettingsPage() {
-  return (
-    <div className="page-stack">
-      <SectionHeader
-        eyebrow="Settings"
-        title="Local workspace preferences"
-        description="Manage local configuration, connection storage behavior, and command-layer preferences."
-      />
-      <div className="settings-grid">
-        <label><span>Encrypt local connection config</span><input type="checkbox" defaultChecked /></label>
-        <label><span>Trust server certificate by default</span><input type="checkbox" /></label>
-        <label><span>Prefer sqlcmd sidecar for diagnostics</span><input type="checkbox" defaultChecked /></label>
-      </div>
-    </div>
-  )
-}
-
-function RightPanel({ validations, selectedModule }: { validations: ValidationItem[]; selectedModule: OphModule }) {
+function RightPanel({
+  validations,
+  selectedModule,
+  selection,
+}: {
+  validations: ValidationItem[]
+  selectedModule: OphModule
+  selection: WorkspaceSelection
+}) {
   return (
     <aside className="right-panel">
       <div className="panel-card properties-card">
-        <span className="eyebrow">Properties</span>
-        <h2>{selectedModule.moduleId}</h2>
+        <span className="eyebrow">Selection</span>
+        <h2>{selection.label}</h2>
         <dl>
-          <dt>Module GUID</dt><dd>{selectedModule.moduleGuid}</dd>
-          <dt>Columns</dt><dd>{selectedModule.columns}</dd>
-          <dt>Approvals</dt><dd>{selectedModule.approvals}</dd>
-          <dt>Need Login</dt><dd>{selectedModule.needLogin ? 'Yes' : 'No'}</dd>
+          <dt>Type</dt><dd>{selection.kind}</dd>
+          <dt>Database</dt><dd>{selection.databaseId ?? '-'}</dd>
+          <dt>Server</dt><dd>{selection.serverId ?? '-'}</dd>
+          <dt>Sample Module</dt><dd>{selectedModule.moduleId}</dd>
         </dl>
       </div>
       <div className="panel-card validation-card">
@@ -467,6 +571,12 @@ function RightPanel({ validations, selectedModule }: { validations: ValidationIt
       </div>
     </aside>
   )
+}
+
+function getStatusClass(status: string): string {
+  if (['online', 'healthy', 'active'].includes(status)) return 'status status-good'
+  if (['warning', 'needs-review', 'review'].includes(status)) return 'status status-warning'
+  return 'status status-bad'
 }
 
 export default App

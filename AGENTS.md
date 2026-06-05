@@ -103,7 +103,14 @@ routes:
 
 Use a layout similar to database management tools:
 
-- Left sidebar: Servers, Databases, Modules, EventDB, Migration, Query, Settings.
+- Startup flow: load saved connection config first.
+- If no connection config exists, open the add connection screen before showing
+  the main workspace.
+- If connection config exists, show a treeview sidebar that starts from server,
+  then databases loaded from `oph_core`, then domain groups inside each database.
+- Database tree groups should follow the legacy `v0.2` structure: Modules,
+  Security, Interface, and Account.
+- Left sidebar: server/database/domain treeview as the primary navigation.
 - Main area: data grids, detail editors, tabs, and primary workspace content.
 - Right panel: properties, validation, and action buttons.
 
