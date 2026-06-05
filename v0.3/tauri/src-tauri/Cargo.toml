@@ -1,0 +1,18 @@
+[package]
+name = "oph-control-studio"
+version = "0.1.0"
+description = "OPH Control Studio"
+authors = ["OPH"]
+edition = "2021"
+
+[lib]
+name = "oph_control_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.2.0", features = [] }
+
+[dependencies]
+tauri = { version = "=2.2.0", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
