@@ -6,6 +6,7 @@ export type OphServer = {
   host: string
   port: number
   authType: AuthType
+  defaultDatabase: string
   username?: string
   password?: string
   trustServerCertificate?: boolean
@@ -20,9 +21,16 @@ export type OphConnectionConfig = {
   selectedServerId?: string
 }
 
+export type TestConnectionResult = {
+  success: boolean
+  message: string
+  serverName: string
+}
+
 export type OphDatabase = {
   id: string
   name: string
+  databaseName: string
   serverId: string
   type: 'core' | 'account' | 'eventdb' | 'unknown'
   status: 'healthy' | 'needs-review' | 'offline'
@@ -82,8 +90,14 @@ export type TreeNodeKind =
   | 'database'
   | 'modules'
   | 'module-category'
+  | 'module'
+  | 'module-action'
+  | 'module-column'
   | 'security'
+  | 'security-user'
+  | 'security-group'
   | 'interface'
+  | 'theme'
   | 'account'
 
 export type OphTreeNode = {
@@ -92,8 +106,16 @@ export type OphTreeNode = {
   kind: TreeNodeKind
   description?: string
   status?: string
+  accountId?: string
+  databaseName?: string
   databaseId?: string
   serverId?: string
+  moduleGuid?: string
+  columnGuid?: string
+  themeGuid?: string
+  userGuid?: string
+  userGroupGuid?: string
+  settingMode?: number
   children?: OphTreeNode[]
 }
 
@@ -102,6 +124,16 @@ export type WorkspaceSelection = {
   label: string
   kind: TreeNodeKind
   description?: string
+  accountId?: string
+  databaseName?: string
   databaseId?: string
   serverId?: string
+  moduleGuid?: string
+  columnGuid?: string
+  themeGuid?: string
+  userGuid?: string
+  userGroupGuid?: string
+  settingMode?: number
 }
+
+export type MetadataRow = Record<string, string | number | boolean | null>
