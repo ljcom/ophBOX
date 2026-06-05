@@ -11,6 +11,8 @@ implementation.
 
 - Build a modern OPH administration platform, not a direct VB.NET WinForms UI
   rewrite.
+- For the initial phase, preserve and copy the current legacy feature coverage,
+  but implement it with a cleaner, more concise product and code structure.
 - The app should run on Windows, macOS, and Linux.
 - The desktop app belongs under `v0.3/tauri`.
 - Use the legacy `ljcom/ophBOX` behavior and schema as reference material only.
