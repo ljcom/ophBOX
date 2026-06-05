@@ -38,6 +38,10 @@ OPH Control Studio should be organized around these administration areas:
 
 ## Wording and UX Guidelines
 
+- Treat all wording as communication with the end user, not with developers.
+- Developer-facing names, implementation notes, table names, and code concepts
+  should not leak into user-facing labels unless the screen is explicitly a
+  developer, diagnostic, metadata, or query tool.
 - Use the name **OPH Control Studio** consistently for the desktop app.
 - Prefer domain wording familiar to OPH administrators: server, database,
   account, module, column, approval, numbering, mail template, menu, theme, and
