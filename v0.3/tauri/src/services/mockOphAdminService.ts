@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type {
   OphConnectionConfig,
   OphApproval,
@@ -13,6 +13,48 @@ import type {
 } from '../types/domain'
 
 const connectionConfigKey = 'oph-control-studio.connection-config'
+
+function isDesktopRuntime(): boolean {
+  return '__TAURI_INTERNALS__' in window
+}
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (isDesktopRuntime()) return tauriInvoke<T>(command, args)
+
+  const moduleGuid = String(args?.moduleGuid ?? '')
+  const webData: Record<string, unknown> = {
+    list_account_info: [],
+    list_account_databases: databases,
+    list_sub_accounts: [],
+    list_users: [],
+    list_user_groups: [],
+    list_user_info: [],
+    list_user_group_modules: [],
+    list_modules: modules.map(toModuleRow),
+    list_module_tree: modules.map(toModuleRow),
+    list_module_column_tree: columns.map(toColumnRow),
+    list_module_columns: columns.filter((column) => column.moduleGuid === moduleGuid).map(toColumnRow),
+    list_module_info: modules.filter((module) => module.moduleGuid === moduleGuid).map(toModuleRow),
+    list_module_column_info: columns.filter((column) => column.columnGuid === String(args?.columnGuid ?? '')).map(toColumnRow),
+    list_child_modules: modules.filter((module) => module.parentModuleGuid === moduleGuid).map(toModuleRow),
+    list_module_approvals: approvals.filter((approval) => approval.moduleGuid === moduleGuid),
+    list_module_numbering: [],
+    list_module_mails: [],
+    list_module_statuses: [],
+    list_module_groups: [],
+    list_themes: [],
+    list_theme_pages: [],
+    list_menus: [],
+    list_parameters: [],
+    list_widgets: [],
+    list_mail_profiles: [],
+    list_translator_words: [],
+    save_metadata_row: undefined,
+    delete_metadata_row: undefined,
+  }
+
+  return (webData[command] ?? []) as T
+}
 
 const servers: OphServer[] = [
   {
@@ -227,6 +269,35 @@ const validations: ValidationItem[] = [
     detail: 'EventDB has no migrated modules yet.',
   },
 ]
+
+function toModuleRow(module: OphModule): MetadataRow {
+  return {
+    moduleguid: module.moduleGuid,
+    accountguid: module.accountGuid,
+    moduleid: module.moduleId,
+    moduledescription: module.description,
+    settingmode: module.settingMode === 'master' ? 1 : 4,
+    accountdbguid: module.accountDbGuid,
+    parentmoduleguid: module.parentModuleGuid ?? '',
+    orderno: module.orderNo,
+    needlogin: module.needLogin,
+    themepageguid: module.themePageGuid ?? '',
+    modulestatusguid: module.moduleStatusGuid,
+    modulegroupguid: module.moduleGroupGuid,
+  }
+}
+
+function toColumnRow(column: OphModuleColumn): MetadataRow {
+  return {
+    columnguid: column.columnGuid,
+    moduleguid: column.moduleGuid,
+    colkey: column.colKey,
+    coltype: column.colType,
+    titlecaption: column.titleCaption,
+    colorder: column.colOrder,
+    collength: column.colLength,
+  }
+}
 
 function getAccountId(database: OphDatabase): string {
   const [, accountId] = database.id.split(':')
@@ -549,6 +620,11 @@ function buildFallbackTree(config: OphConnectionConfig): OphTreeNode {
 }
 
 async function loadConnectionConfig(): Promise<OphConnectionConfig | null> {
+  if (!isDesktopRuntime()) {
+    const savedConfig = window.localStorage.getItem(connectionConfigKey)
+    return savedConfig ? JSON.parse(savedConfig) as OphConnectionConfig : null
+  }
+
   try {
     return await invoke<OphConnectionConfig | null>('load_connection_config')
   } catch {
@@ -557,6 +633,11 @@ async function loadConnectionConfig(): Promise<OphConnectionConfig | null> {
 }
 
 async function saveConnectionConfig(config: OphConnectionConfig): Promise<OphConnectionConfig> {
+  if (!isDesktopRuntime()) {
+    window.localStorage.setItem(connectionConfigKey, JSON.stringify(config))
+    return config
+  }
+
   try {
     return await invoke<OphConnectionConfig>('save_connection_config', { config })
   } catch (error) {
@@ -577,6 +658,14 @@ async function clearConnectionConfig(): Promise<void> {
 }
 
 async function testConnection(server: OphServer): Promise<TestConnectionResult> {
+  if (!isDesktopRuntime()) {
+    return {
+      success: true,
+      message: `Web demo ready for ${server.name}. Live SQL Server access requires the OPH web API.`,
+      serverName: server.name,
+    }
+  }
+
   try {
     return await invoke<TestConnectionResult>('test_connection', { server })
   } catch (error) {
@@ -593,6 +682,13 @@ async function testConnection(server: OphServer): Promise<TestConnectionResult> 
 }
 
 async function listOphDatabases(config: OphConnectionConfig): Promise<OphDatabase[]> {
+  if (!isDesktopRuntime()) {
+    const selectedServerId = config.selectedServerId ?? config.servers[0]?.id
+    return databases
+      .filter((database) => database.serverId === selectedServerId)
+      .map((database) => ({ ...database, serverId: selectedServerId ?? database.serverId }))
+  }
+
   try {
     return await invoke<OphDatabase[]>('list_oph_databases', { config })
   } catch (error) {

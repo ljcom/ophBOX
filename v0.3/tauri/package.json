@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "dev:web": "vite --host 0.0.0.0",
+    "build:web": "tsc && vite build --outDir dist-web",
+    "preview:web": "vite preview --host 0.0.0.0 --port 4173 --outDir dist-web",
     "preview": "vite preview",
     "tauri": "tauri"
   },
