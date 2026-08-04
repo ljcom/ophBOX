@@ -29,6 +29,7 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_sub_account_users: [],
     list_users: [],
     list_all_users: [],
+    reset_user_password: undefined,
     list_user_groups: [],
     list_user_info: [],
     list_user_group_modules: [],
@@ -797,6 +798,17 @@ async function listAllUsers(config: OphConnectionConfig, databaseName: string): 
   return invoke<MetadataRow[]>('list_all_users', { config, databaseName })
 }
 
+async function resetUserPassword(
+  config: OphConnectionConfig,
+  databaseName: string,
+  accountId: string,
+  userGuid: string,
+  userId: string,
+  newPassword: string,
+): Promise<void> {
+  return invoke<void>('reset_user_password', { config, databaseName, accountId, userGuid, userId, newPassword })
+}
+
 async function listUserGroups(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_user_groups', { config, accountId, databaseName })
 }
@@ -957,6 +969,7 @@ export const ophAdminService = {
   listSubAccountUsers,
   listUsers,
   listAllUsers,
+  resetUserPassword,
   listUserGroups,
   listUserInfo,
   listUserGroupModules,

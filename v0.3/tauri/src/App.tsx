@@ -77,6 +77,7 @@ function App() {
   const [subAccountUserRowsByDatabaseId, setSubAccountUserRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [parameterRowsByDatabaseId, setParameterRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
+  const [isAddingConnection, setIsAddingConnection] = useState(false)
   const [initialConnectionError, setInitialConnectionError] = useState('')
   const tree = useMemo(
     () => {
@@ -400,6 +401,23 @@ function App() {
     await activateConnection(savedConfig)
   }
 
+  async function addConnection(config: OphConnectionConfig) {
+    if (!connectionConfig) {
+      await saveConnection(config)
+      setIsAddingConnection(false)
+      return
+    }
+
+    const newServer = config.servers[0]
+    if (!newServer) return
+    const mergedConfig: OphConnectionConfig = {
+      servers: [...connectionConfig.servers.filter((server) => server.id !== newServer.id), newServer],
+      selectedServerId: newServer.id,
+    }
+    await saveConnection(mergedConfig)
+    setIsAddingConnection(false)
+  }
+
   async function refreshConnection() {
     if (!connectionConfig) return
 
@@ -430,6 +448,15 @@ function App() {
     return <AddConnectionScreen initialError={initialConnectionError} onSave={saveConnection} />
   }
 
+  if (isAddingConnection) {
+    return (
+      <AddConnectionScreen
+        onSave={addConnection}
+        onCancel={() => setIsAddingConnection(false)}
+      />
+    )
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -456,6 +483,7 @@ function App() {
             <Workspace
               connectionConfig={connectionConfig}
               connectionError={initialConnectionError}
+              onAddConnection={() => setIsAddingConnection(true)}
               onRefreshConnection={refreshConnection}
               selection={selection}
               servers={servers}
@@ -471,10 +499,13 @@ function App() {
 function AddConnectionScreen({
   initialError,
   onSave,
+  onCancel,
 }: {
   initialError?: string
   onSave: (config: OphConnectionConfig) => void | Promise<void>
+  onCancel?: () => void
 }) {
+  const [serverId] = useState(() => `srv-${crypto.randomUUID()}`)
   const [authType, setAuthType] = useState<'sql' | 'windows'>('sql')
   const [testResult, setTestResult] = useState<string>('')
   const [saveError, setSaveError] = useState<string>('')
@@ -482,7 +513,7 @@ function AddConnectionScreen({
 
   function readServer(form: FormData): OphServer {
     return {
-      id: 'srv-prod',
+      id: serverId,
       name: String(form.get('name') || 'Production OPH'),
       host: String(form.get('host') || 'localhost'),
       port: Number(form.get('port') || 1433),
@@ -522,9 +553,6 @@ function AddConnectionScreen({
       const result = await ophAdminService.testConnection(server)
       setTestResult(result.message)
       setSaveError(result.success ? '' : result.message)
-      if (result.success) {
-        await onSave({ servers: [server], selectedServerId: server.id })
-      }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error))
     }
@@ -544,6 +572,8 @@ function AddConnectionScreen({
           eyebrow="Add Connection"
           title="Connect to OPH core"
           description="Save a server profile first. After the connection exists, the workspace opens with a server and database tree."
+          action={onCancel ? 'Cancel' : undefined}
+          onAction={onCancel}
         />
         <form className="connection-form" onSubmit={submitConnection}>
           <label>
@@ -718,6 +748,7 @@ function getModuleSettingMode(label: string): number | undefined {
 function Workspace({
   connectionConfig,
   connectionError,
+  onAddConnection,
   onRefreshConnection,
   selection,
   servers,
@@ -725,6 +756,7 @@ function Workspace({
 }: {
   connectionConfig: OphConnectionConfig
   connectionError: string
+  onAddConnection: () => void
   onRefreshConnection: () => void | Promise<void>
   selection: WorkspaceSelection
   servers: OphServer[]
@@ -735,7 +767,7 @@ function Workspace({
   }
 
   if (selection.kind === 'server' || selection.kind === 'root') {
-    return <ServersPage servers={servers} />
+    return <ServersPage servers={servers} onAddConnection={onAddConnection} />
   }
 
   if (selection.kind === 'database') {
@@ -1164,7 +1196,7 @@ function MetricCard({ label, value, detail }: MetricCardProps) {
   )
 }
 
-function ServersPage({ servers }: { servers: OphServer[] }) {
+function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAddConnection: () => void }) {
   return (
     <div className="page-stack">
       <SectionHeader
@@ -1172,6 +1204,7 @@ function ServersPage({ servers }: { servers: OphServer[] }) {
         title="Saved OPH connections"
         description="Connection config is loaded before the workspace opens. Use the tree to select a server or database."
         action="Add Connection"
+        onAction={onAddConnection}
       />
       <div className="table-card">
         <table>
@@ -1372,6 +1405,10 @@ function MetadataTable({
   const [isEditing, setIsEditing] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [actionNotice, setActionNotice] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
@@ -1520,6 +1557,9 @@ function MetadataTable({
     setIsEditing(false)
     setIsCreating(false)
     setActionError('')
+    setActionNotice('')
+    setNewPassword('')
+    setConfirmPassword('')
   }, [rows])
 
   const rowColumns = Array.from(new Set(tableRows.flatMap((row) => Object.keys(row))))
@@ -1599,6 +1639,9 @@ function MetadataTable({
     setIsEditing(true)
     setIsCreating(false)
     setActionError('')
+    setActionNotice('')
+    setNewPassword('')
+    setConfirmPassword('')
   }
 
   function openCreate() {
@@ -1608,6 +1651,9 @@ function MetadataTable({
     setIsEditing(true)
     setIsCreating(true)
     setActionError('')
+    setActionNotice('')
+    setNewPassword('')
+    setConfirmPassword('')
   }
 
   async function saveDraft() {
@@ -1661,6 +1707,9 @@ function MetadataTable({
     setIsEditing(false)
     setIsCreating(false)
     setActionError('')
+    setActionNotice('')
+    setNewPassword('')
+    setConfirmPassword('')
   }
 
   async function deleteSelectedRow() {
@@ -1691,6 +1740,49 @@ function MetadataTable({
     setIsEditing(false)
     setIsCreating(false)
     setActionError('')
+  }
+
+  async function resetSelectedUserPassword() {
+    if (!selection.databaseName || !selection.accountId || !selectedRow) {
+      setActionError('Cannot reset password: database, account, or user is missing.')
+      return
+    }
+
+    const userGuid = String(getCellValue(selectedRow, 'userguid') || selection.userGuid || '')
+    const userId = String(getCellValue(selectedRow, 'userid') || selection.label || '')
+    if (!userGuid || !userId) {
+      setActionError('Cannot reset password: User ID or user key is missing.')
+      return
+    }
+    if (!newPassword) {
+      setActionError(`Enter a new password for ${userId}.`)
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setActionError(`Password confirmation for ${userId} does not match.`)
+      return
+    }
+
+    setIsResettingPassword(true)
+    setActionError('')
+    setActionNotice('')
+    try {
+      await ophAdminService.resetUserPassword(
+        config,
+        selection.databaseName,
+        selection.accountId,
+        userGuid,
+        userId,
+        newPassword,
+      )
+      setNewPassword('')
+      setConfirmPassword('')
+      setActionNotice(`Password for ${userId} was reset successfully.`)
+    } catch (resetError) {
+      setActionError(resetError instanceof Error ? resetError.message : String(resetError))
+    } finally {
+      setIsResettingPassword(false)
+    }
   }
 
   return (
@@ -1779,12 +1871,42 @@ function MetadataTable({
               </label>
             ))}
           </form>
+          {(sourceKey === '[user]' || selection.kind === 'security-user') && !isCreating ? (
+            <div className="password-reset-panel">
+              <div>
+                <strong>Reset Password</strong>
+                <p>Set a new password for {String(getCellValue(selectedRow, 'userid') || selection.label || 'this user')}.</p>
+              </div>
+              <label>
+                <span>New Password</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Confirm Password</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                />
+              </label>
+              <button type="button" disabled={isResettingPassword} onClick={resetSelectedUserPassword}>
+                {isResettingPassword ? 'Resetting…' : 'Reset Password'}
+              </button>
+            </div>
+          ) : null}
           <div className="row-detail-actions">
             <button type="button" onClick={saveDraft}>Save</button>
             <button type="button" onClick={cancelEdit}>Cancel</button>
             <button className="danger-button" type="button" onClick={deleteSelectedRow}>Delete</button>
           </div>
           {actionError ? <div className="connection-error">{actionError}</div> : null}
+          {actionNotice ? <div className="action-notice">{actionNotice}</div> : null}
         </aside>
         </div>
       ) : null}

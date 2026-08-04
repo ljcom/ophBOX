@@ -840,6 +840,39 @@ async fn list_all_users(
 }
 
 #[tauri::command]
+async fn reset_user_password(
+    config: OphConnectionConfig,
+    database_name: String,
+    account_id: String,
+    user_guid: String,
+    user_id: String,
+    new_password: String,
+) -> Result<(), String> {
+    if new_password.is_empty() {
+        return Err("New password cannot be empty.".to_string());
+    }
+
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let account_id = escape_sql_value(&account_id);
+    let user_guid = escape_sql_value(&user_guid);
+    let user_id = escape_sql_value(&user_id);
+    let new_password = escape_sql_value(&new_password);
+
+    client
+        .execute(
+            format!(
+                "exec gen.resetPassword null, N'{user_id}', '{user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
+            ),
+            &[],
+        )
+        .await
+        .map_err(|error| format!("Cannot reset password for user {user_id}: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn list_user_groups(
     config: OphConnectionConfig,
     account_id: String,
@@ -1727,6 +1760,7 @@ pub fn run() {
             list_sub_account_users,
             list_users,
             list_all_users,
+            reset_user_password,
             list_user_groups,
             list_user_info,
             list_user_group_modules,
