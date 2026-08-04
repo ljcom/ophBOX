@@ -482,6 +482,13 @@ button {
   background: #eff6ff;
 }
 
+.row-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(15, 23, 42, 0.18);
+}
+
 .row-detail-overlay {
   position: fixed;
   top: 0;
@@ -575,6 +582,145 @@ button {
 .row-detail-form input[readonly],
 .row-detail-form textarea[readonly] {
   color: #1f2937;
+}
+
+.token-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 46px;
+  padding: 7px;
+  border: 1px solid #dce4ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.token-input:focus-within {
+  outline: 2px solid #bfdbfe;
+  border-color: #93c5fd;
+}
+
+.token-input input {
+  flex: 1 1 210px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.token-input select {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  font: inherit;
+}
+
+.token-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.token-chip button {
+  padding: 0;
+  border: 0;
+  color: #1d4ed8;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.token-input-readonly:empty::after {
+  content: 'No tokens';
+  padding: 5px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.switch-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dce4ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+}
+
+.switch-input:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 150ms ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 150ms ease;
+}
+
+.switch-input-on {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.switch-input-on .switch-track {
+  background: #16a34a;
+}
+
+.switch-input-on .switch-thumb {
+  transform: translateX(20px);
+}
+
+.switch-status {
+  display: grid;
+  gap: 2px;
+}
+
+.switch-status strong {
+  color: #475569;
+  font-size: 12px;
+}
+
+.switch-input-on .switch-status strong {
+  color: #15803d;
+}
+
+.switch-status small {
+  color: #64748b;
+  font-size: 12px;
 }
 
 table {

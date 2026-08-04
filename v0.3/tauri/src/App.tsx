@@ -59,6 +59,8 @@ const treeIcons: Record<TreeNodeKind, typeof Server> = {
   'security-group': ShieldCheck,
   interface: MonitorCog,
   theme: MonitorCog,
+  menu: MonitorCog,
+  parameter: Table2,
   account: UserRoundCog,
 }
 
@@ -71,6 +73,9 @@ function App() {
   const [themeRowsByDatabaseId, setThemeRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [userRowsByDatabaseId, setUserRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [userGroupRowsByDatabaseId, setUserGroupRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
+  const [menuRowsByDatabaseId, setMenuRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
+  const [subAccountUserRowsByDatabaseId, setSubAccountUserRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
+  const [parameterRowsByDatabaseId, setParameterRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [initialConnectionError, setInitialConnectionError] = useState('')
   const tree = useMemo(
@@ -86,6 +91,9 @@ function App() {
         themeRowsByDatabaseId,
         userRowsByDatabaseId,
         userGroupRowsByDatabaseId,
+        menuRowsByDatabaseId,
+        subAccountUserRowsByDatabaseId,
+        parameterRowsByDatabaseId,
       )
     },
     [
@@ -98,6 +106,9 @@ function App() {
       themeRowsByDatabaseId,
       userRowsByDatabaseId,
       userGroupRowsByDatabaseId,
+      menuRowsByDatabaseId,
+      subAccountUserRowsByDatabaseId,
+      parameterRowsByDatabaseId,
     ],
   )
   const firstDatabase = tree?.children?.[0]?.children?.[0]
@@ -180,6 +191,26 @@ function App() {
     return Object.fromEntries(entries)
   }
 
+  async function loadSubAccountUserRowsByDatabase(
+    config: OphConnectionConfig,
+    databases: OphDatabase[],
+  ): Promise<Record<string, MetadataRow[]>> {
+    const entries = await Promise.all(
+      databases.map(async (database) => {
+        try {
+          return [
+            database.id,
+            await ophAdminService.listSubAccountUsers(config, database.name, database.databaseName),
+          ] as const
+        } catch {
+          return [database.id, []] as const
+        }
+      }),
+    )
+
+    return Object.fromEntries(entries)
+  }
+
   async function loadThemeRowsByDatabase(
     config: OphConnectionConfig,
     databases: OphDatabase[],
@@ -240,14 +271,51 @@ function App() {
     return Object.fromEntries(entries)
   }
 
+  async function loadMenuRowsByDatabase(
+    config: OphConnectionConfig,
+    databases: OphDatabase[],
+  ): Promise<Record<string, MetadataRow[]>> {
+    const entries = await Promise.all(
+      databases.map(async (database) => {
+        try {
+          return [database.id, await ophAdminService.listMenus(config, database.name, database.databaseName)] as const
+        } catch {
+          return [database.id, []] as const
+        }
+      }),
+    )
+
+    return Object.fromEntries(entries)
+  }
+
+  async function loadParameterRowsByDatabase(
+    config: OphConnectionConfig,
+    databases: OphDatabase[],
+  ): Promise<Record<string, MetadataRow[]>> {
+    const entries = await Promise.all(
+      databases.map(async (database) => {
+        try {
+          return [database.id, await ophAdminService.listParameters(config, database.name, database.databaseName)] as const
+        } catch {
+          return [database.id, []] as const
+        }
+      }),
+    )
+
+    return Object.fromEntries(entries)
+  }
+
   async function activateConnection(config: OphConnectionConfig) {
     const loadedDatabases = await ophAdminService.listOphDatabases(config)
     const loadedModuleRows = await loadModuleRowsByDatabase(config, loadedDatabases)
     const loadedColumnRows = await loadColumnRowsByDatabase(config, loadedDatabases)
     const loadedSubAccountRows = await loadSubAccountRowsByDatabase(config, loadedDatabases)
+    const loadedSubAccountUserRows = await loadSubAccountUserRowsByDatabase(config, loadedDatabases)
     const loadedThemeRows = await loadThemeRowsByDatabase(config, loadedDatabases)
     const loadedUserRows = await loadUserRowsByDatabase(config, loadedDatabases)
     const loadedUserGroupRows = await loadUserGroupRowsByDatabase(config, loadedDatabases)
+    const loadedMenuRows = await loadMenuRowsByDatabase(config, loadedDatabases)
+    const loadedParameterRows = await loadParameterRowsByDatabase(config, loadedDatabases)
     const loadedTree = ophAdminService.buildTree(
       config,
       loadedDatabases,
@@ -264,9 +332,12 @@ function App() {
     setModuleRowsByDatabaseId(loadedModuleRows)
     setColumnRowsByDatabaseId(loadedColumnRows)
     setSubAccountRowsByDatabaseId(loadedSubAccountRows)
+    setSubAccountUserRowsByDatabaseId(loadedSubAccountUserRows)
     setThemeRowsByDatabaseId(loadedThemeRows)
     setUserRowsByDatabaseId(loadedUserRows)
     setUserGroupRowsByDatabaseId(loadedUserGroupRows)
+    setMenuRowsByDatabaseId(loadedMenuRows)
+    setParameterRowsByDatabaseId(loadedParameterRows)
     setInitialConnectionError('')
     setConnectionConfig(config)
     setSelection({
@@ -302,9 +373,12 @@ function App() {
           setModuleRowsByDatabaseId({})
           setColumnRowsByDatabaseId({})
           setSubAccountRowsByDatabaseId({})
+          setSubAccountUserRowsByDatabaseId({})
           setThemeRowsByDatabaseId({})
           setUserRowsByDatabaseId({})
           setUserGroupRowsByDatabaseId({})
+          setMenuRowsByDatabaseId({})
+          setParameterRowsByDatabaseId({})
         }
       }
     }
@@ -584,6 +658,8 @@ function TreeNodeView({
       moduleGuid: node.moduleGuid,
       columnGuid: node.columnGuid,
       themeGuid: node.themeGuid,
+      menuGuid: node.menuGuid,
+      parameterGuid: node.parameterGuid,
       userGuid: node.userGuid,
       userGroupGuid: node.userGroupGuid,
       settingMode: node.settingMode,
@@ -921,6 +997,20 @@ function Workspace({
     )
   }
 
+  if (selection.kind === 'menu' && selection.menuGuid) {
+    return (
+      <MetadataWorkspace
+        config={connectionConfig}
+        selection={selection}
+        title={`${selection.label} Submenus`}
+        sourceTable="menusmnu"
+        loadRows={(config, accountId, databaseName) =>
+          ophAdminService.listMenuSubmenus(config, accountId, databaseName, selection.menuGuid ?? '')
+        }
+      />
+    )
+  }
+
   if (selection.kind === 'account' && selection.label === 'Account') {
     return (
       <MetadataWorkspace
@@ -967,6 +1057,20 @@ function Workspace({
         title="Parameters"
         sourceTable="para"
         loadRows={ophAdminService.listParameters}
+      />
+    )
+  }
+
+  if (selection.kind === 'parameter' && selection.parameterGuid) {
+    return (
+      <MetadataWorkspace
+        config={connectionConfig}
+        selection={selection}
+        title={`${selection.label} Values`}
+        sourceTable="paravalu"
+        loadRows={(config, accountId, databaseName) =>
+          ophAdminService.listParameterValues(config, accountId, databaseName, selection.parameterGuid ?? '')
+        }
       />
     )
   }
@@ -1268,11 +1372,13 @@ function MetadataTable({
   const [isEditing, setIsEditing] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
     '[user]': ['userid', 'username', 'email', 'expirydate'],
     userinfo: ['infokey', 'infovalue'],
     ugrp: ['groupid', 'groupdescription'],
-    ugrpmodl: ['moduleguid', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
+    ugrpmodl: ['moduleid', 'moduledescription', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
     msta: ['modulestatusname', 'isdefault', 'createddate', 'updateddate'],
     modg: ['modulegroupid', 'modulegroupname', 'modulegroupdescription'],
     thme: ['themecode', 'themename', 'themefolder'],
@@ -1280,7 +1386,8 @@ function MetadataTable({
     menu: ['menucode', 'menudescription', 'createddate', 'updateddate'],
     word: ['originstatements', 'createddate', 'updateddate'],
     para: ['parameterid', 'parameterdescription', 'createddate', 'updateddate'],
-    widg: ['widgetid', 'createddate', 'updateddate'],
+    paravalu: ['parametervalue', 'parameterdescription'],
+    widg: ['widgetid', 'widgetdescription'],
     mail: ['profilename', 'accountname', 'displayname', 'emailaddress', 'bcc', 'createddate', 'updateddate'],
     modlinfo: ['infokey', 'infovalue'],
     modlcolm: ['colkey', 'coltype', 'titlecaption', 'colorder', 'collength'],
@@ -1308,6 +1415,11 @@ function MetadataTable({
     expirydate: 'Expiry Date',
     groupid: 'Group ID',
     groupdescription: 'Group Description',
+    allexceptuser: 'All Except User',
+    tokenuser: 'User Tokens',
+    allexceptenv: 'All Except Environment',
+    tokenenv: 'Environment Tokens',
+    allexceptmodule: 'All Except Module',
     allowaccess: 'Allow Access',
     allowadd: 'Allow Add',
     allowedit: 'Allow Edit',
@@ -1331,7 +1443,10 @@ function MetadataTable({
     originstatements: 'Origin Statements',
     parameterid: 'Parameter ID',
     parameterdescription: 'Parameter Description',
+    parametervalue: 'Parameter Value',
     widgetid: 'Widget ID',
+    widgetdescription: 'Description',
+    sqlstr: 'SQL',
     profilename: 'Profile Name',
     accountname: 'Account Name',
     displayname: 'Display Name',
@@ -1409,6 +1524,52 @@ function MetadataTable({
 
   const rowColumns = Array.from(new Set(tableRows.flatMap((row) => Object.keys(row))))
   const sourceKey = sourceTable.toLowerCase()
+  useEffect(() => {
+    if (sourceKey !== 'ugrp' || !selection.accountId || !selection.databaseName) {
+      setUserTokenOptions([])
+      return
+    }
+
+    let cancelled = false
+    ophAdminService.listAllUsers(config, selection.databaseName)
+      .then((users) => {
+        if (cancelled) return
+        setUserTokenOptions(users.map((user) => ({
+          value: String(user.userguid ?? ''),
+          label: String(user.userid ?? user.userguid ?? ''),
+        })).filter((option) => option.value && option.label))
+      })
+      .catch(() => {
+        if (!cancelled) setUserTokenOptions([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [config, selection.accountId, selection.databaseName, sourceKey])
+  useEffect(() => {
+    if (sourceKey !== 'ugrp' || !selection.accountId || !selection.databaseName) {
+      setModuleGroupTokenOptions([])
+      return
+    }
+
+    let cancelled = false
+    ophAdminService.listAllModuleGroups(config, selection.databaseName)
+      .then((groups) => {
+        if (cancelled) return
+        setModuleGroupTokenOptions(groups.map((group) => ({
+          value: String(group.modulegroupguid ?? ''),
+          label: String(group.modulegroupid ?? group.modulegroupguid ?? ''),
+        })).filter((option) => option.value && option.label))
+      })
+      .catch(() => {
+        if (!cancelled) setModuleGroupTokenOptions([])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [config, selection.accountId, selection.databaseName, sourceKey])
   const allowedColumns = visibleColumnMap[sourceKey]
   const columns = allowedColumns
     ? rowColumns.length === 0
@@ -1423,7 +1584,13 @@ function MetadataTable({
     const actualColumn = Object.keys(row).find((rowColumn) => rowColumn.toLowerCase() === column)
     return actualColumn ? row[actualColumn] : ''
   }
-  const overlayColumns = columns.filter((column) => !['createddate', 'updateddate'].includes(column.toLowerCase()))
+  const overlayColumnMap: Record<string, string[]> = {
+    ugrp: ['groupid', 'groupdescription', 'allexceptuser', 'tokenuser', 'allexceptenv', 'tokenenv', 'allexceptmodule'],
+    ugrpmodl: ['moduleguid', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
+    widg: ['widgetid', 'widgetdescription', 'sqlstr'],
+  }
+  const overlayColumns = overlayColumnMap[sourceKey]
+    ?? columns.filter((column) => !['createddate', 'updateddate'].includes(column.toLowerCase()))
 
   function openRow(row: MetadataRow, index: number) {
     setSelectedRow(row)
@@ -1560,7 +1727,8 @@ function MetadataTable({
         )}
       </div>
       {selectedRow ? (
-        <aside className="row-detail-overlay">
+        <div className="row-detail-backdrop" onMouseDown={cancelEdit}>
+        <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
           <div className="row-detail-header">
             <div>
               <span className="eyebrow">{isCreating ? 'New Row' : 'Selected Row'}</span>
@@ -1576,7 +1744,25 @@ function MetadataTable({
             {overlayColumns.map((column) => (
               <label key={column}>
                 <span>{columnLabels[column.toLowerCase()] ?? column}</span>
-                {(draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')).length > 80 ? (
+                {column.toLowerCase().startsWith('token') ? (
+                  <TokenInput
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    readOnly={!isEditing}
+                    options={column.toLowerCase() === 'tokenuser'
+                      ? userTokenOptions
+                      : column.toLowerCase() === 'tokenenv'
+                        ? moduleGroupTokenOptions
+                        : []}
+                    inputLabel={column.toLowerCase() === 'tokenuser' ? 'User ID' : 'Module Group ID'}
+                    onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
+                  />
+                ) : column.toLowerCase().startsWith('allexcept') ? (
+                  <SwitchInput
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    readOnly={!isEditing}
+                    onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
+                  />
+                ) : (draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')).length > 80 ? (
                   <textarea
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     readOnly={!isEditing}
@@ -1600,6 +1786,143 @@ function MetadataTable({
           </div>
           {actionError ? <div className="connection-error">{actionError}</div> : null}
         </aside>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function SwitchInput({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string
+  readOnly: boolean
+  onChange: (value: string) => void
+}) {
+  const isOn = ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
+
+  return (
+    <button
+      className={`switch-input ${isOn ? 'switch-input-on' : 'switch-input-off'}`}
+      type="button"
+      role="switch"
+      aria-checked={isOn}
+      disabled={readOnly}
+      onClick={() => onChange(isOn ? '0' : '1')}
+    >
+      <span className="switch-track"><span className="switch-thumb" /></span>
+      <span className="switch-status">
+        <strong>{isOn ? 'ON' : 'OFF'}</strong>
+        <small>{isOn ? 'Exception is active' : 'Exception is inactive'}</small>
+      </span>
+    </button>
+  )
+}
+
+function TokenInput({
+  value,
+  readOnly,
+  options,
+  inputLabel,
+  onChange,
+}: {
+  value: string
+  readOnly: boolean
+  options: Array<{ value: string; label: string }>
+  inputLabel: string
+  onChange: (value: string) => void
+}) {
+  const [pendingToken, setPendingToken] = useState('')
+  const tokens = value.split('*').map((token) => token.trim()).filter(Boolean)
+
+  function commitToken() {
+    const rawToken = pendingToken.trim().replace(/\*/g, '')
+    const matchedOption = options.find((option) =>
+      option.value.toLowerCase() === rawToken.toLowerCase()
+      || option.label.toLowerCase() === rawToken.toLowerCase())
+    const nextToken = matchedOption?.value ?? rawToken
+    if (!nextToken || tokens.includes(nextToken)) {
+      setPendingToken('')
+      return
+    }
+
+    onChange([...tokens, nextToken].join('*'))
+    setPendingToken('')
+  }
+
+  function removeToken(tokenToRemove: string) {
+    onChange(tokens.filter((token) => token !== tokenToRemove).join('*'))
+  }
+
+  function addToken(token: string) {
+    if (!token || tokens.some((existingToken) => existingToken.toLowerCase() === token.toLowerCase())) return
+    onChange([...tokens, token].join('*'))
+  }
+
+  return (
+    <div className={`token-input ${readOnly ? 'token-input-readonly' : ''}`}>
+      {tokens.map((token) => (
+        <span className="token-chip" key={token}>
+          {options.find((option) => option.value.toLowerCase() === token.toLowerCase())?.label ?? token}
+          {!readOnly ? (
+            <button
+              type="button"
+              aria-label={`Remove ${token}`}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                removeToken(token)
+              }}
+            >×</button>
+          ) : null}
+        </span>
+      ))}
+      {!readOnly ? (
+        <select
+          aria-label={`Select ${inputLabel}`}
+          value=""
+          onChange={(event) => addToken(event.target.value)}
+        >
+          <option value="">Select {inputLabel}</option>
+          {options.filter((option) => !tokens.some((token) => token.toLowerCase() === option.value.toLowerCase())).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      ) : null}
+      {!readOnly ? (
+        <input
+          aria-label="Add token"
+          value={pendingToken}
+          placeholder={options.length > 0 ? `Enter ${inputLabel}, then press Enter` : 'Paste GUID, then press Enter'}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            if (nextValue.includes('*')) {
+              const incomingTokens = nextValue.split('*').map((token) => {
+                const normalizedToken = token.trim()
+                return options.find((option) =>
+                  option.value.toLowerCase() === normalizedToken.toLowerCase()
+                  || option.label.toLowerCase() === normalizedToken.toLowerCase())?.value ?? normalizedToken
+              }).filter(Boolean)
+              onChange(Array.from(new Set([...tokens, ...incomingTokens])).join('*'))
+              setPendingToken('')
+              return
+            }
+            setPendingToken(nextValue)
+          }}
+          onBlur={commitToken}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === '*') {
+              event.preventDefault()
+              commitToken()
+            }
+          }}
+        />
       ) : null}
     </div>
   )

@@ -320,6 +320,22 @@ fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
             parent_context: Some("userGuid"),
             writable_columns: &["infokey", "infovalue"],
         }),
+        "ugrp" => Some(CrudMapping {
+            table_name: "ugrp",
+            key_column: "ugroupguid",
+            key_field: "ugroupguid",
+            parent_column: None,
+            parent_context: None,
+            writable_columns: &[
+                "groupid",
+                "groupdescription",
+                "allexceptuser",
+                "tokenuser",
+                "allexceptenv",
+                "tokenenv",
+                "allexceptmodule",
+            ],
+        }),
         "ugrpmodl" => Some(CrudMapping {
             table_name: "ugrpmodl",
             key_column: "accessguid",
@@ -536,10 +552,11 @@ async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDataba
                   a.accountid,
                   coalesce(d.databasename, a.accountid) as databasename
                 from acct a
-                left join acctdbse d
+                inner join acctdbse d
                   on d.accountguid = a.accountguid
                  and d.ismaster = 1
                  and d.version = '4.0'
+                where isnull(a.isdeleted, 0) <> 1
                 order by a.accountid
                 "#,
                 &[],
@@ -678,6 +695,7 @@ async fn list_sub_accounts(
               where parentaccountguid = (
                 select accountguid from acct where accountid = N'{account_id}'
               )
+                and isnull(isdeleted, 0) <> 1
 
               union all
 
@@ -690,6 +708,7 @@ async fn list_sub_accounts(
               from acct child
               inner join account_tree parent
                 on child.parentaccountguid = parent.accountguid
+              where isnull(child.isdeleted, 0) <> 1
             )
             select (
               select
@@ -703,6 +722,55 @@ async fn list_sub_accounts(
               for json path
             ) as json
         "#
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_sub_account_users(
+    config: OphConnectionConfig,
+    account_id: String,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let account_id = escape_sql_value(&account_id);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            with account_tree as (
+              select accountguid
+              from acct
+              where parentaccountguid = (
+                select accountguid from acct where accountid = N'{account_id}'
+              )
+                and isnull(isdeleted, 0) <> 1
+
+              union all
+
+              select child.accountguid
+              from acct child
+              inner join account_tree parent
+                on child.parentaccountguid = parent.accountguid
+              where isnull(child.isdeleted, 0) <> 1
+            )
+            select (
+              select
+                u.accountguid,
+                u.userguid,
+                u.userid,
+                u.username,
+                u.email,
+                u.expirypwd as expirydate
+              from [user] u
+              inner join account_tree a on a.accountguid = u.accountguid
+              order by u.accountguid, u.userid
+              for json path
+            ) as json
+            "#
         ),
     )
     .await
@@ -743,6 +811,35 @@ async fn list_users(
 }
 
 #[tauri::command]
+async fn list_all_users(
+    config: OphConnectionConfig,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+
+    query_json(
+        &mut client,
+        r#"
+        select (
+          select
+            u.userguid,
+            u.userid,
+            u.username,
+            u.accountguid,
+            a.accountid
+          from [user] u
+          left join acct a on a.accountguid = u.accountguid
+          order by u.userid
+          for json path
+        ) as json
+        "#
+        .to_string(),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_user_groups(
     config: OphConnectionConfig,
     account_id: String,
@@ -760,7 +857,12 @@ async fn list_user_groups(
               select
                 ugroupguid,
                 groupid,
-                groupdescription
+                groupdescription,
+                allexceptuser,
+                tokenuser,
+                allexceptenv,
+                tokenenv,
+                allexceptmodule
               from ugrp
               where accountguid = (
                 select accountguid from acct where accountid = '{account_id}'
@@ -821,18 +923,21 @@ async fn list_user_group_modules(
             r#"
             select (
               select
-                accessguid,
-                ugroupguid,
-                moduleguid,
-                allowaccess,
-                allowadd,
-                allowedit,
-                allowdelete,
-                allowforce,
-                allowwipe
-              from ugrpmodl
-              where ugroupguid = N'{user_group_guid}'
-              order by moduleguid
+                gm.accessguid,
+                gm.ugroupguid,
+                gm.moduleguid,
+                m.moduleid,
+                m.moduledescription,
+                gm.allowaccess,
+                gm.allowadd,
+                gm.allowedit,
+                gm.allowdelete,
+                gm.allowforce,
+                gm.allowwipe
+              from ugrpmodl gm
+              left join modl m on m.moduleguid = gm.moduleguid
+              where gm.ugroupguid = N'{user_group_guid}'
+              order by m.moduleid
               for json path
             ) as json
             "#
@@ -1270,6 +1375,35 @@ async fn list_module_groups(
 }
 
 #[tauri::command]
+async fn list_all_module_groups(
+    config: OphConnectionConfig,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+
+    query_json(
+        &mut client,
+        r#"
+        select (
+          select
+            g.modulegroupguid,
+            g.modulegroupid,
+            g.modulegroupname,
+            g.accountguid,
+            a.accountid
+          from modg g
+          left join acct a on a.accountguid = g.accountguid
+          order by g.modulegroupid
+          for json path
+        ) as json
+        "#
+        .to_string(),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_themes(
     config: OphConnectionConfig,
     account_id: String,
@@ -1369,6 +1503,44 @@ async fn list_menus(
     .await
 }
 
+#[tauri::command]
+async fn list_menu_submenus(
+    config: OphConnectionConfig,
+    database_name: String,
+    menu_guid: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let menu_guid = escape_sql_value(&menu_guid);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            select (
+              select
+                menudetailguid,
+                menuguid,
+                submenudescription,
+                tag,
+                url,
+                orderno,
+                caption,
+                type,
+                uppersubmenuguid,
+                icon_fa,
+                icon_url
+              from menusmnu
+              where menuguid = N'{menu_guid}'
+              order by uppersubmenuguid, submenudescription
+              for json path
+            ) as json
+            "#
+        ),
+    )
+    .await
+}
+
 
 
 #[tauri::command]
@@ -1387,6 +1559,7 @@ async fn list_parameters(
             r#"
             select (
               select
+                parameterguid,
                 parameterid,
                 parameterdescription,
                 createddate,
@@ -1405,6 +1578,37 @@ async fn list_parameters(
 }
 
 #[tauri::command]
+async fn list_parameter_values(
+    config: OphConnectionConfig,
+    database_name: String,
+    parameter_guid: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let parameter_guid = escape_sql_value(&parameter_guid);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            select (
+              select
+                parametervalueguid,
+                parameterguid,
+                parametervalue,
+                parameterdescription
+              from paravalu
+              where parameterguid = N'{parameter_guid}'
+              order by parametervalue
+              for json path
+            ) as json
+            "#
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_widgets(
     config: OphConnectionConfig,
     account_id: String,
@@ -1412,27 +1616,26 @@ async fn list_widgets(
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
     let mut client = connect_sql_server_database(server, &database_name).await?;
-    let account_id = account_id.replace('\'', "''");
+    let account_id = escape_sql_value(&account_id);
 
     query_json(
         &mut client,
         format!(
             r#"
-            declare @account_id nvarchar(255) = N'{account_id}';
-            declare @select nvarchar(max) = N'widgetid'
-              + case when col_length('widg', 'createddate') is not null then N', createddate' else N', cast(null as datetime) as createddate' end
-              + case when col_length('widg', 'updateddate') is not null then N', updateddate' else N', cast(null as datetime) as updateddate' end;
-            declare @sql nvarchar(max) = N'
-              select (
-                select ' + @select + N'
-                from widg
-                where accountguid = (
-                  select accountguid from acct where accountid = @account_id
-                )
-                order by widgetid
-                for json path
-              ) as json';
-            exec sp_executesql @sql, N'@account_id nvarchar(255)', @account_id = @account_id;
+            select (
+              select
+                widgetguid,
+                accountguid,
+                widgetid,
+                widgetdescription,
+                sqlstr
+              from widg
+              where accountguid = (
+                select accountguid from acct where accountid = N'{account_id}'
+              )
+              order by widgetid
+              for json path
+            ) as json
             "#
         ),
     )
@@ -1521,7 +1724,9 @@ pub fn run() {
             list_account_info,
             list_account_databases,
             list_sub_accounts,
+            list_sub_account_users,
             list_users,
+            list_all_users,
             list_user_groups,
             list_user_info,
             list_user_group_modules,
@@ -1537,11 +1742,14 @@ pub fn run() {
             list_modules,
             list_module_statuses,
             list_module_groups,
+            list_all_module_groups,
             list_themes,
             list_theme_pages,
             list_menus,
+            list_menu_submenus,
             list_translator_words,
             list_parameters,
+            list_parameter_values,
             list_widgets,
             list_mail_profiles
         ])

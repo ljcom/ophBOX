@@ -98,6 +98,8 @@ export type TreeNodeKind =
   | 'security-group'
   | 'interface'
   | 'theme'
+  | 'menu'
+  | 'parameter'
   | 'account'
 
 export type OphTreeNode = {
@@ -113,6 +115,8 @@ export type OphTreeNode = {
   moduleGuid?: string
   columnGuid?: string
   themeGuid?: string
+  menuGuid?: string
+  parameterGuid?: string
   userGuid?: string
   userGroupGuid?: string
   settingMode?: number
@@ -131,6 +135,8 @@ export type WorkspaceSelection = {
   moduleGuid?: string
   columnGuid?: string
   themeGuid?: string
+  menuGuid?: string
+  parameterGuid?: string
   userGuid?: string
   userGroupGuid?: string
   settingMode?: number

@@ -26,7 +26,9 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_account_info: [],
     list_account_databases: databases,
     list_sub_accounts: [],
+    list_sub_account_users: [],
     list_users: [],
+    list_all_users: [],
     list_user_groups: [],
     list_user_info: [],
     list_user_group_modules: [],
@@ -42,10 +44,13 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_module_mails: [],
     list_module_statuses: [],
     list_module_groups: [],
+    list_all_module_groups: [],
     list_themes: [],
     list_theme_pages: [],
     list_menus: [],
+    list_menu_submenus: [],
     list_parameters: [],
+    list_parameter_values: [],
     list_widgets: [],
     list_mail_profiles: [],
     list_translator_words: [],
@@ -395,6 +400,9 @@ function buildDatabaseChildren(
   themeRows: MetadataRow[] = [],
   userRows: MetadataRow[] = [],
   userGroupRows: MetadataRow[] = [],
+  menuRows: MetadataRow[] = [],
+  subAccountUserRows: MetadataRow[] = [],
+  parameterRows: MetadataRow[] = [],
 ): OphTreeNode[] {
   const accountId = getAccountId(database)
 
@@ -402,10 +410,11 @@ function buildDatabaseChildren(
     const accountGuid = String(account.accountguid ?? '')
     const childAccountId = String(account.accountid ?? accountGuid)
     const nextVisitedAccountGuids = new Set([...visitedAccountGuids, accountGuid])
-    const children = subAccountRows.filter((childAccount) => {
+    const childAccounts = subAccountRows.filter((childAccount) => {
       const childAccountGuid = String(childAccount.accountguid ?? '')
       return String(childAccount.parentaccountguid ?? '') === accountGuid && !nextVisitedAccountGuids.has(childAccountGuid)
     })
+    const users = subAccountUserRows.filter((user) => String(user.accountguid ?? '') === accountGuid)
 
     return {
       id: `${database.id}:account:sub-account:${accountGuid || childAccountId}`,
@@ -415,7 +424,32 @@ function buildDatabaseChildren(
       accountId: childAccountId,
       databaseName: database.databaseName,
       databaseId: database.id,
-      children: children.map((childAccount) => buildSubAccountNode(childAccount, nextVisitedAccountGuids)),
+      children: [
+        {
+          id: `${database.id}:account:sub-account:${accountGuid}:users`,
+          label: 'Users',
+          kind: 'security',
+          accountId: childAccountId,
+          databaseName: database.databaseName,
+          databaseId: database.id,
+          children: users.map((user) => {
+            const userGuid = String(user.userguid ?? '')
+            const userId = String(user.userid ?? userGuid)
+
+            return {
+              id: `${database.id}:account:sub-account:${accountGuid}:user:${userGuid || userId}`,
+              label: userId,
+              kind: 'security-user' as const,
+              description: String(user.username ?? ''),
+              accountId: childAccountId,
+              databaseName: database.databaseName,
+              databaseId: database.id,
+              userGuid,
+            }
+          }),
+        },
+        ...childAccounts.map((childAccount) => buildSubAccountNode(childAccount, nextVisitedAccountGuids)),
+      ],
     }
   }
 
@@ -522,7 +556,24 @@ function buildDatabaseChildren(
             themeGuid: String(theme.themeguid ?? ''),
           })),
         },
-        { id: `${database.id}:interface:menus`, label: 'Menus', kind: 'interface', accountId, databaseName: database.databaseName, databaseId: database.id },
+        {
+          id: `${database.id}:interface:menus`,
+          label: 'Menus',
+          kind: 'interface',
+          accountId,
+          databaseName: database.databaseName,
+          databaseId: database.id,
+          children: menuRows.map((menu) => ({
+            id: `${database.id}:interface:menu:${String(menu.menuid ?? '')}`,
+            label: String(menu.menucode ?? menu.menudescription ?? ''),
+            kind: 'menu' as const,
+            description: String(menu.menudescription ?? ''),
+            accountId,
+            databaseName: database.databaseName,
+            databaseId: database.id,
+            menuGuid: String(menu.menuid ?? ''),
+          })),
+        },
         { id: `${database.id}:interface:translator`, label: 'Translator', kind: 'interface', accountId, databaseName: database.databaseName, databaseId: database.id },
       ],
     },
@@ -544,7 +595,24 @@ function buildDatabaseChildren(
           children: rootSubAccounts.map((account) => buildSubAccountNode(account)),
         },
         { id: `${database.id}:account:databases`, label: 'Databases', kind: 'account', accountId, databaseName: database.databaseName, databaseId: database.id },
-        { id: `${database.id}:account:parameters`, label: 'Parameters', kind: 'account', accountId, databaseName: database.databaseName, databaseId: database.id },
+        {
+          id: `${database.id}:account:parameters`,
+          label: 'Parameters',
+          kind: 'account',
+          accountId,
+          databaseName: database.databaseName,
+          databaseId: database.id,
+          children: parameterRows.map((parameter) => ({
+            id: `${database.id}:account:parameter:${String(parameter.parameterguid ?? parameter.parameterid ?? '')}`,
+            label: String(parameter.parameterid ?? ''),
+            kind: 'parameter' as const,
+            description: String(parameter.parameterdescription ?? ''),
+            accountId,
+            databaseName: database.databaseName,
+            databaseId: database.id,
+            parameterGuid: String(parameter.parameterguid ?? ''),
+          })),
+        },
         { id: `${database.id}:account:widgets`, label: 'Widgets', kind: 'account', accountId, databaseName: database.databaseName, databaseId: database.id },
         { id: `${database.id}:account:mail`, label: 'Mail', kind: 'account', accountId, databaseName: database.databaseName, databaseId: database.id },
       ],
@@ -561,6 +629,9 @@ function buildTree(
   themeRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   userRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   userGroupRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  menuRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  subAccountUserRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  parameterRowsByDatabaseId: Record<string, MetadataRow[]> = {},
 ): OphTreeNode {
   return {
     id: 'servers',
@@ -596,6 +667,9 @@ function buildTree(
             themeRowsByDatabaseId[database.id] ?? [],
             userRowsByDatabaseId[database.id] ?? [],
             userGroupRowsByDatabaseId[database.id] ?? [],
+            menuRowsByDatabaseId[database.id] ?? [],
+            subAccountUserRowsByDatabaseId[database.id] ?? [],
+            parameterRowsByDatabaseId[database.id] ?? [],
           ),
         })),
     })),
@@ -712,8 +786,15 @@ async function listSubAccounts(config: OphConnectionConfig, accountId: string, d
   return invoke<MetadataRow[]>('list_sub_accounts', { config, accountId, databaseName })
 }
 
+async function listSubAccountUsers(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_sub_account_users', { config, accountId, databaseName })
+}
 async function listUsers(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_users', { config, accountId, databaseName })
+}
+
+async function listAllUsers(config: OphConnectionConfig, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_all_users', { config, databaseName })
 }
 
 async function listUserGroups(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
@@ -781,6 +862,10 @@ async function listModuleGroups(config: OphConnectionConfig, accountId: string, 
   return invoke<MetadataRow[]>('list_module_groups', { config, accountId, databaseName })
 }
 
+async function listAllModuleGroups(config: OphConnectionConfig, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_all_module_groups', { config, databaseName })
+}
+
 async function listThemes(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_themes', { config, accountId, databaseName })
 }
@@ -793,12 +878,18 @@ async function listMenus(config: OphConnectionConfig, accountId: string, databas
   return invoke<MetadataRow[]>('list_menus', { config, accountId, databaseName })
 }
 
+async function listMenuSubmenus(config: OphConnectionConfig, _accountId: string, databaseName: string, menuGuid: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_menu_submenus', { config, databaseName, menuGuid })
+}
 
 
 async function listParameters(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_parameters', { config, accountId, databaseName })
 }
 
+async function listParameterValues(config: OphConnectionConfig, _accountId: string, databaseName: string, parameterGuid: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_parameter_values', { config, databaseName, parameterGuid })
+}
 async function listWidgets(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_widgets', { config, accountId, databaseName })
 }
@@ -863,7 +954,9 @@ export const ophAdminService = {
   listAccountInfo,
   listAccountDatabases,
   listSubAccounts,
+  listSubAccountUsers,
   listUsers,
+  listAllUsers,
   listUserGroups,
   listUserInfo,
   listUserGroupModules,
@@ -879,11 +972,14 @@ export const ophAdminService = {
   listModulesBySettingMode,
   listModuleStatuses,
   listModuleGroups,
+  listAllModuleGroups,
   listThemes,
   listThemePages,
   listMenus,
+  listMenuSubmenus,
   listTranslatorWords,
   listParameters,
+  listParameterValues,
   listWidgets,
   listMailProfiles,
   saveMetadataRow,

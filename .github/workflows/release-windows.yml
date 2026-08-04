@@ -1,0 +1,68 @@
+name: Release OPH Control Studio for Windows
+
+on:
+  push:
+    tags:
+      - "0.3.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: v0.3/tauri
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: v0.3/tauri/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: v0.3/tauri/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Windows executable and NSIS installer
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item src-tauri/target/release/oph-control-studio.exe release-assets/OPH-Control-Studio_0.3.0_windows-x64-portable.exe
+          Copy-Item src-tauri/target/release/bundle/nsis/*-setup.exe release-assets/OPH-Control-Studio_0.3.0_windows-x64-setup.exe
+
+      - name: Create pre-release and upload assets
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            --repo "${{ github.repository }}" `
+            --title "OPH Control Studio 0.3.0" `
+            --notes "Initial preview of OPH Control Studio for Windows. Includes a portable executable and an NSIS installer." `
+            --prerelease `
+            release-assets/*
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPH-Control-Studio-Windows-x64
+          path: v0.3/tauri/release-assets/*
