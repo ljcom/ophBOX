@@ -30,6 +30,8 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_users: [],
     list_all_users: [],
     reset_user_password: undefined,
+    add_account: undefined,
+    delete_account: undefined,
     list_user_groups: [],
     list_user_info: [],
     list_user_group_modules: [],
@@ -775,6 +777,14 @@ async function listOphDatabases(config: OphConnectionConfig): Promise<OphDatabas
   }
 }
 
+async function addAccount(config: OphConnectionConfig, serverId: string, accountId: string): Promise<void> {
+  return invoke<void>('add_account', { config, serverId, accountId })
+}
+
+async function deleteAccount(config: OphConnectionConfig, serverId: string, accountId: string): Promise<void> {
+  return invoke<void>('delete_account', { config, serverId, accountId })
+}
+
 async function listAccountInfo(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_account_info', { config, accountId, databaseName })
 }
@@ -963,6 +973,8 @@ export const ophAdminService = {
   clearConnectionConfig,
   testConnection,
   listOphDatabases,
+  addAccount,
+  deleteAccount,
   listAccountInfo,
   listAccountDatabases,
   listSubAccounts,

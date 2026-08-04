@@ -783,6 +783,59 @@ button {
   font-weight: 700;
 }
 
+.account-create-overlay {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.field-help {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.server-toolbar {
+  justify-content: flex-start;
+}
+
+.database-toolbar {
+  justify-content: space-between;
+}
+
+.metadata-toolbar .danger-button,
+.danger-action-button {
+  color: #ffffff;
+  background: #b91c1c;
+}
+
+.metadata-toolbar .danger-button:hover,
+.danger-action-button:hover {
+  background: #991b1b;
+}
+
+.danger-action-button {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.danger-action-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.delete-warning {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  color: #991b1b;
+  background: #fef2f2;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 table {
   width: 100%;
   min-width: max-content;

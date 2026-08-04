@@ -306,7 +306,7 @@ function App() {
     return Object.fromEntries(entries)
   }
 
-  async function activateConnection(config: OphConnectionConfig) {
+  async function activateConnection(config: OphConnectionConfig, preferredAccountId?: string) {
     const loadedDatabases = await ophAdminService.listOphDatabases(config)
     const loadedModuleRows = await loadModuleRowsByDatabase(config, loadedDatabases)
     const loadedColumnRows = await loadColumnRowsByDatabase(config, loadedDatabases)
@@ -327,7 +327,11 @@ function App() {
       loadedUserRows,
       loadedUserGroupRows,
     )
-    const loadedDatabase = loadedTree.children?.[0]?.children?.[0]
+    const loadedDatabase = loadedTree.children?.[0]?.children?.find((database) =>
+      preferredAccountId
+        ? database.accountId?.toLowerCase() === preferredAccountId.toLowerCase()
+        : true)
+      ?? loadedTree.children?.[0]?.children?.[0]
 
     setDiscoveredDatabases(loadedDatabases)
     setModuleRowsByDatabaseId(loadedModuleRows)
@@ -428,6 +432,37 @@ function App() {
     }
   }
 
+  async function refreshServerConnection(serverId: string, expectedAccountId?: string) {
+    if (!connectionConfig) return
+    const nextConfig = { ...connectionConfig, selectedServerId: serverId }
+    const savedConfig = await ophAdminService.saveConnectionConfig(nextConfig)
+
+    if (expectedAccountId) {
+      const maximumAttempts = 30
+      for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+        const databases = await ophAdminService.listOphDatabases(savedConfig)
+        const accountIsReady = databases.some((database) =>
+          database.name.toLowerCase() === expectedAccountId.toLowerCase())
+        if (accountIsReady) {
+          await activateConnection(savedConfig, expectedAccountId)
+          return
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      }
+
+      await activateConnection(savedConfig)
+      throw new Error(`Account ${expectedAccountId} was created, but its databases are not ready yet. Refresh the server tree again.`)
+    }
+
+    await activateConnection(savedConfig)
+  }
+
+  async function deleteAccount(serverId: string, accountId: string) {
+    if (!connectionConfig) return
+    await ophAdminService.deleteAccount(connectionConfig, serverId, accountId)
+    await refreshServerConnection(serverId)
+  }
+
   if (isLoadingConfig) {
     return (
       <main className="connection-screen">
@@ -485,6 +520,8 @@ function App() {
               connectionError={initialConnectionError}
               onAddConnection={() => setIsAddingConnection(true)}
               onRefreshConnection={refreshConnection}
+              onRefreshServer={refreshServerConnection}
+              onDeleteAccount={deleteAccount}
               selection={selection}
               servers={servers}
               tree={tree}
@@ -750,6 +787,8 @@ function Workspace({
   connectionError,
   onAddConnection,
   onRefreshConnection,
+  onRefreshServer,
+  onDeleteAccount,
   selection,
   servers,
   tree,
@@ -758,6 +797,8 @@ function Workspace({
   connectionError: string
   onAddConnection: () => void
   onRefreshConnection: () => void | Promise<void>
+  onRefreshServer: (serverId: string, expectedAccountId?: string) => void | Promise<void>
+  onDeleteAccount: (serverId: string, accountId: string) => void | Promise<void>
   selection: WorkspaceSelection
   servers: OphServer[]
   tree: OphTreeNode
@@ -766,12 +807,32 @@ function Workspace({
     return <ConnectionIssuePage error={connectionError} onRefresh={onRefreshConnection} />
   }
 
-  if (selection.kind === 'server' || selection.kind === 'root') {
+  if (selection.kind === 'root') {
     return <ServersPage servers={servers} onAddConnection={onAddConnection} />
   }
 
+  if (selection.kind === 'server' && selection.serverId) {
+    const server = servers.find((candidate) => candidate.id === selection.serverId)
+    return server ? (
+      <ServerPage
+        config={connectionConfig}
+        server={server}
+        onRefresh={(accountId) => onRefreshServer(server.id, accountId)}
+      />
+    ) : <ServersPage servers={servers} onAddConnection={onAddConnection} />
+  }
+
   if (selection.kind === 'database') {
-    return <DatabaseWorkspace selection={selection} tree={tree} />
+    return (
+      <DatabaseWorkspace
+        selection={selection}
+        tree={tree}
+        onRefresh={() => selection.serverId ? onRefreshServer(selection.serverId) : undefined}
+        onDelete={() => selection.serverId && selection.accountId
+          ? onDeleteAccount(selection.serverId, selection.accountId)
+          : undefined}
+      />
+    )
   }
 
   if (selection.kind === 'module' && selection.moduleGuid) {
@@ -1236,6 +1297,113 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
   )
 }
 
+function ServerPage({
+  config,
+  server,
+  onRefresh,
+}: {
+  config: OphConnectionConfig
+  server: OphServer
+  onRefresh: (accountId?: string) => void | Promise<void>
+}) {
+  const [isAddingAccount, setIsAddingAccount] = useState(false)
+  const [accountId, setAccountId] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submitAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const normalizedAccountId = accountId.trim()
+    if (!normalizedAccountId) {
+      setError('Enter an Account ID.')
+      return
+    }
+
+    setIsSaving(true)
+    setError('')
+    try {
+      await ophAdminService.addAccount(config, server.id, normalizedAccountId)
+      await onRefresh(normalizedAccountId)
+      setAccountId('')
+      setIsAddingAccount(false)
+    } catch (addError) {
+      setError(addError instanceof Error ? addError.message : String(addError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function refreshTree() {
+    setIsRefreshing(true)
+    setError('')
+    try {
+      await onRefresh()
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <SectionHeader
+        eyebrow="Server"
+        title={server.name}
+        description={`${server.host}:${server.port}. Add an OPH account; the database trigger prepares its data and v4 databases.`}
+        action="Add Account"
+        onAction={() => setIsAddingAccount(true)}
+      />
+      <div className="metadata-toolbar server-toolbar">
+        <button type="button" disabled={isRefreshing} onClick={refreshTree}>
+          {isRefreshing ? 'Refreshing Tree…' : 'Refresh Tree'}
+        </button>
+      </div>
+      <div className="table-card">
+        <table>
+          <tbody>
+            <tr><th>Host</th><td>{server.host}:{server.port}</td></tr>
+            <tr><th>Authentication</th><td>{server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}</td></tr>
+            <tr><th>Core Database</th><td>oph_core</td></tr>
+            <tr><th>Status</th><td><span className={getStatusClass(server.status)}>{server.status}</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      {!isAddingAccount && error ? <div className="connection-error">{error}</div> : null}
+      {isAddingAccount ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isSaving && setIsAddingAccount(false)}>
+          <aside className="row-detail-overlay account-create-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div>
+                <span className="eyebrow">Add Account</span>
+                <h2>{server.name}</h2>
+              </div>
+              <button className="overlay-close-button" type="button" disabled={isSaving} onClick={() => setIsAddingAccount(false)}>×</button>
+            </div>
+            <form className="row-detail-form" onSubmit={submitAccount}>
+              <label>
+                <span>Account ID</span>
+                <input
+                  autoFocus
+                  value={accountId}
+                  placeholder="Enter Account ID"
+                  onChange={(event) => setAccountId(event.target.value)}
+                />
+              </label>
+              <p className="field-help">The OPH core trigger will create the account databases automatically.</p>
+              <button className="primary-button" type="submit" disabled={isSaving}>
+                {isSaving ? 'Creating Account…' : 'Add Account'}
+              </button>
+            </form>
+            {error ? <div className="connection-error">{error}</div> : null}
+          </aside>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function findTreeNode(root: OphTreeNode, nodeId: string): OphTreeNode | undefined {
   if (root.id === nodeId) return root
 
@@ -1259,7 +1427,22 @@ function countLeafChildren(node: OphTreeNode | undefined): number {
   return node.children?.length ?? 0
 }
 
-function DatabaseWorkspace({ selection, tree }: { selection: WorkspaceSelection; tree: OphTreeNode }) {
+function DatabaseWorkspace({
+  selection,
+  tree,
+  onRefresh,
+  onDelete,
+}: {
+  selection: WorkspaceSelection
+  tree: OphTreeNode
+  onRefresh: () => void | Promise<void>
+  onDelete: () => void | Promise<void>
+}) {
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
+  const [confirmation, setConfirmation] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [actionError, setActionError] = useState('')
   const databaseNode = findTreeNode(tree, selection.id)
   const modulesNode = databaseNode?.children?.find((child) => child.label === 'Modules')
   const securityNode = databaseNode?.children?.find((child) => child.label === 'Security')
@@ -1271,20 +1454,84 @@ function DatabaseWorkspace({ selection, tree }: { selection: WorkspaceSelection;
   const interfaceCount = countLeafChildren(interfaceNode)
   const accountCount = countLeafChildren(accountNode)
 
+  async function refreshTree() {
+    setIsRefreshing(true)
+    setActionError('')
+    try {
+      await onRefresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
+  async function confirmDelete() {
+    if (confirmation !== selection.accountId) {
+      setActionError(`Type ${selection.accountId} exactly to confirm deletion.`)
+      return
+    }
+
+    setIsDeleting(true)
+    setActionError('')
+    try {
+      await onDelete()
+      setIsConfirmingDelete(false)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <div className="page-stack">
       <SectionHeader
         eyebrow="Database"
         title={selection.label}
         description="This database was listed from OPH core account metadata. Domain groups are available under this database node."
-        action="Refresh Database"
       />
+      <div className="metadata-toolbar database-toolbar">
+        <button type="button" disabled={isRefreshing} onClick={refreshTree}>
+          {isRefreshing ? 'Refreshing Tree…' : 'Refresh Tree'}
+        </button>
+        <button className="danger-button" type="button" onClick={() => {
+          setConfirmation('')
+          setActionError('')
+          setIsConfirmingDelete(true)
+        }}>Delete Account</button>
+      </div>
+      {actionError && !isConfirmingDelete ? <div className="connection-error">{actionError}</div> : null}
       <div className="metrics-grid">
         <MetricCard label="Modules" value={String(moduleCount)} detail="Grouped by setting mode" />
         <MetricCard label="Security" value={String(securityCount)} detail="Users and groups" />
         <MetricCard label="Interface" value={String(interfaceCount)} detail="Themes, menus, translator" />
         <MetricCard label="Account" value={String(accountCount)} detail="Parameters and mail" />
       </div>
+      {isConfirmingDelete ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isDeleting && setIsConfirmingDelete(false)}>
+          <aside className="row-detail-overlay account-create-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div>
+                <span className="eyebrow">Delete Account</span>
+                <h2>{selection.accountId}</h2>
+              </div>
+              <button className="overlay-close-button" type="button" disabled={isDeleting} onClick={() => setIsConfirmingDelete(false)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <p className="delete-warning">This marks the account as deleted in OPH core. Its physical databases are not removed.</p>
+              <label>
+                <span>Type Account ID to confirm</span>
+                <input autoFocus value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+              </label>
+              <button className="danger-action-button" type="button" disabled={isDeleting} onClick={confirmDelete}>
+                {isDeleting ? 'Deleting Account…' : 'Delete Account'}
+              </button>
+            </div>
+            {actionError ? <div className="connection-error">{actionError}</div> : null}
+          </aside>
+        </div>
+      ) : null}
       <div className="panel-card">
         <h2>Database workflow</h2>
         <ul className="timeline-list">

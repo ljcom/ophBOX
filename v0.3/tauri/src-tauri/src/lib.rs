@@ -539,6 +539,68 @@ async fn test_connection(server: OphServer) -> Result<TestConnectionResult, Stri
 }
 
 #[tauri::command]
+async fn add_account(
+    config: OphConnectionConfig,
+    server_id: String,
+    account_id: String,
+) -> Result<(), String> {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return Err("Account ID cannot be empty.".to_string());
+    }
+
+    let server = config
+        .servers
+        .iter()
+        .find(|server| server.id == server_id)
+        .ok_or_else(|| format!("Cannot add account: server {server_id} was not found."))?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let account_id = escape_sql_value(account_id);
+
+    client
+        .execute(
+            format!("insert into dbo.acct (accountid) values (N'{account_id}')"),
+            &[],
+        )
+        .await
+        .map_err(|error| format!("Cannot add account {account_id} to oph_core: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_account(
+    config: OphConnectionConfig,
+    server_id: String,
+    account_id: String,
+) -> Result<(), String> {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return Err("Account ID cannot be empty.".to_string());
+    }
+
+    let server = config
+        .servers
+        .iter()
+        .find(|server| server.id == server_id)
+        .ok_or_else(|| format!("Cannot delete account: server {server_id} was not found."))?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let account_id = escape_sql_value(account_id);
+
+    client
+        .execute(
+            format!(
+                "update dbo.acct set isdeleted = 1 where accountid = N'{account_id}' and isnull(isdeleted, 0) <> 1"
+            ),
+            &[],
+        )
+        .await
+        .map_err(|error| format!("Cannot delete account {account_id} from oph_core: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDatabase>, String> {
     let server = selected_server(&config)?;
     let default_database = database_name(server);
@@ -1753,6 +1815,8 @@ pub fn run() {
             save_metadata_row,
             delete_metadata_row,
             test_connection,
+            add_account,
+            delete_account,
             list_oph_databases,
             list_account_info,
             list_account_databases,
