@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Table2,
   UserRoundCog,
+  X,
 } from 'lucide-react'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -43,6 +44,22 @@ type SectionHeaderProps = {
   description: string
   action?: string
   onAction?: () => void
+}
+
+type QueryTab = {
+  id: string
+  title: string
+  databaseName: string
+  sql: string
+  results: MetadataRow[]
+  error: string
+  isRunning: boolean
+  isSaving?: boolean
+  saveNotice?: string
+  metadataSource?: {
+    sourceTable: 'modlinfo'
+    row: MetadataRow
+  }
 }
 
 const treeIcons: Record<TreeNodeKind, typeof Server> = {
@@ -76,9 +93,13 @@ function App() {
   const [menuRowsByDatabaseId, setMenuRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [subAccountUserRowsByDatabaseId, setSubAccountUserRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [parameterRowsByDatabaseId, setParameterRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
+  const [moduleStatusRowsByDatabaseId, setModuleStatusRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [isAddingConnection, setIsAddingConnection] = useState(false)
   const [initialConnectionError, setInitialConnectionError] = useState('')
+  const [queryTabs, setQueryTabs] = useState<QueryTab[]>([])
+  const [activeTabId, setActiveTabId] = useState('main')
+  const [openAppMenu, setOpenAppMenu] = useState<'view' | 'window' | null>(null)
   const tree = useMemo(
     () => {
       if (!connectionConfig) return null
@@ -95,6 +116,7 @@ function App() {
         menuRowsByDatabaseId,
         subAccountUserRowsByDatabaseId,
         parameterRowsByDatabaseId,
+        moduleStatusRowsByDatabaseId,
       )
     },
     [
@@ -110,6 +132,7 @@ function App() {
       menuRowsByDatabaseId,
       subAccountUserRowsByDatabaseId,
       parameterRowsByDatabaseId,
+      moduleStatusRowsByDatabaseId,
     ],
   )
   const firstDatabase = tree?.children?.[0]?.children?.[0]
@@ -131,6 +154,100 @@ function App() {
   }))
 
   const servers = connectionConfig?.servers ?? []
+
+  function openNewQuery() {
+    const queryNumber = queryTabs.length + 1
+    const id = `query-${Date.now()}`
+    const databaseName = selection.databaseName ?? discoveredDatabases[0]?.databaseName ?? ''
+    setQueryTabs((tabs) => [...tabs, {
+      id,
+      title: `Query ${queryNumber}`,
+      databaseName,
+      sql: 'select top 100 *\nfrom ',
+      results: [],
+      error: '',
+      isRunning: false,
+    }])
+    setActiveTabId(id)
+    setOpenAppMenu(null)
+  }
+
+  function updateQueryTab(id: string, changes: Partial<QueryTab>) {
+    setQueryTabs((tabs) => tabs.map((tab) => tab.id === id ? { ...tab, ...changes } : tab))
+  }
+
+  useEffect(() => {
+    function handleOpenMetadataQuery(event: Event) {
+      const detail = (event as CustomEvent<{ databaseName: string; row: MetadataRow }>).detail
+      const moduleInfoGuid = String(detail.row.moduleinfoguid ?? '')
+      const infoKey = String(detail.row.infokey ?? 'modlinfo')
+      if (!moduleInfoGuid || !detail.databaseName) return
+      const id = `modlinfo-query-${moduleInfoGuid}`
+      setQueryTabs((tabs) => {
+        if (tabs.some((tab) => tab.id === id)) return tabs
+        return [...tabs, {
+          id,
+          title: `${infoKey} [${moduleInfoGuid.slice(0, 8)}]`,
+          databaseName: detail.databaseName,
+          sql: String(detail.row.infovalue ?? ''),
+          results: [],
+          error: '',
+          isRunning: false,
+          metadataSource: { sourceTable: 'modlinfo', row: detail.row },
+        }]
+      })
+      setActiveTabId(id)
+    }
+
+    window.addEventListener('oph:open-metadata-query', handleOpenMetadataQuery)
+    return () => window.removeEventListener('oph:open-metadata-query', handleOpenMetadataQuery)
+  }, [])
+
+  function closeQueryTab(id: string) {
+    setQueryTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+    if (activeTabId === id) setActiveTabId('main')
+  }
+
+  async function runQueryTab(tab: QueryTab) {
+    if (!connectionConfig) return
+    updateQueryTab(tab.id, { isRunning: true, error: '' })
+    try {
+      const results = await ophAdminService.runQuery(connectionConfig, tab.databaseName, tab.sql)
+      updateQueryTab(tab.id, { results, isRunning: false })
+    } catch (queryError) {
+      updateQueryTab(tab.id, {
+        results: [],
+        isRunning: false,
+        error: queryError instanceof Error ? queryError.message : String(queryError),
+      })
+    }
+  }
+
+  async function saveQueryTab(tab: QueryTab) {
+    if (!connectionConfig || !tab.metadataSource) return
+    updateQueryTab(tab.id, { isSaving: true, error: '', saveNotice: '' })
+    const originalRow = tab.metadataSource.row
+    const nextRow = { ...originalRow, infovalue: tab.sql }
+    try {
+      await ophAdminService.saveMetadataRow(
+        connectionConfig,
+        tab.databaseName,
+        tab.metadataSource.sourceTable,
+        originalRow,
+        nextRow,
+      )
+      updateQueryTab(tab.id, {
+        isSaving: false,
+        saveNotice: `Saved directly to ${String(originalRow.infokey ?? 'modlinfo')}.`,
+        metadataSource: { ...tab.metadataSource, row: nextRow },
+      })
+    } catch (saveError) {
+      updateQueryTab(tab.id, {
+        isSaving: false,
+        error: saveError instanceof Error ? saveError.message : String(saveError),
+      })
+    }
+  }
 
   async function loadModuleRowsByDatabase(
     config: OphConnectionConfig,
@@ -306,6 +423,23 @@ function App() {
     return Object.fromEntries(entries)
   }
 
+  async function loadModuleStatusRowsByDatabase(
+    config: OphConnectionConfig,
+    databases: OphDatabase[],
+  ): Promise<Record<string, MetadataRow[]>> {
+    const entries = await Promise.all(
+      databases.map(async (database) => {
+        try {
+          return [database.id, await ophAdminService.listModuleStatuses(config, database.name, database.databaseName)] as const
+        } catch {
+          return [database.id, []] as const
+        }
+      }),
+    )
+
+    return Object.fromEntries(entries)
+  }
+
   async function activateConnection(config: OphConnectionConfig, preferredAccountId?: string) {
     const loadedDatabases = await ophAdminService.listOphDatabases(config)
     const loadedModuleRows = await loadModuleRowsByDatabase(config, loadedDatabases)
@@ -317,6 +451,7 @@ function App() {
     const loadedUserGroupRows = await loadUserGroupRowsByDatabase(config, loadedDatabases)
     const loadedMenuRows = await loadMenuRowsByDatabase(config, loadedDatabases)
     const loadedParameterRows = await loadParameterRowsByDatabase(config, loadedDatabases)
+    const loadedModuleStatusRows = await loadModuleStatusRowsByDatabase(config, loadedDatabases)
     const loadedTree = ophAdminService.buildTree(
       config,
       loadedDatabases,
@@ -326,6 +461,10 @@ function App() {
       loadedThemeRows,
       loadedUserRows,
       loadedUserGroupRows,
+      loadedMenuRows,
+      loadedSubAccountUserRows,
+      loadedParameterRows,
+      loadedModuleStatusRows,
     )
     const loadedDatabase = loadedTree.children?.[0]?.children?.find((database) =>
       preferredAccountId
@@ -343,6 +482,7 @@ function App() {
     setUserGroupRowsByDatabaseId(loadedUserGroupRows)
     setMenuRowsByDatabaseId(loadedMenuRows)
     setParameterRowsByDatabaseId(loadedParameterRows)
+    setModuleStatusRowsByDatabaseId(loadedModuleStatusRows)
     setInitialConnectionError('')
     setConnectionConfig(config)
     setSelection({
@@ -492,6 +632,8 @@ function App() {
     )
   }
 
+  const activeQueryTab = queryTabs.find((tab) => tab.id === activeTabId)
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -502,33 +644,204 @@ function App() {
             <span>Connection workspace</span>
           </div>
         </div>
-        <TreeView root={tree} selectionId={selection.id} onSelect={setSelection} />
+        <TreeView root={tree} selectionId={selection.id} onSelect={(nextSelection) => {
+          setSelection(nextSelection)
+          setActiveTabId('main')
+        }} />
       </aside>
 
       <main className="workspace">
         <header className="topbar">
+          <nav className="app-menu-bar">
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenAppMenu(openAppMenu === 'view' ? null : 'view')}>View</button>
+              {openAppMenu === 'view' ? (
+                <div className="app-menu-popover">
+                  <button type="button" onClick={openNewQuery}><Play size={14} /> New Query</button>
+                </div>
+              ) : null}
+            </div>
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenAppMenu(openAppMenu === 'window' ? null : 'window')}>Window</button>
+              {openAppMenu === 'window' ? (
+                <div className="app-menu-popover window-menu-popover">
+                  <button type="button" className={activeTabId === 'main' ? 'active-menu-item' : ''} onClick={() => { setActiveTabId('main'); setOpenAppMenu(null) }}>
+                    Main Page
+                  </button>
+                  {queryTabs.map((tab) => (
+                    <button key={tab.id} type="button" className={activeTabId === tab.id ? 'active-menu-item' : ''} onClick={() => { setActiveTabId(tab.id); setOpenAppMenu(null) }}>
+                      {tab.title} <small>{tab.databaseName || 'No database'}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </nav>
           <div className="search-box">
             <Search size={16} />
             <span>Search current OPH connection...</span>
           </div>
           <button className="primary-button">Test Connection</button>
         </header>
+        <div className="workspace-tabs">
+          <button type="button" className={activeTabId === 'main' ? 'workspace-tab active-workspace-tab' : 'workspace-tab'} onClick={() => setActiveTabId('main')}>
+            Main Page
+          </button>
+          {queryTabs.map((tab) => (
+            <div key={tab.id} className={activeTabId === tab.id ? 'workspace-tab active-workspace-tab' : 'workspace-tab'}>
+              <button type="button" onClick={() => setActiveTabId(tab.id)}>{tab.title}</button>
+              <button type="button" className="tab-close-button" aria-label={`Close ${tab.title}`} onClick={() => closeQueryTab(tab.id)}><X size={13} /></button>
+            </div>
+          ))}
+          <button type="button" className="new-query-tab-button" onClick={openNewQuery}>+</button>
+        </div>
         <div className="content-grid content-grid-full">
           <section className="main-panel">
-            <Workspace
-              connectionConfig={connectionConfig}
-              connectionError={initialConnectionError}
-              onAddConnection={() => setIsAddingConnection(true)}
-              onRefreshConnection={refreshConnection}
-              onRefreshServer={refreshServerConnection}
-              onDeleteAccount={deleteAccount}
-              selection={selection}
-              servers={servers}
-              tree={tree}
-            />
+            {activeQueryTab ? (
+              <QueryWorkspace
+                tab={activeQueryTab}
+                databases={discoveredDatabases}
+                onChange={(changes) => updateQueryTab(activeQueryTab.id, changes)}
+                onRun={() => runQueryTab(activeQueryTab)}
+                onSave={() => saveQueryTab(activeQueryTab)}
+              />
+            ) : (
+              <Workspace
+                connectionConfig={connectionConfig}
+                connectionError={initialConnectionError}
+                onAddConnection={() => setIsAddingConnection(true)}
+                onRefreshConnection={refreshConnection}
+                onRefreshServer={refreshServerConnection}
+                onDeleteAccount={deleteAccount}
+                selection={selection}
+                servers={servers}
+                tree={tree}
+              />
+            )}
           </section>
         </div>
       </main>
+    </div>
+  )
+}
+
+function QueryWorkspace({
+  tab,
+  databases,
+  onChange,
+  onRun,
+  onSave,
+}: {
+  tab: QueryTab
+  databases: OphDatabase[]
+  onChange: (changes: Partial<QueryTab>) => void
+  onRun: () => void
+  onSave: () => void
+}) {
+  const columns = Array.from(new Set(tab.results.flatMap((row) => Object.keys(row))))
+
+  return (
+    <div className="page-stack query-workspace">
+      <SectionHeader
+        eyebrow="Query Studio"
+        title={tab.title}
+        description="Run a read-only SELECT query against the selected OPH database."
+      />
+      <div className="table-card query-editor-card">
+        <div className="query-toolbar">
+          <label>
+            <span>Database</span>
+            <select value={tab.databaseName} disabled={tab.isRunning || Boolean(tab.metadataSource)} onChange={(event) => onChange({ databaseName: event.target.value, results: [], error: '' })}>
+              <option value="">Select database</option>
+              {databases.map((database) => (
+                <option key={database.id} value={database.databaseName}>{database.name} — {database.databaseName}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" disabled={tab.isRunning || !tab.databaseName || !tab.sql.trim()} onClick={onRun}>
+            <Play size={15} /> {tab.isRunning ? 'Running…' : 'Run Query'}
+          </button>
+          {tab.metadataSource ? (
+            <button type="button" disabled={tab.isSaving || tab.isRunning} onClick={onSave}>
+              {tab.isSaving ? 'Saving…' : 'Save to modlinfo'}
+            </button>
+          ) : null}
+        </div>
+        <textarea
+          className="sql-editor"
+          spellCheck={false}
+          value={tab.sql}
+          onChange={(event) => onChange({ sql: event.target.value })}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              onRun()
+              return
+            }
+            if (event.key === 'Tab') {
+              event.preventDefault()
+              const editor = event.currentTarget
+              const start = editor.selectionStart
+              const end = editor.selectionEnd
+              const lineStart = tab.sql.lastIndexOf('\n', start - 1) + 1
+              const selectedBlock = tab.sql.slice(lineStart, end)
+              let nextSql: string
+              let nextStart: number
+              let nextEnd: number
+
+              if (event.shiftKey) {
+                const lines = selectedBlock.split('\n')
+                let removedBeforeStart = 0
+                let totalRemoved = 0
+                const outdented = lines.map((line, index) => {
+                  const removable = line.startsWith('\t') ? 1 : Math.min(2, line.match(/^ */)?.[0].length ?? 0)
+                  if (index === 0) removedBeforeStart = Math.min(removable, start - lineStart)
+                  totalRemoved += removable
+                  return line.slice(removable)
+                }).join('\n')
+                nextSql = `${tab.sql.slice(0, lineStart)}${outdented}${tab.sql.slice(end)}`
+                nextStart = Math.max(lineStart, start - removedBeforeStart)
+                nextEnd = Math.max(nextStart, end - totalRemoved)
+              } else if (start === end) {
+                nextSql = `${tab.sql.slice(0, start)}  ${tab.sql.slice(end)}`
+                nextStart = start + 2
+                nextEnd = nextStart
+              } else {
+                const indented = selectedBlock.split('\n').map((line) => `  ${line}`).join('\n')
+                const lineCount = selectedBlock.split('\n').length
+                nextSql = `${tab.sql.slice(0, lineStart)}${indented}${tab.sql.slice(end)}`
+                nextStart = start + 2
+                nextEnd = end + lineCount * 2
+              }
+
+              onChange({ sql: nextSql })
+              window.requestAnimationFrame(() => editor.setSelectionRange(nextStart, nextEnd))
+            }
+          }}
+        />
+      </div>
+      {tab.error ? <div className="connection-error">{tab.error}</div> : null}
+      {tab.saveNotice ? <div className="action-notice">{tab.saveNotice}</div> : null}
+      <div className="table-card query-results-card">
+        <div className="query-results-header">
+          <strong>Results</strong>
+          <span>{tab.results.length} row(s)</span>
+        </div>
+        {tab.results.length === 0 ? (
+          <div className="empty-result">Run a query to display results.</div>
+        ) : (
+          <div className="query-results-scroll">
+            <table>
+              <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+              <tbody>
+                {tab.results.map((row, index) => (
+                  <tr key={index}>{columns.map((column) => <td key={column}>{String(row[column] ?? '')}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -727,6 +1040,7 @@ function TreeNodeView({
       themeGuid: node.themeGuid,
       menuGuid: node.menuGuid,
       parameterGuid: node.parameterGuid,
+      moduleStatusGuid: node.moduleStatusGuid,
       userGuid: node.userGuid,
       userGroupGuid: node.userGroupGuid,
       settingMode: node.settingMode,
@@ -938,6 +1252,20 @@ function Workspace({
   }
 
   if (selection.kind === 'modules' || selection.kind === 'module-category') {
+    if (selection.moduleStatusGuid) {
+      return (
+        <MetadataWorkspace
+          config={connectionConfig}
+          selection={selection}
+          title={`${selection.label} States`}
+          sourceTable="mstastat"
+          loadRows={(config, _accountId, databaseName) =>
+            ophAdminService.listModuleStatusStates(config, databaseName, selection.moduleStatusGuid ?? '')
+          }
+        />
+      )
+    }
+
     if (selection.label === 'Module Status') {
       return (
         <MetadataWorkspace
@@ -1648,6 +1976,16 @@ function MetadataTable({
   const [tableRows, setTableRows] = useState<MetadataRow[]>(rows)
   const [selectedRow, setSelectedRow] = useState<MetadataRow | null>(null)
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null)
+  const [checkedRowIndexes, setCheckedRowIndexes] = useState<Set<number>>(new Set())
+  const [isCopyTargetOpen, setIsCopyTargetOpen] = useState(false)
+  const [copyTargets, setCopyTargets] = useState<MetadataRow[]>([])
+  const [copyTargetGuid, setCopyTargetGuid] = useState('')
+  const [copyAccounts, setCopyAccounts] = useState<MetadataRow[]>([])
+  const [copyAccountIndex, setCopyAccountIndex] = useState('')
+  const [copyTargetDatabaseName, setCopyTargetDatabaseName] = useState('')
+  const [copyTargetAccountId, setCopyTargetAccountId] = useState('')
+  const [isLoadingCopyTargets, setIsLoadingCopyTargets] = useState(false)
+  const [isCopyingRows, setIsCopyingRows] = useState(false)
   const [draftRow, setDraftRow] = useState<Record<string, string>>({})
   const [isEditing, setIsEditing] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
@@ -1658,16 +1996,23 @@ function MetadataTable({
   const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
+  const [columnTypeOptions, setColumnTypeOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
     '[user]': ['userid', 'username', 'email', 'expirydate'],
+    acctinfo: ['infokey', 'infovalue'],
+    acct: ['accountid'],
+    acctdbse: ['databasename', 'ismaster', 'version'],
     userinfo: ['infokey', 'infovalue'],
     ugrp: ['groupid', 'groupdescription'],
     ugrpmodl: ['moduleid', 'moduledescription', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
-    msta: ['modulestatusname', 'isdefault', 'createddate', 'updateddate'],
+    msta: ['modulestatusname', 'modulestatusdescription'],
+    mstastat: ['stateid', 'statecode', 'statename', 'statedesc', 'isdefault'],
     modg: ['modulegroupid', 'modulegroupname', 'modulegroupdescription'],
     thme: ['themecode', 'themename', 'themefolder'],
     thmepage: ['pageurl', 'isdefault'],
     menu: ['menucode', 'menudescription', 'createddate', 'updateddate'],
+    menusmnu: ['submenudescription', 'tag', 'url', 'orderno', 'caption', 'type', 'uppersubmenuguid', 'icon_fa', 'icon_url'],
     word: ['originstatements', 'createddate', 'updateddate'],
     para: ['parameterid', 'parameterdescription', 'createddate', 'updateddate'],
     paravalu: ['parametervalue', 'parameterdescription'],
@@ -1676,7 +2021,7 @@ function MetadataTable({
     modlinfo: ['infokey', 'infovalue'],
     modlcolm: ['colkey', 'coltype', 'titlecaption', 'colorder', 'collength'],
     modlcolminfo: ['infokey', 'infovalue'],
-    modlappr: ['approvalgroupguid', 'uppergroupguid', 'lvl', 'sqlfilter', 'zonegroup'],
+    modlappr: ['approvalgroup', 'uppergroup', 'lvl', 'sqlfilter', 'zonegroup'],
     modldocn: ['format', 'month', 'no'],
     modlmail: ['mailguid', 'actionguid', 'tokenstatus', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
     modl: [
@@ -1711,6 +2056,10 @@ function MetadataTable({
     allowforce: 'Allow Force',
     allowwipe: 'Allow Wipe',
     modulestatusname: 'Module Status Name',
+    stateid: 'State ID',
+    statecode: 'State Code',
+    statename: 'State Name',
+    statedesc: 'State Description',
     isdefault: 'Is Default',
     modulegroupid: 'Module Group ID',
     modulegroupname: 'Module Group Name',
@@ -1745,6 +2094,8 @@ function MetadataTable({
     infovalue: 'Info Value',
     approvalgroupguid: 'Approval Group',
     uppergroupguid: 'Upper Group',
+    approvalgroup: 'Approval Group',
+    uppergroup: 'Upper Group',
     lvl: 'Level',
     sqlfilter: 'SQL Filter',
     zonegroup: 'Zone Group',
@@ -1771,6 +2122,10 @@ function MetadataTable({
     themepage: 'Theme Page',
     modulestatus: 'Module Status',
     modulegroup: 'Module Group',
+    accountdbguid: 'Account DB',
+    themepageguid: 'Theme Page',
+    modulestatusguid: 'Module Status',
+    modulegroupguid: 'Module Group',
   }
   const hiddenColumns = new Set([
     'accountguid',
@@ -1789,6 +2144,7 @@ function MetadataTable({
     'approvalguid',
     'docnumberguid',
     'modulemailguid',
+    'modulestatusdetailguid',
     'parentmoduleguid',
     'accountdbguid',
     'themepageguid',
@@ -1796,8 +2152,29 @@ function MetadataTable({
     'password',
     'lockmode',
   ])
+  const checkboxColumns = new Set([
+    'needlogin',
+    'ismaster',
+    'isdefault',
+    'allowaccess',
+    'allowadd',
+    'allowedit',
+    'allowdelete',
+    'allowforce',
+    'allowwipe',
+    'reportattachment',
+  ])
+  const copyableTables = new Set(['modl', 'modlinfo', 'modlcolm', 'modlcolminfo', 'modlappr', 'modldocn', 'modlmail'])
   useEffect(() => {
     setTableRows(rows)
+    setCheckedRowIndexes(new Set())
+    setIsCopyTargetOpen(false)
+    setCopyTargets([])
+    setCopyTargetGuid('')
+    setCopyAccounts([])
+    setCopyAccountIndex('')
+    setCopyTargetDatabaseName('')
+    setCopyTargetAccountId('')
     setSelectedRow(null)
     setSelectedRowIndex(null)
     setDraftRow({})
@@ -1808,6 +2185,119 @@ function MetadataTable({
     setNewPassword('')
     setConfirmPassword('')
   }, [rows])
+
+  const allRowsChecked = tableRows.length > 0 && checkedRowIndexes.size === tableRows.length
+
+  function toggleRowChecked(index: number) {
+    setCheckedRowIndexes((currentIndexes) => {
+      const nextIndexes = new Set(currentIndexes)
+      if (nextIndexes.has(index)) nextIndexes.delete(index)
+      else nextIndexes.add(index)
+      return nextIndexes
+    })
+  }
+
+  function toggleAllRows() {
+    setCheckedRowIndexes(allRowsChecked ? new Set() : new Set(tableRows.map((_, index) => index)))
+  }
+
+  async function openCopyTo() {
+    if (!selection.databaseName || !selection.accountId || checkedRowIndexes.size === 0) return
+    setIsCopyTargetOpen(true)
+    setCopyTargets([])
+    setCopyTargetGuid('')
+    setCopyAccounts([])
+    setCopyAccountIndex('')
+    setIsLoadingCopyTargets(true)
+    setActionError('')
+    setActionNotice('')
+    try {
+      const accounts = await ophAdminService.listCopyAccounts(config)
+      setCopyAccounts(accounts)
+      const initialIndex = accounts.findIndex((account) =>
+        String(account.accountid ?? '') === selection.accountId
+        && String(account.databasename ?? '') === selection.databaseName)
+      const selectedIndex = initialIndex >= 0 ? initialIndex : 0
+      const initialAccount = accounts[selectedIndex]
+      if (!initialAccount) throw new Error('No destination account is available.')
+      const targetDatabaseName = String(initialAccount.databasename ?? '')
+      const targetAccountId = String(initialAccount.accountid ?? '')
+      setCopyAccountIndex(String(selectedIndex))
+      setCopyTargetDatabaseName(targetDatabaseName)
+      setCopyTargetAccountId(targetAccountId)
+      const targets = await ophAdminService.listCopyTargets(
+        config,
+        targetDatabaseName,
+        sourceTable,
+        targetAccountId,
+      )
+      setCopyTargets(targets)
+    } catch (copyError) {
+      setActionError(copyError instanceof Error ? copyError.message : String(copyError))
+    } finally {
+      setIsLoadingCopyTargets(false)
+    }
+  }
+
+  async function changeCopyAccount(indexValue: string) {
+    setCopyAccountIndex(indexValue)
+    setCopyTargetGuid('')
+    setCopyTargets([])
+    const account = copyAccounts[Number(indexValue)]
+    if (!account) return
+    const targetDatabaseName = String(account.databasename ?? '')
+    const targetAccountId = String(account.accountid ?? '')
+    setCopyTargetDatabaseName(targetDatabaseName)
+    setCopyTargetAccountId(targetAccountId)
+    setIsLoadingCopyTargets(true)
+    setActionError('')
+    try {
+      setCopyTargets(await ophAdminService.listCopyTargets(
+        config,
+        targetDatabaseName,
+        sourceTable,
+        targetAccountId,
+      ))
+    } catch (copyError) {
+      setActionError(copyError instanceof Error ? copyError.message : String(copyError))
+    } finally {
+      setIsLoadingCopyTargets(false)
+    }
+  }
+
+  async function copySelectedRows() {
+    if (!selection.databaseName || !copyTargetGuid || !copyTargetDatabaseName || !copyTargetAccountId) {
+      setActionError('Select a Copy To destination.')
+      return
+    }
+    const selectedRows = tableRows.filter((_, index) => checkedRowIndexes.has(index))
+    setIsCopyingRows(true)
+    setActionError('')
+    try {
+      const copied = await ophAdminService.copyMetadataRows(
+        config,
+        selection.databaseName,
+        sourceTable,
+        selectedRows,
+        copyTargetGuid,
+        copyTargetDatabaseName,
+        copyTargetAccountId,
+        selection.accountId ?? '',
+      )
+      const skipped = selectedRows.length - copied
+      setActionNotice(`${copied} row(s) copied.${skipped > 0 ? ` ${skipped} duplicate or invalid row(s) skipped.` : ''}`)
+      setCheckedRowIndexes(new Set())
+      setIsCopyTargetOpen(false)
+      setCopyTargets([])
+      setCopyTargetGuid('')
+      setCopyAccounts([])
+      setCopyAccountIndex('')
+    } catch (copyError) {
+      setActionError(copyError instanceof Error ? copyError.message : String(copyError))
+    } finally {
+      setIsCopyingRows(false)
+    }
+  }
 
   const rowColumns = Array.from(new Set(tableRows.flatMap((row) => Object.keys(row))))
   const sourceKey = sourceTable.toLowerCase()
@@ -1829,6 +2319,91 @@ function MetadataTable({
       .catch(() => {
         if (!cancelled) setUserTokenOptions([])
       })
+
+    return () => {
+      cancelled = true
+    }
+  }, [config, selection.accountId, selection.databaseName, sourceKey])
+  useEffect(() => {
+    if (sourceKey !== 'modlcolm' || !selection.databaseName) {
+      setColumnTypeOptions([])
+      return
+    }
+
+    let cancelled = false
+    ophAdminService.listMssqlColumnTypes(config, selection.databaseName)
+      .then((types) => {
+        if (cancelled) return
+        setColumnTypeOptions(types.map((row) => ({
+          value: String(row.coltype ?? ''),
+          label: `${String(row.typename ?? row.coltype ?? '')} = ${String(row.coltype ?? '')}`,
+        })))
+      })
+      .catch(() => {
+        if (!cancelled) setColumnTypeOptions([{ value: '0', label: 'nonfield = 0' }])
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [config, selection.databaseName, sourceKey])
+  useEffect(() => {
+    if (!selection.accountId || !selection.databaseName || !['modl', 'modlappr'].includes(sourceKey)) {
+      setModuleRelationOptions({})
+      return
+    }
+
+    let cancelled = false
+    if (sourceKey === 'modlappr') {
+      ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName)
+        .then((groups) => {
+          if (cancelled) return
+          const options = groups.map((row) => ({
+            value: String(row.modulegroupguid ?? ''),
+            label: [row.modulegroupid, row.modulegroupname].filter(Boolean).join(' — ') || String(row.modulegroupguid ?? ''),
+          }))
+          setModuleRelationOptions({
+            approvalgroupguid: options,
+            uppergroupguid: options,
+          })
+        })
+        .catch(() => {
+          if (!cancelled) setModuleRelationOptions({})
+        })
+
+      return () => {
+        cancelled = true
+      }
+    }
+
+    Promise.all([
+      ophAdminService.listModuleStatuses(config, selection.accountId, selection.databaseName),
+      ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName),
+      ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName),
+      ophAdminService.listModuleThemePages(config, selection.accountId, selection.databaseName),
+    ]).then(([statuses, groups, accountDatabases, themePages]) => {
+      if (cancelled) return
+      setModuleRelationOptions({
+        modulestatusguid: statuses.map((row) => ({
+          value: String(row.modulestatusguid ?? ''),
+          label: String(row.modulestatusname ?? row.modulestatusguid ?? ''),
+        })),
+        modulegroupguid: groups.map((row) => ({
+          value: String(row.modulegroupguid ?? ''),
+          label: String(row.modulegroupid ?? row.modulegroupname ?? row.modulegroupguid ?? ''),
+        })),
+        accountdbguid: accountDatabases.map((row) => ({
+          value: String(row.accountdbguid ?? ''),
+          label: String(row.databasename ?? row.accountdbguid ?? ''),
+        })),
+        themepageguid: themePages.map((row) => ({
+          value: String(row.themepageguid ?? ''),
+          label: [row.themecode, row.pageurl].filter(Boolean).join(' — ') || String(row.themepageguid ?? ''),
+        })),
+      })
+    }).catch(() => {
+      if (!cancelled) setModuleRelationOptions({})
+    })
 
     return () => {
       cancelled = true
@@ -1875,6 +2450,8 @@ function MetadataTable({
     ugrp: ['groupid', 'groupdescription', 'allexceptuser', 'tokenuser', 'allexceptenv', 'tokenenv', 'allexceptmodule'],
     ugrpmodl: ['moduleguid', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
     widg: ['widgetid', 'widgetdescription', 'sqlstr'],
+    modl: ['moduleid', 'moduledescription', 'settingmode', 'accountdbguid', 'orderno', 'needlogin', 'themepageguid', 'modulestatusguid', 'modulegroupguid'],
+    modlappr: ['approvalgroupguid', 'uppergroupguid', 'lvl', 'sqlfilter', 'zonegroup'],
   }
   const overlayColumns = overlayColumnMap[sourceKey]
     ?? columns.filter((column) => !['createddate', 'updateddate'].includes(column.toLowerCase()))
@@ -1926,6 +2503,10 @@ function MetadataTable({
         selection.themeGuid,
         selection.userGuid,
         selection.userGroupGuid,
+        selection.accountId,
+        selection.menuGuid,
+        selection.parameterGuid,
+        selection.moduleStatusGuid,
       )
     } catch (saveError) {
       setActionError(saveError instanceof Error ? saveError.message : String(saveError))
@@ -1981,6 +2562,11 @@ function MetadataTable({
     }
 
     setTableRows((currentRows) => currentRows.filter((_, index) => index !== selectedRowIndex))
+    setCheckedRowIndexes((currentIndexes) => new Set(
+      Array.from(currentIndexes)
+        .filter((index) => index !== selectedRowIndex)
+        .map((index) => index > selectedRowIndex ? index - 1 : index),
+    ))
     setSelectedRow(null)
     setSelectedRowIndex(null)
     setDraftRow({})
@@ -2036,7 +2622,16 @@ function MetadataTable({
     <div className="metadata-table-shell">
       <div className="metadata-toolbar">
         <button type="button" onClick={openCreate}>Add</button>
+        <button type="button" disabled={tableRows.length === 0} onClick={toggleAllRows}>
+          {allRowsChecked ? 'Clear All' : 'Select All'}
+        </button>
+        {copyableTables.has(sourceKey) ? (
+          <button type="button" disabled={checkedRowIndexes.size === 0} onClick={openCopyTo}>Copy To</button>
+        ) : null}
+        <span className="selection-count">{checkedRowIndexes.size} selected</span>
       </div>
+      {!selectedRow && actionError ? <div className="connection-error">{actionError}</div> : null}
+      {!selectedRow && actionNotice ? <div className="action-notice">{actionNotice}</div> : null}
       <div className="table-card metadata-table">
         {tableRows.length === 0 ? (
           <div className="empty-result">No rows found.</div>
@@ -2044,6 +2639,15 @@ function MetadataTable({
           <table>
             <thead>
               <tr>
+                <th className="selection-column">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all rows"
+                    checked={allRowsChecked}
+                    disabled={tableRows.length === 0}
+                    onChange={toggleAllRows}
+                  />
+                </th>
                 {columns.map((column) => (
                   <th key={column}>{columnLabels[column.toLowerCase()] ?? column}</th>
                 ))}
@@ -2052,10 +2656,18 @@ function MetadataTable({
             <tbody>
               {tableRows.map((row, index) => (
                 <tr
-                  className={`clickable-row ${selectedRowIndex === index ? 'selected-row' : ''}`}
+                  className={`clickable-row ${selectedRowIndex === index ? 'selected-row' : ''} ${checkedRowIndexes.has(index) ? 'checked-row' : ''}`}
                   key={index}
                   onClick={() => openRow(row, index)}
                 >
+                  <td className="selection-column" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select row ${index + 1}`}
+                      checked={checkedRowIndexes.has(index)}
+                      onChange={() => toggleRowChecked(index)}
+                    />
+                  </td>
                   {columns.map((column) => (
                     <td key={column}>{String(getCellValue(row, column) ?? '')}</td>
                   ))}
@@ -2083,7 +2695,29 @@ function MetadataTable({
             {overlayColumns.map((column) => (
               <label key={column}>
                 <span>{columnLabels[column.toLowerCase()] ?? column}</span>
-                {column.toLowerCase().startsWith('token') ? (
+                {column.toLowerCase() === 'coltype' && sourceKey === 'modlcolm' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">Select column type</option>
+                    {columnTypeOptions.map((option) => (
+                      <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                ) : moduleRelationOptions[column.toLowerCase()] ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">None</option>
+                    {moduleRelationOptions[column.toLowerCase()].filter((option) => option.value).map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                ) : column.toLowerCase().startsWith('token') ? (
                   <TokenInput
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     readOnly={!isEditing}
@@ -2097,6 +2731,12 @@ function MetadataTable({
                   />
                 ) : column.toLowerCase().startsWith('allexcept') ? (
                   <SwitchInput
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    readOnly={!isEditing}
+                    onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
+                  />
+                ) : checkboxColumns.has(column.toLowerCase()) ? (
+                  <CheckboxInput
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     readOnly={!isEditing}
                     onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
@@ -2149,6 +2789,18 @@ function MetadataTable({
           ) : null}
           <div className="row-detail-actions">
             <button type="button" onClick={saveDraft}>Save</button>
+            {sourceKey === 'modlinfo'
+              && !isCreating
+              && /^(view_|script_)/i.test(String(getCellValue(selectedRow, 'infokey') ?? '')) ? (
+                <button type="button" onClick={() => {
+                  window.dispatchEvent(new CustomEvent('oph:open-metadata-query', {
+                    detail: { databaseName: selection.databaseName, row: selectedRow },
+                  }))
+                  cancelEdit()
+                }}>
+                  See in Query
+                </button>
+              ) : null}
             <button type="button" onClick={cancelEdit}>Cancel</button>
             <button className="danger-button" type="button" onClick={deleteSelectedRow}>Delete</button>
           </div>
@@ -2157,6 +2809,73 @@ function MetadataTable({
         </aside>
         </div>
       ) : null}
+      {isCopyTargetOpen ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isCopyingRows && setIsCopyTargetOpen(false)}>
+          <aside className="row-detail-overlay copy-target-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div>
+                <span className="eyebrow">Copy selected rows</span>
+                <h2>Copy To</h2>
+              </div>
+              <button className="overlay-close-button" type="button" disabled={isCopyingRows} onClick={() => setIsCopyTargetOpen(false)}>×</button>
+            </div>
+            <p className="copy-target-summary">Copy {checkedRowIndexes.size} selected row(s) from {sourceTable}. Duplicate keys will be skipped.</p>
+            <label className="copy-target-field">
+              <span>Destination account</span>
+              <select value={copyAccountIndex} disabled={isCopyingRows} onChange={(event) => changeCopyAccount(event.target.value)}>
+                <option value="">Select account</option>
+                {copyAccounts.map((account, index) => (
+                  <option key={`${String(account.databasename)}-${String(account.accountid)}`} value={String(index)}>
+                    {String(account.accountid)} — {String(account.databasename)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="copy-target-field">
+              <span>Destination parent</span>
+              <select value={copyTargetGuid} disabled={isLoadingCopyTargets || isCopyingRows} onChange={(event) => setCopyTargetGuid(event.target.value)}>
+                <option value="">{isLoadingCopyTargets ? 'Loading destinations…' : 'Select destination'}</option>
+                {copyTargets.map((target) => (
+                  <option key={String(target.targetguid)} value={String(target.targetguid)}>
+                    {String(target.targetlabel ?? target.targetguid)}{target.targetdescription ? ` — ${String(target.targetdescription)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="row-detail-actions">
+              <button type="button" disabled={!copyTargetGuid || isCopyingRows} onClick={copySelectedRows}>
+                {isCopyingRows ? 'Copying…' : 'Copy'}
+              </button>
+              <button type="button" disabled={isCopyingRows} onClick={() => setIsCopyTargetOpen(false)}>Cancel</button>
+            </div>
+            {actionError ? <div className="connection-error">{actionError}</div> : null}
+          </aside>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function CheckboxInput({
+  value,
+  readOnly,
+  onChange,
+}: {
+  value: string
+  readOnly: boolean
+  onChange: (value: string) => void
+}) {
+  const isChecked = ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
+
+  return (
+    <div className="checkbox-input">
+      <input
+        type="checkbox"
+        checked={isChecked}
+        disabled={readOnly}
+        onChange={(event) => onChange(event.target.checked ? '1' : '0')}
+      />
+      <span>{isChecked ? 'Checked' : 'Unchecked'}</span>
     </div>
   )
 }

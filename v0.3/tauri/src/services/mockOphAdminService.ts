@@ -39,6 +39,7 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_module_tree: modules.map(toModuleRow),
     list_module_column_tree: columns.map(toColumnRow),
     list_module_columns: columns.filter((column) => column.moduleGuid === moduleGuid).map(toColumnRow),
+    list_mssql_column_types: [{ coltype: 0, typename: 'nonfield' }],
     list_module_info: modules.filter((module) => module.moduleGuid === moduleGuid).map(toModuleRow),
     list_module_column_info: columns.filter((column) => column.columnGuid === String(args?.columnGuid ?? '')).map(toColumnRow),
     list_child_modules: modules.filter((module) => module.parentModuleGuid === moduleGuid).map(toModuleRow),
@@ -46,6 +47,8 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_module_numbering: [],
     list_module_mails: [],
     list_module_statuses: [],
+    list_module_status_states: [],
+    list_module_theme_pages: [],
     list_module_groups: [],
     list_all_module_groups: [],
     list_themes: [],
@@ -59,6 +62,10 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_translator_words: [],
     save_metadata_row: undefined,
     delete_metadata_row: undefined,
+    list_copy_targets: [],
+    list_copy_accounts: [],
+    copy_metadata_rows: 0,
+    run_query: [],
   }
 
   return (webData[command] ?? []) as T
@@ -406,6 +413,7 @@ function buildDatabaseChildren(
   menuRows: MetadataRow[] = [],
   subAccountUserRows: MetadataRow[] = [],
   parameterRows: MetadataRow[] = [],
+  moduleStatusRows: MetadataRow[] = [],
 ): OphTreeNode[] {
   const accountId = getAccountId(database)
 
@@ -483,7 +491,24 @@ function buildDatabaseChildren(
             })
             .map((module) => buildModuleNode(database, accountId, module, moduleRows, columnRows)),
         })),
-        { id: `${database.id}:modules:status`, label: 'Module Status', kind: 'module-category', accountId, databaseName: database.databaseName, databaseId: database.id },
+        {
+          id: `${database.id}:modules:status`,
+          label: 'Module Status',
+          kind: 'module-category',
+          accountId,
+          databaseName: database.databaseName,
+          databaseId: database.id,
+          children: moduleStatusRows.map((status) => ({
+            id: `${database.id}:modules:status:${String(status.modulestatusguid ?? status.modulestatusname ?? '')}`,
+            label: String(status.modulestatusname ?? status.modulestatusguid ?? ''),
+            kind: 'module-category' as const,
+            description: String(status.modulestatusdescription ?? ''),
+            accountId,
+            databaseName: database.databaseName,
+            databaseId: database.id,
+            moduleStatusGuid: String(status.modulestatusguid ?? ''),
+          })),
+        },
         { id: `${database.id}:modules:groups`, label: 'Module Groups', kind: 'module-category', accountId, databaseName: database.databaseName, databaseId: database.id },
       ],
     },
@@ -635,6 +660,7 @@ function buildTree(
   menuRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   subAccountUserRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   parameterRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  moduleStatusRowsByDatabaseId: Record<string, MetadataRow[]> = {},
 ): OphTreeNode {
   return {
     id: 'servers',
@@ -673,6 +699,7 @@ function buildTree(
             menuRowsByDatabaseId[database.id] ?? [],
             subAccountUserRowsByDatabaseId[database.id] ?? [],
             parameterRowsByDatabaseId[database.id] ?? [],
+            moduleStatusRowsByDatabaseId[database.id] ?? [],
           ),
         })),
     })),
@@ -852,6 +879,10 @@ async function listModuleColumns(config: OphConnectionConfig, _accountId: string
   return invoke<MetadataRow[]>('list_module_columns', { config, databaseName, moduleGuid })
 }
 
+async function listMssqlColumnTypes(config: OphConnectionConfig, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_mssql_column_types', { config, databaseName })
+}
+
 async function listModuleInfo(config: OphConnectionConfig, _accountId: string, databaseName: string, moduleGuid: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_module_info', { config, databaseName, moduleGuid })
 }
@@ -878,6 +909,14 @@ async function listModuleMails(config: OphConnectionConfig, _accountId: string, 
 
 async function listModuleStatuses(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_module_statuses', { config, accountId, databaseName })
+}
+
+async function listModuleStatusStates(config: OphConnectionConfig, databaseName: string, moduleStatusGuid: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_module_status_states', { config, databaseName, moduleStatusGuid })
+}
+
+async function listModuleThemePages(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_module_theme_pages', { config, accountId, databaseName })
 }
 
 async function listModuleGroups(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
@@ -935,6 +974,10 @@ async function saveMetadataRow(
   themeGuid?: string,
   userGuid?: string,
   userGroupGuid?: string,
+  accountId?: string,
+  menuGuid?: string,
+  parameterGuid?: string,
+  moduleStatusGuid?: string,
 ): Promise<void> {
   return invoke<void>('save_metadata_row', {
     config,
@@ -947,6 +990,10 @@ async function saveMetadataRow(
     themeGuid,
     userGuid,
     userGroupGuid,
+    accountId,
+    menuGuid,
+    parameterGuid,
+    moduleStatusGuid,
   })
 }
 
@@ -957,6 +1004,45 @@ async function deleteMetadataRow(
   originalRow: MetadataRow,
 ): Promise<void> {
   return invoke<void>('delete_metadata_row', { config, databaseName, sourceTable, originalRow })
+}
+
+async function listCopyTargets(
+  config: OphConnectionConfig,
+  databaseName: string,
+  sourceTable: string,
+  accountId: string,
+): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_copy_targets', { config, databaseName, sourceTable, accountId })
+}
+
+async function listCopyAccounts(config: OphConnectionConfig): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_copy_accounts', { config })
+}
+
+async function copyMetadataRows(
+  config: OphConnectionConfig,
+  databaseName: string,
+  sourceTable: string,
+  selectedRows: MetadataRow[],
+  targetGuid: string,
+  targetDatabaseName: string,
+  targetAccountId: string,
+  sourceAccountId: string,
+): Promise<number> {
+  return invoke<number>('copy_metadata_rows', {
+    config,
+    databaseName,
+    sourceTable,
+    selectedRows,
+    targetGuid,
+    targetDatabaseName,
+    targetAccountId,
+    sourceAccountId,
+  })
+}
+
+async function runQuery(config: OphConnectionConfig, databaseName: string, sql: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('run_query', { config, databaseName, sql })
 }
 
 function createSampleConnectionConfig(): OphConnectionConfig {
@@ -989,6 +1075,7 @@ export const ophAdminService = {
   listModuleColumnTree,
   listModuleInfo,
   listModuleColumns,
+  listMssqlColumnTypes,
   listModuleColumnInfo,
   listChildModules,
   listModuleApprovals,
@@ -996,6 +1083,8 @@ export const ophAdminService = {
   listModuleMails,
   listModulesBySettingMode,
   listModuleStatuses,
+  listModuleStatusStates,
+  listModuleThemePages,
   listModuleGroups,
   listAllModuleGroups,
   listThemes,
@@ -1009,6 +1098,10 @@ export const ophAdminService = {
   listMailProfiles,
   saveMetadataRow,
   deleteMetadataRow,
+  listCopyTargets,
+  listCopyAccounts,
+  copyMetadataRows,
+  runQuery,
   buildTree,
   buildFallbackTree,
   listServers: () => servers,

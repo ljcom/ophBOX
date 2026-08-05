@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::Manager;
-use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row};
+use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, Row};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
@@ -192,6 +192,10 @@ fn escape_sql_value(value: &str) -> String {
     value.replace('\'', "''")
 }
 
+fn quote_sql_identifier(value: &str) -> String {
+    format!("[{}]", value.replace(']', "]]"))
+}
+
 fn json_field(row: &serde_json::Value, field: &str) -> String {
     row.as_object()
         .and_then(|object| {
@@ -210,6 +214,22 @@ fn json_field(row: &serde_json::Value, field: &str) -> String {
         .unwrap_or_default()
 }
 
+fn draft_field(row: &serde_json::Value, column: &str) -> String {
+    match column {
+        "expirypwd" => json_field(row, "expirydate"),
+        _ => json_field(row, column),
+    }
+}
+
+fn draft_sql_value(row: &serde_json::Value, column: &str) -> String {
+    let value = draft_field(row, column);
+    if column.ends_with("guid") && value.trim().is_empty() {
+        "null".to_string()
+    } else {
+        format!("N'{}'", escape_sql_value(&value))
+    }
+}
+
 #[derive(Clone)]
 struct CrudMapping {
     table_name: &'static str,
@@ -220,8 +240,175 @@ struct CrudMapping {
     writable_columns: &'static [&'static str],
 }
 
+struct CopyMapping {
+    table_name: &'static str,
+    key_column: &'static str,
+    parent_column: &'static str,
+    duplicate_columns: &'static [&'static str],
+    target_kind: &'static str,
+}
+
+fn copy_mapping(source_table: &str) -> Option<CopyMapping> {
+    match source_table.to_lowercase().as_str() {
+        "modl" => Some(CopyMapping {
+            table_name: "modl",
+            key_column: "moduleguid",
+            parent_column: "parentmoduleguid",
+            duplicate_columns: &["moduleid"],
+            target_kind: "module",
+        }),
+        "modlinfo" => Some(CopyMapping {
+            table_name: "modlinfo",
+            key_column: "moduleinfoguid",
+            parent_column: "moduleguid",
+            duplicate_columns: &["infokey"],
+            target_kind: "module",
+        }),
+        "modlcolm" => Some(CopyMapping {
+            table_name: "modlcolm",
+            key_column: "columnguid",
+            parent_column: "moduleguid",
+            duplicate_columns: &["colkey"],
+            target_kind: "module",
+        }),
+        "modlcolminfo" => Some(CopyMapping {
+            table_name: "modlcolminfo",
+            key_column: "columninfoguid",
+            parent_column: "columnguid",
+            duplicate_columns: &["infokey"],
+            target_kind: "column",
+        }),
+        "modlappr" => Some(CopyMapping {
+            table_name: "modlappr",
+            key_column: "approvalguid",
+            parent_column: "moduleguid",
+            duplicate_columns: &["approvalgroupguid", "lvl"],
+            target_kind: "module",
+        }),
+        "modldocn" => Some(CopyMapping {
+            table_name: "modldocn",
+            key_column: "docnumberguid",
+            parent_column: "moduleguid",
+            duplicate_columns: &["format", "month"],
+            target_kind: "module",
+        }),
+        "modlmail" => Some(CopyMapping {
+            table_name: "modlmail",
+            key_column: "modulemailguid",
+            parent_column: "moduleguid",
+            duplicate_columns: &["mailguid", "actionguid"],
+            target_kind: "module",
+        }),
+        _ => None,
+    }
+}
+
 fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
     match source_table.to_lowercase().as_str() {
+        "[user]" => Some(CrudMapping {
+            table_name: "[user]",
+            key_column: "userguid",
+            key_field: "userguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["userid", "username", "email", "expirypwd"],
+        }),
+        "acctinfo" => Some(CrudMapping {
+            table_name: "acctinfo",
+            key_column: "accountinfoguid",
+            key_field: "accountinfoguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["infokey", "infovalue"],
+        }),
+        "acct" => Some(CrudMapping {
+            table_name: "acct",
+            key_column: "accountguid",
+            key_field: "accountguid",
+            parent_column: Some("parentaccountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["accountid"],
+        }),
+        "acctdbse" => Some(CrudMapping {
+            table_name: "acctdbse",
+            key_column: "accountdbguid",
+            key_field: "accountdbguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["databasename", "ismaster", "version"],
+        }),
+        "msta" => Some(CrudMapping {
+            table_name: "msta",
+            key_column: "modulestatusguid",
+            key_field: "modulestatusguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["modulestatusname", "modulestatusdescription"],
+        }),
+        "mstastat" => Some(CrudMapping {
+            table_name: "mstastat",
+            key_column: "modulestatusdetailguid",
+            key_field: "modulestatusdetailguid",
+            parent_column: Some("modulestatusguid"),
+            parent_context: Some("moduleStatusGuid"),
+            writable_columns: &["stateid", "statecode", "statename", "statedesc", "isdefault"],
+        }),
+        "modg" => Some(CrudMapping {
+            table_name: "modg",
+            key_column: "modulegroupguid",
+            key_field: "modulegroupguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["modulegroupid", "modulegroupname", "modulegroupdescription"],
+        }),
+        "menusmnu" => Some(CrudMapping {
+            table_name: "menusmnu",
+            key_column: "menudetailguid",
+            key_field: "menudetailguid",
+            parent_column: Some("menuguid"),
+            parent_context: Some("menuGuid"),
+            writable_columns: &["submenudescription", "tag", "url", "orderno", "caption", "type", "uppersubmenuguid", "icon_fa", "icon_url"],
+        }),
+        "para" => Some(CrudMapping {
+            table_name: "para",
+            key_column: "parameterguid",
+            key_field: "parameterguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["parameterid", "parameterdescription"],
+        }),
+        "paravalu" => Some(CrudMapping {
+            table_name: "paravalu",
+            key_column: "parametervalueguid",
+            key_field: "parametervalueguid",
+            parent_column: Some("parameterguid"),
+            parent_context: Some("parameterGuid"),
+            writable_columns: &["parametervalue", "parameterdescription"],
+        }),
+        "widg" => Some(CrudMapping {
+            table_name: "widg",
+            key_column: "widgetguid",
+            key_field: "widgetguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["widgetid", "widgetdescription", "sqlstr"],
+        }),
+        "mail" => Some(CrudMapping {
+            table_name: "mail",
+            key_column: "mailguid",
+            key_field: "mailguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["profilename", "accountname", "displayname", "emailaddress", "bcc"],
+        }),
+        "word" => Some(CrudMapping {
+            table_name: "word",
+            key_column: "wordguid",
+            key_field: "wordguid",
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["originstatements"],
+        }),
         "modlinfo" => Some(CrudMapping {
             table_name: "modlinfo",
             key_column: "moduleinfoguid",
@@ -284,24 +471,34 @@ fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
             table_name: "modl",
             key_column: "moduleguid",
             key_field: "moduleguid",
-            parent_column: None,
-            parent_context: None,
-            writable_columns: &["moduleid", "moduledescription", "settingmode", "orderno", "needlogin"],
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &[
+                "moduleid",
+                "moduledescription",
+                "settingmode",
+                "accountdbguid",
+                "orderno",
+                "needlogin",
+                "themepageguid",
+                "modulestatusguid",
+                "modulegroupguid",
+            ],
         }),
         "menu" => Some(CrudMapping {
             table_name: "menu",
             key_column: "menuguid",
             key_field: "menuid",
-            parent_column: None,
-            parent_context: None,
-            writable_columns: &["menucode", "menudescription", "createddate", "updateddate"],
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
+            writable_columns: &["menucode", "menudescription"],
         }),
         "thme" => Some(CrudMapping {
             table_name: "thme",
             key_column: "themeguid",
             key_field: "themeguid",
-            parent_column: None,
-            parent_context: None,
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
             writable_columns: &["themecode", "themename", "themefolder"],
         }),
         "thmepage" => Some(CrudMapping {
@@ -324,8 +521,8 @@ fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
             table_name: "ugrp",
             key_column: "ugroupguid",
             key_field: "ugroupguid",
-            parent_column: None,
-            parent_context: None,
+            parent_column: Some("accountguid"),
+            parent_context: Some("accountId"),
             writable_columns: &[
                 "groupid",
                 "groupdescription",
@@ -374,6 +571,73 @@ async fn query_json(client: &mut Client<tokio_util::compat::Compat<TcpStream>>, 
         .map_err(|error| format!("Cannot parse metadata rows: {error}"))
 }
 
+fn column_data_json(value: &ColumnData<'_>) -> serde_json::Value {
+    match value {
+        ColumnData::U8(value) => value.map_or(serde_json::Value::Null, |value| value.into()),
+        ColumnData::I16(value) => value.map_or(serde_json::Value::Null, |value| value.into()),
+        ColumnData::I32(value) => value.map_or(serde_json::Value::Null, |value| value.into()),
+        ColumnData::I64(value) => value.map_or(serde_json::Value::Null, |value| value.into()),
+        ColumnData::F32(value) => value.and_then(|value| serde_json::Number::from_f64(value as f64)).map_or(serde_json::Value::Null, serde_json::Value::Number),
+        ColumnData::F64(value) => value.and_then(serde_json::Number::from_f64).map_or(serde_json::Value::Null, serde_json::Value::Number),
+        ColumnData::Bit(value) => value.map_or(serde_json::Value::Null, serde_json::Value::Bool),
+        ColumnData::String(value) => value.as_ref().map_or(serde_json::Value::Null, |value| value.to_string().into()),
+        ColumnData::Guid(value) => value.map_or(serde_json::Value::Null, |value| value.to_string().into()),
+        ColumnData::Binary(value) => value.as_ref().map_or(serde_json::Value::Null, |bytes| {
+            let hex = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+            format!("0x{hex}").into()
+        }),
+        ColumnData::Numeric(value) => value.as_ref().map_or(serde_json::Value::Null, |value| value.to_string().into()),
+        ColumnData::Xml(value) => value.as_ref().map_or(serde_json::Value::Null, |value| value.to_string().into()),
+        ColumnData::DateTime(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+        ColumnData::SmallDateTime(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+        ColumnData::Time(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+        ColumnData::Date(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+        ColumnData::DateTime2(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+        ColumnData::DateTimeOffset(value) => value.as_ref().map_or(serde_json::Value::Null, |value| format!("{value:?}").into()),
+    }
+}
+
+#[tauri::command]
+async fn run_query(
+    config: OphConnectionConfig,
+    database_name: String,
+    sql: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let statement = sql.trim().trim_end_matches(';').trim();
+    if statement.is_empty() {
+        return Err("Enter a SELECT query before running it.".to_string());
+    }
+    if !statement.to_lowercase().starts_with("select") {
+        return Err("Query Page currently supports read-only SELECT statements only.".to_string());
+    }
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let rows = client
+        .query(statement, &[])
+        .await
+        .map_err(|error| format!("Cannot run query in {database_name}: {error}"))?
+        .into_first_result()
+        .await
+        .map_err(|error| format!("Cannot load query results from {database_name}: {error}"))?;
+
+    Ok(rows.into_iter().map(|row| {
+        let mut result = serde_json::Map::new();
+        let mut name_counts = std::collections::HashMap::<String, usize>::new();
+        for (index, (column, value)) in row.cells().enumerate() {
+            let base_name = if column.name().trim().is_empty() {
+                format!("column_{}", index + 1)
+            } else {
+                column.name().to_string()
+            };
+            let count = name_counts.entry(base_name.to_lowercase()).or_insert(0);
+            *count += 1;
+            let name = if *count == 1 { base_name } else { format!("{base_name}_{}", *count) };
+            result.insert(name, column_data_json(value));
+        }
+        serde_json::Value::Object(result)
+    }).collect())
+}
+
 #[tauri::command]
 async fn save_metadata_row(
     config: OphConnectionConfig,
@@ -386,6 +650,10 @@ async fn save_metadata_row(
     theme_guid: Option<String>,
     user_guid: Option<String>,
     user_group_guid: Option<String>,
+    account_id: Option<String>,
+    menu_guid: Option<String>,
+    parameter_guid: Option<String>,
+    module_status_guid: Option<String>,
 ) -> Result<(), String> {
     let mapping = crud_mapping(&source_table)
         .ok_or_else(|| format!("Save is not supported for {source_table} yet."))?;
@@ -400,6 +668,10 @@ async fn save_metadata_row(
             Some("themeGuid") => theme_guid.unwrap_or_default(),
             Some("userGuid") => user_guid.unwrap_or_default(),
             Some("userGroupGuid") => user_group_guid.unwrap_or_default(),
+            Some("accountId") => account_id.unwrap_or_default(),
+            Some("menuGuid") => menu_guid.unwrap_or_default(),
+            Some("parameterGuid") => parameter_guid.unwrap_or_default(),
+            Some("moduleStatusGuid") => module_status_guid.unwrap_or_default(),
             _ => String::new(),
         };
 
@@ -412,12 +684,24 @@ async fn save_metadata_row(
 
         if let Some(parent_column) = mapping.parent_column {
             insert_columns.push(parent_column.to_string());
-            insert_values.push(format!("N'{}'", escape_sql_value(&parent_value)));
+            if mapping.parent_context == Some("accountId") {
+                insert_values.push(format!(
+                    "(select accountguid from acct where accountid = N'{}')",
+                    escape_sql_value(&parent_value)
+                ));
+            } else {
+                insert_values.push(format!("N'{}'", escape_sql_value(&parent_value)));
+            }
         }
 
         for column in mapping.writable_columns {
             insert_columns.push(column.to_string());
-            insert_values.push(format!("N'{}'", escape_sql_value(&json_field(&draft_row, column))));
+            insert_values.push(draft_sql_value(&draft_row, column));
+        }
+
+        if mapping.table_name == "[user]" {
+            insert_columns.push("password".to_string());
+            insert_values.push("N''".to_string());
         }
 
         format!(
@@ -431,8 +715,7 @@ async fn save_metadata_row(
             .writable_columns
             .iter()
             .map(|column| {
-                let value = escape_sql_value(&json_field(&draft_row, column));
-                format!("{column} = N'{value}'")
+                format!("{column} = {}", draft_sql_value(&draft_row, column))
             })
             .collect::<Vec<_>>();
 
@@ -481,6 +764,275 @@ async fn delete_metadata_row(
         .map_err(|error| format!("Cannot delete {source_table}: {error}"))?;
 
     Ok(())
+}
+
+#[tauri::command]
+async fn list_copy_accounts(
+    config: OphConnectionConfig,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+
+    query_json(
+        &mut client,
+        r#"
+        select (
+          select
+            a.accountid,
+            a.accountguid,
+            d.databasename
+          from acct a
+          inner join acctdbse d on d.accountguid = a.accountguid
+            and d.ismaster = 1
+            and d.version = '4.0'
+          where isnull(a.isdeleted, 0) <> 1
+          order by a.accountid
+          for json path
+        ) as json
+        "#
+        .to_string(),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_copy_targets(
+    config: OphConnectionConfig,
+    database_name: String,
+    source_table: String,
+    account_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mapping = copy_mapping(&source_table)
+        .ok_or_else(|| format!("Copy To is not supported for {source_table} yet."))?;
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let account_id = escape_sql_value(&account_id);
+
+    let sql = match mapping.target_kind {
+        "module" => format!(
+            r#"
+            select (
+              select
+                moduleguid as targetguid,
+                moduleid as targetlabel,
+                moduledescription as targetdescription
+              from modl
+              where accountguid = (select accountguid from acct where accountid = N'{account_id}')
+              order by moduleid
+              for json path
+            ) as json
+            "#
+        ),
+        "column" => format!(
+            r#"
+            select (
+              select
+                c.columnguid as targetguid,
+                m.moduleid + N' / ' + c.colkey as targetlabel,
+                c.titlecaption as targetdescription
+              from modlcolm c
+              inner join modl m on m.moduleguid = c.moduleguid
+              where m.accountguid = (select accountguid from acct where accountid = N'{account_id}')
+              order by m.moduleid, c.colorder, c.colkey
+              for json path
+            ) as json
+            "#
+        ),
+        _ => return Err(format!("Cannot resolve Copy To targets for {source_table}.")),
+    };
+
+    query_json(&mut client, sql).await
+}
+
+#[tauri::command]
+async fn copy_metadata_rows(
+    config: OphConnectionConfig,
+    database_name: String,
+    source_table: String,
+    selected_rows: Vec<serde_json::Value>,
+    target_guid: String,
+    target_database_name: String,
+    target_account_id: String,
+    source_account_id: String,
+) -> Result<u64, String> {
+    let mapping = copy_mapping(&source_table)
+        .ok_or_else(|| format!("Copy To is not supported for {source_table} yet."))?;
+    if selected_rows.is_empty() {
+        return Err("Select at least one row to copy.".to_string());
+    }
+    if target_guid.trim().is_empty() {
+        return Err("Select a destination before copying.".to_string());
+    }
+
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let target_guid = escape_sql_value(&target_guid);
+    let target_account_id = escape_sql_value(&target_account_id);
+    let source_database = quote_sql_identifier(&database_name);
+    let target_database = quote_sql_identifier(&target_database_name);
+    let is_cross_account = !source_account_id.eq_ignore_ascii_case(&target_account_id)
+        || !database_name.eq_ignore_ascii_case(&target_database_name);
+    if is_cross_account && matches!(mapping.table_name, "modlappr" | "modlmail") {
+        return Err(format!(
+            "Cross-account Copy To for {} requires approval/mail relation mapping and is not enabled yet.",
+            mapping.table_name
+        ));
+    }
+    let duplicate_predicate = mapping
+        .duplicate_columns
+        .iter()
+        .map(|column| format!("(destination.[{column}] = source.[{column}] or (destination.[{column}] is null and source.[{column}] is null))"))
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let mut copied = 0;
+
+    for row in selected_rows {
+        let source_guid = json_field(&row, mapping.key_column);
+        if source_guid.trim().is_empty() {
+            continue;
+        }
+        let source_guid = escape_sql_value(&source_guid);
+        let sql = if mapping.table_name == "modl" {
+            format!(
+                r#"
+                declare @columns nvarchar(max);
+                declare @source_columns nvarchar(max);
+                select @columns = string_agg(quotename(source_column.name), N',') within group (order by source_column.column_id)
+                from {source_db}.sys.columns source_column
+                inner join {target_db}.sys.columns target_column on target_column.name = source_column.name
+                  and target_column.object_id = object_id(N'{target_db}.dbo.modl')
+                where source_column.object_id = object_id(N'{source_db}.dbo.modl')
+                  and source_column.name not in (N'moduleguid', N'accountguid', N'parentmoduleguid', N'accountdbguid', N'themepageguid', N'modulestatusguid', N'modulegroupguid')
+                  and source_column.is_identity = 0
+                  and source_column.is_computed = 0
+                  and source_column.system_type_id <> 189;
+                select @source_columns = string_agg(N'source.' + quotename(source_column.name), N',') within group (order by source_column.column_id)
+                from {source_db}.sys.columns source_column
+                inner join {target_db}.sys.columns target_column on target_column.name = source_column.name
+                  and target_column.object_id = object_id(N'{target_db}.dbo.modl')
+                where source_column.object_id = object_id(N'{source_db}.dbo.modl')
+                  and source_column.name not in (N'moduleguid', N'accountguid', N'parentmoduleguid', N'accountdbguid', N'themepageguid', N'modulestatusguid', N'modulegroupguid')
+                  and source_column.is_identity = 0
+                  and source_column.is_computed = 0
+                  and source_column.system_type_id <> 189;
+
+                declare @sql nvarchar(max) = N'
+                  insert into {target_db}.dbo.modl
+                    (moduleguid, accountguid, parentmoduleguid, accountdbguid, themepageguid, modulestatusguid, modulegroupguid, ' + @columns + N')
+                  select
+                    newid(),
+                    destination_account.accountguid,
+                    @target,
+                    destination_accountdb.accountdbguid,
+                    destination_page.themepageguid,
+                    destination_status.modulestatusguid,
+                    destination_group.modulegroupguid,
+                    ' + @source_columns + N'
+                  from {source_db}.dbo.modl source
+                  cross apply (
+                    select accountguid from {target_db}.dbo.acct where accountid = @target_account_id
+                  ) destination_account
+                  left join {source_db}.dbo.acctdbse source_accountdb on source_accountdb.accountdbguid = source.accountdbguid
+                  outer apply (
+                    select top 1 accountdbguid
+                    from {target_db}.dbo.acctdbse
+                    where accountguid = destination_account.accountguid
+                      and version = source_accountdb.version
+                      and ismaster = source_accountdb.ismaster
+                    order by databasename
+                  ) destination_accountdb
+                  left join {source_db}.dbo.msta source_status on source_status.modulestatusguid = source.modulestatusguid
+                  outer apply (
+                    select top 1 modulestatusguid
+                    from {target_db}.dbo.msta
+                    where accountguid = destination_account.accountguid
+                      and modulestatusname = source_status.modulestatusname
+                  ) destination_status
+                  left join {source_db}.dbo.modg source_group on source_group.modulegroupguid = source.modulegroupguid
+                  outer apply (
+                    select top 1 modulegroupguid
+                    from {target_db}.dbo.modg
+                    where accountguid = destination_account.accountguid
+                      and modulegroupid = source_group.modulegroupid
+                  ) destination_group
+                  left join {source_db}.dbo.thmepage source_page on source_page.themepageguid = source.themepageguid
+                  left join {source_db}.dbo.thme source_theme on source_theme.themeguid = source_page.themeguid
+                  outer apply (
+                    select top 1 destination_page_inner.themepageguid
+                    from {target_db}.dbo.thmepage destination_page_inner
+                    inner join {target_db}.dbo.thme destination_theme on destination_theme.themeguid = destination_page_inner.themeguid
+                    where destination_theme.accountguid = destination_account.accountguid
+                      and destination_theme.themecode = source_theme.themecode
+                      and destination_page_inner.pageurl = source_page.pageurl
+                  ) destination_page
+                  where source.moduleguid = @source
+                    and not exists (
+                      select 1 from {target_db}.dbo.modl destination
+                      where destination.parentmoduleguid = @target
+                        and (destination.moduleid = source.moduleid or (destination.moduleid is null and source.moduleid is null))
+                    );';
+                exec sp_executesql
+                  @sql,
+                  N'@target uniqueidentifier, @source uniqueidentifier, @target_account_id nvarchar(255)',
+                  @target = N'{target}',
+                  @source = N'{source}',
+                  @target_account_id = N'{target_account}';
+                "#,
+                source_db = source_database,
+                target_db = target_database,
+                target = target_guid,
+                source = source_guid,
+                target_account = target_account_id,
+            )
+        } else {
+            format!(
+            r#"
+            declare @columns nvarchar(max);
+            select @columns = string_agg(quotename(source_column.name), N',') within group (order by source_column.column_id)
+            from {source_db}.sys.columns source_column
+            inner join {target_db}.sys.columns target_column on target_column.name = source_column.name
+              and target_column.object_id = object_id(N'{target_db}.dbo.{table}')
+            where source_column.object_id = object_id(N'{source_db}.dbo.{table}')
+              and source_column.name not in (N'{key}', N'{parent}')
+              and source_column.is_identity = 0
+              and source_column.is_computed = 0
+              and source_column.system_type_id <> 189;
+
+            declare @sql nvarchar(max) = N'
+              insert into {target_db}.dbo.[{table}] ([{key}], [{parent}], ' + @columns + N')
+              select newid(), @target, ' + @columns + N'
+              from {source_db}.dbo.[{table}] source
+              where source.[{key}] = @source
+                and not exists (
+                  select 1
+                  from {target_db}.dbo.[{table}] destination
+                  where destination.[{parent}] = @target
+                    and {duplicates}
+                );';
+            exec sp_executesql
+              @sql,
+              N'@target uniqueidentifier, @source uniqueidentifier',
+              @target = N'{target}',
+              @source = N'{source}';
+            "#,
+            source_db = source_database,
+            target_db = target_database,
+            table = mapping.table_name,
+            key = mapping.key_column,
+            parent = mapping.parent_column,
+            duplicates = duplicate_predicate,
+            target = target_guid,
+            source = source_guid,
+        )};
+
+        let result = client
+            .execute(sql, &[])
+            .await
+            .map_err(|error| format!("Cannot copy {source_table}: {error}"))?;
+        copied += result.total();
+    }
+
+    Ok(copied)
 }
 
 #[tauri::command]
@@ -1144,6 +1696,37 @@ async fn list_module_columns(
 }
 
 #[tauri::command]
+async fn list_mssql_column_types(
+    config: OphConnectionConfig,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+
+    query_json(
+        &mut client,
+        r#"
+        select (
+          select coltype, typename
+          from (
+            select cast(0 as int) as coltype, cast(N'nonfield' as nvarchar(128)) as typename, 0 as sortorder
+            union all
+            select cast(system_type_id as int), cast(name as nvarchar(128)), 1
+            from sys.types
+            where is_user_defined = 0
+              and system_type_id = user_type_id
+              and name not in (N'sysname', N'timestamp')
+          ) available_types
+          order by sortorder, typename
+          for json path
+        ) as json
+        "#
+        .to_string(),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_module_info(
     config: OphConnectionConfig,
     database_name: String,
@@ -1225,6 +1808,10 @@ async fn list_child_modules(
                 m.moduleid,
                 m.moduledescription,
                 m.settingmode,
+                m.accountdbguid,
+                m.themepageguid,
+                m.modulestatusguid,
+                m.modulegroupguid,
                 d.databasename as accountdb,
                 p.moduleid as parentmodule,
                 m.orderno,
@@ -1264,16 +1851,20 @@ async fn list_module_approvals(
             r#"
             select (
               select
-                approvalguid,
-                moduleguid,
-                approvalgroupguid,
-                uppergroupguid,
-                lvl,
-                sqlfilter,
-                zonegroup
-              from modlappr
-              where moduleguid = '{module_guid}'
-              order by lvl
+                approval.approvalguid,
+                approval.moduleguid,
+                approval.approvalgroupguid,
+                approval.uppergroupguid,
+                approval_group.groupid as approvalgroup,
+                upper_group.groupid as uppergroup,
+                approval.lvl,
+                approval.sqlfilter,
+                approval.zonegroup
+              from modlappr approval
+              left join modg approval_group on approval_group.modulegroupguid = approval.approvalgroupguid
+              left join modg upper_group on upper_group.modulegroupguid = approval.uppergroupguid
+              where approval.moduleguid = '{module_guid}'
+              order by approval.lvl
               for json path
             ) as json
             "#
@@ -1372,6 +1963,10 @@ async fn list_modules(
                 m.moduleid,
                 m.moduledescription,
                 m.settingmode,
+                m.accountdbguid,
+                m.themepageguid,
+                m.modulestatusguid,
+                m.modulegroupguid,
                 d.databasename as accountdb,
                 p.moduleid as parentmodule,
                 m.orderno,
@@ -1413,7 +2008,8 @@ async fn list_module_statuses(
         format!(
             r#"
             declare @account_id nvarchar(255) = N'{account_id}';
-            declare @select nvarchar(max) = N'modulestatusname'
+            declare @select nvarchar(max) = N'modulestatusguid, accountguid, modulestatusname'
+              + case when col_length('msta', 'modulestatusdescription') is not null then N', modulestatusdescription' else N', cast(null as nvarchar(max)) as modulestatusdescription' end
               + case when col_length('msta', 'isdefault') is not null then N', isdefault' else N', cast(null as bit) as isdefault' end
               + case when col_length('msta', 'createddate') is not null then N', createddate' else N', cast(null as datetime) as createddate' end
               + case when col_length('msta', 'updateddate') is not null then N', updateddate' else N', cast(null as datetime) as updateddate' end;
@@ -1428,6 +2024,74 @@ async fn list_module_statuses(
                 for json path
               ) as json';
             exec sp_executesql @sql, N'@account_id nvarchar(255)', @account_id = @account_id;
+            "#
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_module_status_states(
+    config: OphConnectionConfig,
+    database_name: String,
+    module_status_guid: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let module_status_guid = escape_sql_value(&module_status_guid);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            select (
+              select
+                modulestatusdetailguid,
+                modulestatusguid,
+                stateid,
+                statecode,
+                statename,
+                statedesc,
+                isdefault
+              from mstastat
+              where modulestatusguid = N'{module_status_guid}'
+              order by stateid, statecode
+              for json path
+            ) as json
+            "#
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_module_theme_pages(
+    config: OphConnectionConfig,
+    account_id: String,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let account_id = escape_sql_value(&account_id);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            select (
+              select
+                tp.themepageguid,
+                tp.pageurl,
+                t.themecode,
+                t.themename
+              from thmepage tp
+              inner join thme t on t.themeguid = tp.themeguid
+              where t.accountguid = (
+                select accountguid from acct where accountid = N'{account_id}'
+              )
+              order by t.themecode, tp.pageurl
+              for json path
+            ) as json
             "#
         ),
     )
@@ -1753,6 +2417,7 @@ async fn list_mail_profiles(
             r#"
             select (
               select
+                mailguid,
                 profilename,
                 accountname,
                 displayname,
@@ -1789,6 +2454,7 @@ async fn list_translator_words(
             r#"
             select (
               select
+                wordguid,
                 originstatements,
                 createddate,
                 updateddate
@@ -1810,10 +2476,14 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             load_connection_config,
+            run_query,
             save_connection_config,
             delete_connection_config,
             save_metadata_row,
             delete_metadata_row,
+            list_copy_accounts,
+            list_copy_targets,
+            copy_metadata_rows,
             test_connection,
             add_account,
             delete_account,
@@ -1832,6 +2502,7 @@ pub fn run() {
             list_module_column_tree,
             list_module_info,
             list_module_columns,
+            list_mssql_column_types,
             list_module_column_info,
             list_child_modules,
             list_module_approvals,
@@ -1839,6 +2510,8 @@ pub fn run() {
             list_module_mails,
             list_modules,
             list_module_statuses,
+            list_module_status_states,
+            list_module_theme_pages,
             list_module_groups,
             list_all_module_groups,
             list_themes,
