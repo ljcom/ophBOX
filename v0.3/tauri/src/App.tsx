@@ -10,7 +10,9 @@ import {
   KeyRound,
   Layers3,
   MonitorCog,
+  Pin,
   Play,
+  ArrowRight,
   Search,
   Server,
   Settings,
@@ -19,7 +21,7 @@ import {
   UserRoundCog,
   X,
 } from 'lucide-react'
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ophAdminService } from './services/mockOphAdminService'
 import type {
@@ -36,6 +38,7 @@ type MetricCardProps = {
   label: string
   value: string
   detail: string
+  onClick?: () => void
 }
 
 type SectionHeaderProps = {
@@ -44,6 +47,7 @@ type SectionHeaderProps = {
   description: string
   action?: string
   onAction?: () => void
+  onTitleClick?: () => void
 }
 
 type QueryTab = {
@@ -59,6 +63,44 @@ type QueryTab = {
   metadataSource?: {
     sourceTable: 'modlinfo'
     row: MetadataRow
+  }
+}
+
+type PinnedWorkspaceTab = {
+  id: string
+  selection: WorkspaceSelection
+}
+
+type SavedWorkspaceState = {
+  mainSelection: WorkspaceSelection
+  pinnedTabs: PinnedWorkspaceTab[]
+  queryTabs: QueryTab[]
+  activeTabId: string
+}
+
+const workspaceStateKey = 'oph-control-studio.workspace-state.v1'
+
+function loadSavedWorkspaceState(): SavedWorkspaceState | null {
+  try {
+    const saved = window.localStorage.getItem(workspaceStateKey)
+    if (!saved) return null
+    const parsed = JSON.parse(saved) as Partial<SavedWorkspaceState>
+    if (!parsed.mainSelection || !Array.isArray(parsed.pinnedTabs) || !Array.isArray(parsed.queryTabs)) return null
+    return {
+      mainSelection: parsed.mainSelection,
+      pinnedTabs: parsed.pinnedTabs,
+      queryTabs: parsed.queryTabs.map((tab) => ({
+        ...tab,
+        results: [],
+        error: '',
+        isRunning: false,
+        isSaving: false,
+        saveNotice: '',
+      })),
+      activeTabId: typeof parsed.activeTabId === 'string' ? parsed.activeTabId : 'main',
+    }
+  } catch {
+    return null
   }
 }
 
@@ -82,6 +124,7 @@ const treeIcons: Record<TreeNodeKind, typeof Server> = {
 }
 
 function App() {
+  const savedWorkspaceState = useRef(loadSavedWorkspaceState())
   const [connectionConfig, setConnectionConfig] = useState<OphConnectionConfig | null>(null)
   const [discoveredDatabases, setDiscoveredDatabases] = useState<OphDatabase[]>([])
   const [moduleRowsByDatabaseId, setModuleRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
@@ -97,8 +140,10 @@ function App() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [isAddingConnection, setIsAddingConnection] = useState(false)
   const [initialConnectionError, setInitialConnectionError] = useState('')
-  const [queryTabs, setQueryTabs] = useState<QueryTab[]>([])
-  const [activeTabId, setActiveTabId] = useState('main')
+  const [queryTabs, setQueryTabs] = useState<QueryTab[]>(savedWorkspaceState.current?.queryTabs ?? [])
+  const [pinnedTabs, setPinnedTabs] = useState<PinnedWorkspaceTab[]>(savedWorkspaceState.current?.pinnedTabs ?? [])
+  const [activeTabId, setActiveTabId] = useState(savedWorkspaceState.current?.activeTabId ?? 'main')
+  const [isWorkspaceStateReady, setIsWorkspaceStateReady] = useState(false)
   const [openAppMenu, setOpenAppMenu] = useState<'view' | 'window' | null>(null)
   const tree = useMemo(
     () => {
@@ -136,7 +181,7 @@ function App() {
     ],
   )
   const firstDatabase = tree?.children?.[0]?.children?.[0]
-  const [selection, setSelection] = useState<WorkspaceSelection>(() => ({
+  const [selection, setSelection] = useState<WorkspaceSelection>(() => savedWorkspaceState.current?.mainSelection ?? ({
     id: firstDatabase?.id ?? 'servers',
     label: firstDatabase?.label ?? 'Servers',
     kind: firstDatabase?.kind ?? 'root',
@@ -152,6 +197,29 @@ function App() {
     userGroupGuid: firstDatabase?.userGroupGuid,
     settingMode: firstDatabase?.settingMode,
   }))
+
+  useEffect(() => {
+    if (!isWorkspaceStateReady) return
+    const persistedQueryTabs = queryTabs.map((tab) => ({
+      ...tab,
+      results: [],
+      error: '',
+      isRunning: false,
+      isSaving: false,
+      saveNotice: '',
+    }))
+    const state: SavedWorkspaceState = {
+      mainSelection: selection,
+      pinnedTabs,
+      queryTabs: persistedQueryTabs,
+      activeTabId,
+    }
+    try {
+      window.localStorage.setItem(workspaceStateKey, JSON.stringify(state))
+    } catch {
+      // The workspace remains usable if local persistence is unavailable or full.
+    }
+  }, [activeTabId, isWorkspaceStateReady, pinnedTabs, queryTabs, selection])
 
   const servers = connectionConfig?.servers ?? []
 
@@ -205,6 +273,24 @@ function App() {
 
   function closeQueryTab(id: string) {
     setQueryTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+    if (activeTabId === id) setActiveTabId('main')
+  }
+
+  function togglePinnedTab(nextSelection: WorkspaceSelection) {
+    const id = `pinned-${nextSelection.id}`
+    const isPinned = pinnedTabs.some((tab) => tab.id === id)
+    if (isPinned) {
+      setPinnedTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+      if (activeTabId === id) setActiveTabId('main')
+      return
+    }
+
+    setPinnedTabs((tabs) => [...tabs, { id, selection: nextSelection }])
+    setActiveTabId(id)
+  }
+
+  function closePinnedTab(id: string) {
+    setPinnedTabs((tabs) => tabs.filter((tab) => tab.id !== id))
     if (activeTabId === id) setActiveTabId('main')
   }
 
@@ -485,22 +571,17 @@ function App() {
     setModuleStatusRowsByDatabaseId(loadedModuleStatusRows)
     setInitialConnectionError('')
     setConnectionConfig(config)
-    setSelection({
-      id: loadedDatabase?.id ?? 'servers',
-      label: loadedDatabase?.label ?? 'Servers',
-      kind: loadedDatabase?.kind ?? 'root',
-      description: loadedDatabase?.description,
-      accountId: loadedDatabase?.accountId,
-      databaseName: loadedDatabase?.databaseName,
-      databaseId: loadedDatabase?.databaseId,
-      serverId: loadedDatabase?.serverId,
-      moduleGuid: loadedDatabase?.moduleGuid,
-      columnGuid: loadedDatabase?.columnGuid,
-      themeGuid: loadedDatabase?.themeGuid,
-      userGuid: loadedDatabase?.userGuid,
-      userGroupGuid: loadedDatabase?.userGroupGuid,
-      settingMode: loadedDatabase?.settingMode,
+    const restoredSelectionNode = preferredAccountId ? loadedDatabase : findTreeNode(loadedTree, selection.id)
+    const nextSelectionNode = restoredSelectionNode ?? loadedDatabase ?? loadedTree
+    setSelection(workspaceSelectionFromNode(nextSelectionNode))
+
+    const restoredPinnedTabs = pinnedTabs.flatMap((tab) => {
+      const currentNode = findTreeNode(loadedTree, tab.selection.id)
+      return currentNode ? [{ id: tab.id, selection: workspaceSelectionFromNode(currentNode) }] : []
     })
+    setPinnedTabs(restoredPinnedTabs)
+    const availableTabIds = new Set(['main', ...restoredPinnedTabs.map((tab) => tab.id), ...queryTabs.map((tab) => tab.id)])
+    if (!availableTabIds.has(activeTabId)) setActiveTabId('main')
   }
 
   useEffect(() => {
@@ -532,6 +613,7 @@ function App() {
       .finally(() => {
         if (isMounted) {
           setIsLoadingConfig(false)
+          setIsWorkspaceStateReady(true)
         }
       })
 
@@ -633,6 +715,8 @@ function App() {
   }
 
   const activeQueryTab = queryTabs.find((tab) => tab.id === activeTabId)
+  const activePinnedTab = pinnedTabs.find((tab) => tab.id === activeTabId)
+  const activeSelection = activePinnedTab?.selection ?? selection
 
   return (
     <div className="app-shell">
@@ -644,10 +728,16 @@ function App() {
             <span>Connection workspace</span>
           </div>
         </div>
-        <TreeView root={tree} selectionId={selection.id} onSelect={(nextSelection) => {
+        <TreeView
+          root={tree}
+          selectionId={activeSelection.id}
+          pinnedIds={new Set(pinnedTabs.map((tab) => tab.selection.id))}
+          onPin={togglePinnedTab}
+          onSelect={(nextSelection) => {
           setSelection(nextSelection)
           setActiveTabId('main')
-        }} />
+          }}
+        />
       </aside>
 
       <main className="workspace">
@@ -668,6 +758,11 @@ function App() {
                   <button type="button" className={activeTabId === 'main' ? 'active-menu-item' : ''} onClick={() => { setActiveTabId('main'); setOpenAppMenu(null) }}>
                     Main Page
                   </button>
+                  {pinnedTabs.map((tab) => (
+                    <button key={tab.id} type="button" className={activeTabId === tab.id ? 'active-menu-item' : ''} onClick={() => { setActiveTabId(tab.id); setOpenAppMenu(null) }}>
+                      {tab.selection.label} <small>Pinned</small>
+                    </button>
+                  ))}
                   {queryTabs.map((tab) => (
                     <button key={tab.id} type="button" className={activeTabId === tab.id ? 'active-menu-item' : ''} onClick={() => { setActiveTabId(tab.id); setOpenAppMenu(null) }}>
                       {tab.title} <small>{tab.databaseName || 'No database'}</small>
@@ -687,6 +782,12 @@ function App() {
           <button type="button" className={activeTabId === 'main' ? 'workspace-tab active-workspace-tab' : 'workspace-tab'} onClick={() => setActiveTabId('main')}>
             Main Page
           </button>
+          {pinnedTabs.map((tab) => (
+            <div key={tab.id} className={activeTabId === tab.id ? 'workspace-tab active-workspace-tab' : 'workspace-tab'}>
+              <button type="button" onClick={() => setActiveTabId(tab.id)}><Pin size={12} /> {tab.selection.label}</button>
+              <button type="button" className="tab-close-button" aria-label={`Close ${tab.selection.label}`} onClick={() => closePinnedTab(tab.id)}><X size={13} /></button>
+            </div>
+          ))}
           {queryTabs.map((tab) => (
             <div key={tab.id} className={activeTabId === tab.id ? 'workspace-tab active-workspace-tab' : 'workspace-tab'}>
               <button type="button" onClick={() => setActiveTabId(tab.id)}>{tab.title}</button>
@@ -713,7 +814,11 @@ function App() {
                 onRefreshConnection={refreshConnection}
                 onRefreshServer={refreshServerConnection}
                 onDeleteAccount={deleteAccount}
-                selection={selection}
+                onNavigate={(nextSelection) => {
+                  setSelection(nextSelection)
+                  setActiveTabId('main')
+                }}
+                selection={activeSelection}
                 servers={servers}
                 tree={tree}
               />
@@ -996,77 +1101,129 @@ function AddConnectionScreen({
 function TreeView({
   root,
   selectionId,
+  pinnedIds,
+  onPin,
   onSelect,
 }: {
   root: OphTreeNode
   selectionId: string
+  pinnedIds: Set<string>
+  onPin: (selection: WorkspaceSelection) => void
   onSelect: (selection: WorkspaceSelection) => void
 }) {
+  const treeViewRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const selectedNode = Array.from(
+        treeViewRef.current?.querySelectorAll<HTMLElement>('[data-tree-node-id]') ?? [],
+      ).find((element) => element.dataset.treeNodeId === selectionId)
+      selectedNode?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [selectionId])
+
   return (
-    <div className="tree-view">
-      <TreeNodeView node={root} depth={0} selectionId={selectionId} onSelect={onSelect} />
+    <div ref={treeViewRef} className="tree-view">
+      <TreeNodeView node={root} depth={0} selectionId={selectionId} pinnedIds={pinnedIds} onPin={onPin} onSelect={onSelect} />
     </div>
   )
+}
+
+function workspaceSelectionFromNode(node: OphTreeNode): WorkspaceSelection {
+  return {
+    id: node.id,
+    label: node.label,
+    kind: node.kind,
+    description: node.description,
+    accountId: node.accountId,
+    databaseName: node.databaseName,
+    databaseId: node.databaseId,
+    serverId: node.serverId,
+    moduleGuid: node.moduleGuid,
+    columnGuid: node.columnGuid,
+    themeGuid: node.themeGuid,
+    menuGuid: node.menuGuid,
+    parameterGuid: node.parameterGuid,
+    moduleStatusGuid: node.moduleStatusGuid,
+    userGuid: node.userGuid,
+    userGroupGuid: node.userGroupGuid,
+    settingMode: node.settingMode,
+  }
 }
 
 function TreeNodeView({
   node,
   depth,
   selectionId,
+  pinnedIds,
+  onPin,
   onSelect,
 }: {
   node: OphTreeNode
   depth: number
   selectionId: string
+  pinnedIds: Set<string>
+  onPin: (selection: WorkspaceSelection) => void
   onSelect: (selection: WorkspaceSelection) => void
 }) {
   const [expanded, setExpanded] = useState(depth < 2)
   const hasChildren = Boolean(node.children?.length)
+  const containsSelection = Boolean(findTreeNode(node, selectionId))
+  const isExpanded = expanded || (containsSelection && node.id !== selectionId)
   const Icon = treeIcons[node.kind]
+
+  function nodeSelection(): WorkspaceSelection {
+    return workspaceSelectionFromNode(node)
+  }
 
   function selectNode() {
     if (hasChildren) setExpanded(true)
-    onSelect({
-      id: node.id,
-      label: node.label,
-      kind: node.kind,
-      description: node.description,
-      accountId: node.accountId,
-      databaseName: node.databaseName,
-      databaseId: node.databaseId,
-      serverId: node.serverId,
-      moduleGuid: node.moduleGuid,
-      columnGuid: node.columnGuid,
-      themeGuid: node.themeGuid,
-      menuGuid: node.menuGuid,
-      parameterGuid: node.parameterGuid,
-      moduleStatusGuid: node.moduleStatusGuid,
-      userGuid: node.userGuid,
-      userGroupGuid: node.userGroupGuid,
-      settingMode: node.settingMode,
-    })
+    onSelect(nodeSelection())
   }
 
   return (
     <div>
       <button
+        data-tree-node-id={node.id}
         className={`tree-node ${selectionId === node.id ? 'tree-node-active' : ''}`}
         style={{ paddingLeft: 10 + depth * 16 }}
         onClick={selectNode}
       >
         <span className="tree-expander" onClick={(event) => {
           event.stopPropagation()
-          setExpanded(!expanded)
+          setExpanded(!isExpanded)
         }}>
-          {hasChildren ? expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : null}
+          {hasChildren ? isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : null}
         </span>
         <Icon size={16} />
         <span>
           <strong>{node.label}</strong>
           {node.description ? <small>{node.description}</small> : null}
         </span>
+        <span
+          role="button"
+          tabIndex={0}
+          className={`tree-pin-button ${pinnedIds.has(node.id) ? 'tree-pin-active' : ''}`}
+          aria-label={`${pinnedIds.has(node.id) ? 'Unpin' : 'Pin'} ${node.label}`}
+          title={pinnedIds.has(node.id) ? 'Unpin from workspace' : 'Pin as workspace tab'}
+          onClick={(event) => {
+            event.stopPropagation()
+            onPin(nodeSelection())
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              event.stopPropagation()
+              onPin(nodeSelection())
+            }
+          }}
+        >
+          <Pin size={14} fill={pinnedIds.has(node.id) ? 'currentColor' : 'none'} />
+        </span>
       </button>
-      {expanded && hasChildren ? (
+      {isExpanded && hasChildren ? (
         <div>
           {node.children?.map((child) => (
             <TreeNodeView
@@ -1074,6 +1231,8 @@ function TreeNodeView({
               node={child}
               depth={depth + 1}
               selectionId={selectionId}
+              pinnedIds={pinnedIds}
+              onPin={onPin}
               onSelect={onSelect}
             />
           ))}
@@ -1103,6 +1262,7 @@ function Workspace({
   onRefreshConnection,
   onRefreshServer,
   onDeleteAccount,
+  onNavigate,
   selection,
   servers,
   tree,
@@ -1113,6 +1273,7 @@ function Workspace({
   onRefreshConnection: () => void | Promise<void>
   onRefreshServer: (serverId: string, expectedAccountId?: string) => void | Promise<void>
   onDeleteAccount: (serverId: string, accountId: string) => void | Promise<void>
+  onNavigate: (selection: WorkspaceSelection) => void
   selection: WorkspaceSelection
   servers: OphServer[]
   tree: OphTreeNode
@@ -1145,6 +1306,7 @@ function Workspace({
         onDelete={() => selection.serverId && selection.accountId
           ? onDeleteAccount(selection.serverId, selection.accountId)
           : undefined}
+        onNavigate={onNavigate}
       />
     )
   }
@@ -1562,12 +1724,17 @@ function ConnectionIssuePage({ error, onRefresh }: { error: string; onRefresh: (
 }
 
 
-function SectionHeader({ eyebrow, title, description, action, onAction }: SectionHeaderProps) {
+function SectionHeader({ eyebrow, title, description, action, onAction, onTitleClick }: SectionHeaderProps) {
   return (
     <div className="section-header">
       <div>
         <span className="eyebrow">{eyebrow}</span>
-        <h1>{title}</h1>
+        {onTitleClick ? (
+          <button type="button" className="section-title-shortcut" onClick={onTitleClick} title={`Edit ${title}`}>
+            <h1>{title}</h1>
+            <span>Edit details <ArrowRight size={14} /></span>
+          </button>
+        ) : <h1>{title}</h1>}
         <p>{description}</p>
       </div>
       {action ? <button className="primary-button" onClick={onAction}>{action}</button> : null}
@@ -1575,13 +1742,14 @@ function SectionHeader({ eyebrow, title, description, action, onAction }: Sectio
   )
 }
 
-function MetricCard({ label, value, detail }: MetricCardProps) {
+function MetricCard({ label, value, detail, onClick }: MetricCardProps) {
   return (
-    <article className="metric-card">
+    <button type="button" className="metric-card" onClick={onClick} disabled={!onClick}>
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
-    </article>
+      {onClick ? <span className="metric-card-shortcut">Open detail <ArrowRight size={14} /></span> : null}
+    </button>
   )
 }
 
@@ -1760,11 +1928,13 @@ function DatabaseWorkspace({
   tree,
   onRefresh,
   onDelete,
+  onNavigate,
 }: {
   selection: WorkspaceSelection
   tree: OphTreeNode
   onRefresh: () => void | Promise<void>
   onDelete: () => void | Promise<void>
+  onNavigate: (selection: WorkspaceSelection) => void
 }) {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
   const [confirmation, setConfirmation] = useState('')
@@ -1831,10 +2001,10 @@ function DatabaseWorkspace({
       </div>
       {actionError && !isConfirmingDelete ? <div className="connection-error">{actionError}</div> : null}
       <div className="metrics-grid">
-        <MetricCard label="Modules" value={String(moduleCount)} detail="Grouped by setting mode" />
-        <MetricCard label="Security" value={String(securityCount)} detail="Users and groups" />
-        <MetricCard label="Interface" value={String(interfaceCount)} detail="Themes, menus, translator" />
-        <MetricCard label="Account" value={String(accountCount)} detail="Parameters and mail" />
+        <MetricCard label="Modules" value={String(moduleCount)} detail="Grouped by setting mode" onClick={modulesNode ? () => onNavigate(workspaceSelectionFromNode(modulesNode)) : undefined} />
+        <MetricCard label="Security" value={String(securityCount)} detail="Users and groups" onClick={securityNode ? () => onNavigate(workspaceSelectionFromNode(securityNode)) : undefined} />
+        <MetricCard label="Interface" value={String(interfaceCount)} detail="Themes, menus, translator" onClick={interfaceNode ? () => onNavigate(workspaceSelectionFromNode(interfaceNode)) : undefined} />
+        <MetricCard label="Account" value={String(accountCount)} detail="Parameters and mail" onClick={accountNode ? () => onNavigate(workspaceSelectionFromNode(accountNode)) : undefined} />
       </div>
       {isConfirmingDelete ? (
         <div className="row-detail-backdrop" onMouseDown={() => !isDeleting && setIsConfirmingDelete(false)}>
@@ -1914,6 +2084,16 @@ function MetadataWorkspace({
   const [rows, setRows] = useState<MetadataRow[]>([])
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [isParentDetailOpen, setIsParentDetailOpen] = useState(false)
+  const parentDetailSource = sourceTable.toLowerCase() === 'modlinfo' && selection.kind === 'module'
+    ? 'modl'
+    : sourceTable.toLowerCase() === 'modlcolminfo' && selection.kind === 'module-column'
+      ? 'modlcolm'
+      : sourceTable.toLowerCase() === 'userinfo' && selection.kind === 'security-user'
+        ? '[user]'
+        : selection.kind === 'security-group' && (sourceTable.toLowerCase() === 'ugrpinfo' || sourceTable.toLowerCase() === 'ugrpmodl')
+          ? 'ugrp'
+          : ''
 
   useEffect(() => {
     let isMounted = true
@@ -1952,12 +2132,243 @@ function MetadataWorkspace({
         title={selection.label}
         description={`Loaded from ${sourceTable} in ${selection.databaseName}.`}
         action="Refresh"
+        onTitleClick={parentDetailSource ? () => setIsParentDetailOpen(true) : undefined}
       />
       {isLoading ? <div className="empty-result">Loading metadata...</div> : null}
       {error ? <div className="connection-error">{error}</div> : null}
       {!isLoading && !error ? (
         <MetadataTable config={config} rows={rows} selection={selection} sourceTable={sourceTable} />
       ) : null}
+      {isParentDetailOpen && parentDetailSource ? (
+        parentDetailSource === 'modl' ? (
+          <ModuleDetailOverlay config={config} selection={selection} onClose={() => setIsParentDetailOpen(false)} />
+        ) : (
+          <ParentRecordOverlay config={config} selection={selection} sourceTable={parentDetailSource} onClose={() => setIsParentDetailOpen(false)} />
+        )
+      ) : null}
+    </div>
+  )
+}
+
+function ModuleDetailOverlay({
+  config,
+  selection,
+  onClose,
+}: {
+  config: OphConnectionConfig
+  selection: WorkspaceSelection
+  onClose: () => void
+}) {
+  const [originalRow, setOriginalRow] = useState<MetadataRow | null>(null)
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [options, setOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const fields = [
+    'moduleid',
+    'moduledescription',
+    'settingmode',
+    'accountdbguid',
+    'orderno',
+    'needlogin',
+    'themepageguid',
+    'modulestatusguid',
+    'modulegroupguid',
+  ]
+  const labels: Record<string, string> = {
+    moduleid: 'Module ID',
+    moduledescription: 'Module Description',
+    settingmode: 'Setting Mode',
+    accountdbguid: 'Account DB',
+    orderno: 'Order No',
+    needlogin: 'Need Login',
+    themepageguid: 'Theme Page',
+    modulestatusguid: 'Module Status',
+    modulegroupguid: 'Module Group',
+  }
+
+  function rowValue(row: MetadataRow, field: string) {
+    const key = Object.keys(row).find((candidate) => candidate.toLowerCase() === field)
+    return key ? String(row[key] ?? '') : ''
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selection.accountId || !selection.databaseName || !selection.moduleGuid || selection.settingMode === undefined) {
+      setError('Module context is incomplete.')
+      setIsLoading(false)
+      return
+    }
+
+    Promise.all([
+      ophAdminService.listModulesBySettingMode(config, selection.accountId, selection.databaseName, Number(selection.settingMode)),
+      ophAdminService.listModuleStatuses(config, selection.accountId, selection.databaseName),
+      ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName),
+      ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName),
+      ophAdminService.listModuleThemePages(config, selection.accountId, selection.databaseName),
+    ]).then(([modules, statuses, groups, databases, themePages]) => {
+      if (cancelled) return
+      const moduleRow = modules.find((row) => rowValue(row, 'moduleguid') === selection.moduleGuid)
+      if (!moduleRow) throw new Error(`Module ${selection.label} was not found.`)
+      setOriginalRow(moduleRow)
+      setDraft(Object.fromEntries(fields.map((field) => [field, rowValue(moduleRow, field)])))
+      setOptions({
+        accountdbguid: databases.map((row) => ({ value: rowValue(row, 'accountdbguid'), label: rowValue(row, 'databasename') || rowValue(row, 'accountdbguid') })),
+        themepageguid: themePages.map((row) => ({ value: rowValue(row, 'themepageguid'), label: [rowValue(row, 'themecode'), rowValue(row, 'pageurl')].filter(Boolean).join(' — ') })),
+        modulestatusguid: statuses.map((row) => ({ value: rowValue(row, 'modulestatusguid'), label: rowValue(row, 'modulestatusname') || rowValue(row, 'modulestatusguid') })),
+        modulegroupguid: groups.map((row) => ({ value: rowValue(row, 'modulegroupguid'), label: rowValue(row, 'modulegroupid') || rowValue(row, 'modulegroupname') })),
+      })
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false)
+    })
+
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.databaseName, selection.moduleGuid, selection.settingMode])
+
+  async function saveModule() {
+    if (!originalRow || !selection.databaseName) return
+    setIsSaving(true)
+    setError('')
+    setNotice('')
+    const nextRow = { ...originalRow, ...draft }
+    try {
+      await ophAdminService.saveMetadataRow(
+        config,
+        selection.databaseName,
+        'modl',
+        originalRow,
+        nextRow,
+        selection.moduleGuid,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        selection.accountId,
+      )
+      setOriginalRow(nextRow)
+      setNotice(`Module ${draft.moduleid || selection.label} saved.`)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <div className="row-detail-backdrop" onMouseDown={() => !isSaving && onClose()}>
+      <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="row-detail-header">
+          <div><span className="eyebrow">Module</span><h2>{selection.label}</h2></div>
+          <button className="overlay-close-button" type="button" disabled={isSaving} onClick={onClose}>×</button>
+        </div>
+        {isLoading ? <div className="empty-result">Loading module information...</div> : null}
+        {!isLoading && originalRow ? (
+          <form className="row-detail-form" onSubmit={(event) => { event.preventDefault(); void saveModule() }}>
+            {fields.map((field) => (
+              <label key={field}>
+                <span>{labels[field]}</span>
+                {field === 'needlogin' ? (
+                  <CheckboxInput value={draft[field] ?? ''} readOnly={isSaving} onChange={(value) => setDraft((current) => ({ ...current, [field]: value }))} />
+                ) : field === 'settingmode' ? (
+                  <select value={draft[field] ?? ''} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}>
+                    <option value="0">Core</option><option value="1">Master</option><option value="4">Transaction</option><option value="5">Report</option><option value="6">Blank</option><option value="7">View</option>
+                  </select>
+                ) : options[field] ? (
+                  <select value={draft[field] ?? ''} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}>
+                    <option value="">None</option>
+                    {options[field].filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : (
+                  <input value={draft[field] ?? ''} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))} />
+                )}
+              </label>
+            ))}
+            <div className="row-detail-actions">
+              <button type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save'}</button>
+              <button type="button" disabled={isSaving} onClick={onClose}>Cancel</button>
+            </div>
+          </form>
+        ) : null}
+        {error ? <div className="connection-error">{error}</div> : null}
+        {notice ? <div className="action-notice">{notice}</div> : null}
+      </aside>
+    </div>
+  )
+}
+
+function ParentRecordOverlay({
+  config,
+  selection,
+  sourceTable,
+  onClose,
+}: {
+  config: OphConnectionConfig
+  selection: WorkspaceSelection
+  sourceTable: string
+  onClose: () => void
+}) {
+  const [row, setRow] = useState<MetadataRow | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selection.accountId || !selection.databaseName) {
+      setError('Record context is incomplete.')
+      return
+    }
+
+    const request = sourceTable === 'modlcolm' && selection.moduleGuid
+      ? ophAdminService.listModuleColumns(config, selection.accountId, selection.databaseName, selection.moduleGuid)
+      : sourceTable === '[user]'
+        ? ophAdminService.listUsers(config, selection.accountId, selection.databaseName)
+        : sourceTable === 'ugrp'
+          ? ophAdminService.listUserGroups(config, selection.accountId, selection.databaseName)
+          : Promise.resolve([])
+
+    request.then((rows) => {
+      if (cancelled) return
+      const keyField = sourceTable === 'modlcolm' ? 'columnguid' : sourceTable === '[user]' ? 'userguid' : 'ugroupguid'
+      const targetGuid = sourceTable === 'modlcolm' ? selection.columnGuid : sourceTable === '[user]' ? selection.userGuid : selection.userGroupGuid
+      const selected = rows.find((candidate) => {
+        const actualKey = Object.keys(candidate).find((key) => key.toLowerCase() === keyField)
+        return actualKey && String(candidate[actualKey] ?? '') === targetGuid
+      })
+      if (!selected) throw new Error(`${selection.label} was not found in ${sourceTable}.`)
+      setRow(selected)
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
+    })
+
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.columnGuid, selection.databaseName, selection.label, selection.moduleGuid, selection.userGroupGuid, selection.userGuid, sourceTable])
+
+  if (row) {
+    return (
+      <MetadataTable
+        config={config}
+        rows={[row]}
+        selection={selection}
+        sourceTable={sourceTable}
+        autoOpenFirstRow
+        overlayOnly
+        onOverlayClose={onClose}
+      />
+    )
+  }
+
+  return (
+    <div className="row-detail-backdrop" onMouseDown={onClose}>
+      <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="row-detail-header">
+          <div><span className="eyebrow">Loading details</span><h2>{selection.label}</h2></div>
+          <button className="overlay-close-button" type="button" onClick={onClose}>×</button>
+        </div>
+        {error ? <div className="connection-error">{error}</div> : <div className="empty-result">Loading information...</div>}
+      </aside>
     </div>
   )
 }
@@ -1967,11 +2378,17 @@ function MetadataTable({
   rows,
   selection,
   sourceTable,
+  autoOpenFirstRow = false,
+  overlayOnly = false,
+  onOverlayClose,
 }: {
   config: OphConnectionConfig
   rows: MetadataRow[]
   selection: WorkspaceSelection
   sourceTable: string
+  autoOpenFirstRow?: boolean
+  overlayOnly?: boolean
+  onOverlayClose?: () => void
 }) {
   const [tableRows, setTableRows] = useState<MetadataRow[]>(rows)
   const [selectedRow, setSelectedRow] = useState<MetadataRow | null>(null)
@@ -1999,7 +2416,7 @@ function MetadataTable({
   const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
   const [columnTypeOptions, setColumnTypeOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
-    '[user]': ['userid', 'username', 'email', 'expirydate'],
+    '[user]': ['userid', 'username', 'email', 'expirypwd'],
     acctinfo: ['infokey', 'infovalue'],
     acct: ['accountid'],
     acctdbse: ['databasename', 'ismaster', 'version'],
@@ -2042,6 +2459,7 @@ function MetadataTable({
     username: 'User Name',
     email: 'Email',
     expirydate: 'Expiry Date',
+    expirypwd: 'Expiry Date',
     groupid: 'Group ID',
     groupdescription: 'Group Description',
     allexceptuser: 'All Except User',
@@ -2355,12 +2773,12 @@ function MetadataTable({
 
     let cancelled = false
     if (sourceKey === 'modlappr') {
-      ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName)
+      ophAdminService.listUserGroups(config, selection.accountId, selection.databaseName)
         .then((groups) => {
           if (cancelled) return
           const options = groups.map((row) => ({
-            value: String(row.modulegroupguid ?? ''),
-            label: [row.modulegroupid, row.modulegroupname].filter(Boolean).join(' — ') || String(row.modulegroupguid ?? ''),
+            value: String(row.ugroupguid ?? ''),
+            label: [row.groupid, row.groupdescription].filter(Boolean).join(' — ') || String(row.ugroupguid ?? ''),
           }))
           setModuleRelationOptions({
             approvalgroupguid: options,
@@ -2456,6 +2874,11 @@ function MetadataTable({
   const overlayColumns = overlayColumnMap[sourceKey]
     ?? columns.filter((column) => !['createddate', 'updateddate'].includes(column.toLowerCase()))
 
+  useEffect(() => {
+    if (!autoOpenFirstRow || !tableRows[0] || selectedRow) return
+    openRow(tableRows[0], 0)
+  }, [autoOpenFirstRow, tableRows, selectedRow])
+
   function openRow(row: MetadataRow, index: number) {
     setSelectedRow(row)
     setSelectedRowIndex(index)
@@ -2526,6 +2949,7 @@ function MetadataTable({
     setIsEditing(false)
     setIsCreating(false)
     setActionError('')
+    if (overlayOnly) onOverlayClose?.()
   }
 
   function cancelEdit() {
@@ -2538,6 +2962,7 @@ function MetadataTable({
     setActionNotice('')
     setNewPassword('')
     setConfirmPassword('')
+    if (overlayOnly) onOverlayClose?.()
   }
 
   async function deleteSelectedRow() {
@@ -2620,6 +3045,7 @@ function MetadataTable({
 
   return (
     <div className="metadata-table-shell">
+      {!overlayOnly ? <>
       <div className="metadata-toolbar">
         <button type="button" onClick={openCreate}>Add</button>
         <button type="button" disabled={tableRows.length === 0} onClick={toggleAllRows}>
@@ -2677,6 +3103,7 @@ function MetadataTable({
           </table>
         )}
       </div>
+      </> : null}
       {selectedRow ? (
         <div className="row-detail-backdrop" onMouseDown={cancelEdit}>
         <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>

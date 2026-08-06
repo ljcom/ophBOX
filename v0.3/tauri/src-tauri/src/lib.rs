@@ -1410,7 +1410,7 @@ async fn list_users(
                 userid,
                 username,
                 email,
-                expirypwd as expirydate
+                expirypwd
               from [user]
               where accountguid = (
                 select accountguid from acct where accountid = '{account_id}'
@@ -1855,14 +1855,14 @@ async fn list_module_approvals(
                 approval.moduleguid,
                 approval.approvalgroupguid,
                 approval.uppergroupguid,
-                approval_group.groupid as approvalgroup,
-                upper_group.groupid as uppergroup,
+                coalesce(approval_group.groupid, convert(nvarchar(36), approval.approvalgroupguid), N'') as approvalgroup,
+                coalesce(upper_group.groupid, convert(nvarchar(36), approval.uppergroupguid), N'') as uppergroup,
                 approval.lvl,
                 approval.sqlfilter,
                 approval.zonegroup
               from modlappr approval
-              left join modg approval_group on approval_group.modulegroupguid = approval.approvalgroupguid
-              left join modg upper_group on upper_group.modulegroupguid = approval.uppergroupguid
+              left join ugrp approval_group on approval_group.ugroupguid = approval.approvalgroupguid
+              left join ugrp upper_group on upper_group.ugroupguid = approval.uppergroupguid
               where approval.moduleguid = '{module_guid}'
               order by approval.lvl
               for json path
