@@ -216,7 +216,10 @@ fn json_field(row: &serde_json::Value, field: &str) -> String {
 
 fn draft_field(row: &serde_json::Value, column: &str) -> String {
     match column {
-        "expirypwd" => json_field(row, "expirydate"),
+        "expirypwd" => {
+            let value = json_field(row, "expirypwd");
+            if value.is_empty() { json_field(row, "expirydate") } else { value }
+        }
         _ => json_field(row, column),
     }
 }
@@ -660,6 +663,19 @@ async fn save_metadata_row(
     let server = selected_server(&config)?;
     let mut client = connect_sql_server_database(server, &database_name).await?;
     let row_key = json_field(&original_row, mapping.key_field);
+    let normalized_source = source_table.to_lowercase();
+    if ["modlinfo", "modlcolminfo", "userinfo", "acctinfo"].contains(&normalized_source.as_str()) {
+        let info_key = json_field(&draft_row, "infokey");
+        if info_key.trim().is_empty() {
+            return Err(format!("Cannot save {source_table}: Info Key is required."));
+        }
+        if normalized_source == "modlinfo"
+            && ["dplx", "dplx_rpt"].contains(&info_key.trim().to_lowercase().as_str())
+            && json_field(&draft_row, "infovalue").trim().is_empty()
+        {
+            return Err("Cannot save modlinfo: Info Value must contain the DPLX report XML.".to_string());
+        }
+    }
 
     let sql = if row_key.trim().is_empty() {
         let parent_value = match mapping.parent_context {
@@ -1256,14 +1272,16 @@ async fn list_account_info(
 #[tauri::command]
 async fn list_account_databases(
     config: OphConnectionConfig,
-    _account_id: String,
-    database_name: String,
+    account_id: String,
+    _database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let account_id = escape_sql_value(&account_id);
 
     query_json(
         &mut client,
+        format!(
             r#"
             select (
               select
@@ -1272,16 +1290,273 @@ async fn list_account_databases(
                 d.accountguid,
                 d.databasename,
                 d.ismaster,
-                d.version
+                d.version,
+                nullif(stuff((
+                  select N'; ' + i.infokey + N': ' +
+                    case
+                      when lower(i.infokey) like '%secret%'
+                        or lower(i.infokey) like '%password%'
+                        or lower(i.infokey) like '%accesskey%'
+                        or lower(i.infokey) like '%token%'
+                      then N'••••••••'
+                      else coalesce(i.infovalue, N'')
+                    end
+                  from acctinfo i
+                  where i.accountguid = a.accountguid
+                    and (
+                      lower(i.infokey) like '%s3%'
+                      or lower(i.infokey) like '%backup%'
+                    )
+                  order by i.infokey
+                  for xml path(''), type
+                ).value('.', 'nvarchar(max)'), 1, 2, N''), N'') as s3backupinfo
               from acctdbse d
               inner join acct a on a.accountguid = d.accountguid
+              where a.accountid = N'{account_id}'
               order by a.accountid, d.databasename
               for json path
             ) as json
             "#
-            .to_string(),
+        ),
     )
     .await
+}
+
+#[tauri::command]
+async fn list_database_backups(
+    config: OphConnectionConfig,
+    _account_id: String,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let settings = query_json(
+        &mut client,
+        r#"
+            select (
+              select selected.infokey, selected.infovalue
+              from (
+                select
+                  i.infokey,
+                  i.infovalue,
+                  row_number() over (
+                    partition by upper(i.infokey)
+                    order by case
+                      when lower(a.accountid) = 'oph_core' then 0
+                      when lower(a.accountid) = 'oph' then 1
+                      else 2
+                    end
+                  ) as preference
+                from acctinfo i
+                inner join acct a on a.accountguid = i.accountguid
+                where upper(i.infokey) in (
+                  'BACKUP_ACCESS_ID', 'BACKUP_ACCESS_KEY', 'BACKUP_ACCESS_SECRET',
+                  'BACKUP_BUCKET', 'BACKUP_HOST', 'BACKUP_PREFIX'
+                )
+              ) selected
+              where selected.preference = 1
+              order by selected.infokey
+              for json path
+            ) as json
+            "#
+        .to_string(),
+    )
+    .await?;
+
+    let setting = |key: &str| -> String {
+        settings.iter().find_map(|row| {
+            let row_key = row.get("infokey")?.as_str()?;
+            row_key.eq_ignore_ascii_case(key).then(|| {
+                row.get("infovalue").and_then(|value| value.as_str()).unwrap_or_default().trim().to_string()
+            })
+        }).unwrap_or_default()
+    };
+
+    let access_key = setting("BACKUP_ACCESS_KEY");
+    let access_secret = setting("BACKUP_ACCESS_SECRET");
+    let bucket = setting("BACKUP_BUCKET");
+    let host = setting("BACKUP_HOST");
+    let configured_prefix = setting("BACKUP_PREFIX");
+    if access_key.is_empty() || access_secret.is_empty() || bucket.is_empty() {
+        return Err("The shared S3 backup configuration in oph_core.acctinfo is incomplete.".to_string());
+    }
+
+    let requested_prefix = configured_prefix
+        .replace("{database}", &database_name)
+        .replace("{DATABASE}", &database_name);
+    let mut command = std::process::Command::new("aws");
+    command.args(["s3api", "list-objects-v2", "--bucket", &bucket, "--output", "json"]);
+    if !host.is_empty() {
+        let endpoint = if host.starts_with("http://") || host.starts_with("https://") {
+            host
+        } else {
+            format!("https://{host}")
+        };
+        command.args(["--endpoint-url", &endpoint]);
+    }
+    if !requested_prefix.is_empty() {
+        command.args(["--prefix", &requested_prefix]);
+    }
+    command
+        .env("AWS_ACCESS_KEY_ID", access_key)
+        .env("AWS_SECRET_ACCESS_KEY", access_secret)
+        .env("AWS_DEFAULT_REGION", "us-east-1")
+        .env("AWS_EC2_METADATA_DISABLED", "true");
+
+    let output = command.output().map_err(|error| {
+        format!("Cannot run the AWS CLI. Install or configure the `aws` command first: {error}")
+    })?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Cannot load S3 backups for {database_name}: {}", detail.trim()));
+    }
+
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Cannot read the S3 response for {database_name}: {error}"))?;
+    let database_filter = database_name.to_lowercase();
+    let prefix_has_database = requested_prefix.to_lowercase().contains(&database_filter);
+    let backups = response.get("Contents").and_then(|value| value.as_array())
+        .into_iter().flatten()
+        .filter(|object| {
+            prefix_has_database || object.get("Key").and_then(|value| value.as_str())
+                .is_some_and(|key| key.to_lowercase().contains(&database_filter))
+        })
+        .map(|object| serde_json::json!({
+            "backupFile": object.get("Key").and_then(|value| value.as_str()).unwrap_or_default(),
+            "sizeBytes": object.get("Size").and_then(|value| value.as_u64()).unwrap_or_default(),
+            "lastModified": object.get("LastModified").and_then(|value| value.as_str()).unwrap_or_default(),
+            "storageClass": object.get("StorageClass").and_then(|value| value.as_str()).unwrap_or_default(),
+        }))
+        .collect();
+    Ok(backups)
+}
+
+#[tauri::command]
+async fn restore_database_backup(
+    config: OphConnectionConfig,
+    backup_key: String,
+    target_database_name: String,
+) -> Result<(), String> {
+    if backup_key.trim().is_empty() {
+        return Err("Select an S3 backup file to restore.".to_string());
+    }
+    if target_database_name.is_empty()
+        || target_database_name.len() > 128
+        || !target_database_name.chars().all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return Err("New database name may only contain letters, numbers, and underscores.".to_string());
+    }
+
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let settings = query_json(
+        &mut client,
+        r#"
+        select (
+          select selected.infokey, selected.infovalue
+          from (
+            select i.infokey, i.infovalue,
+              row_number() over (partition by upper(i.infokey) order by case
+                when lower(a.accountid) = 'oph_core' then 0
+                when lower(a.accountid) = 'oph' then 1 else 2 end) as preference
+            from acctinfo i
+            inner join acct a on a.accountguid = i.accountguid
+            where upper(i.infokey) in ('BACKUP_ACCESS_KEY', 'BACKUP_ACCESS_SECRET', 'BACKUP_BUCKET', 'BACKUP_HOST')
+          ) selected
+          where selected.preference = 1
+          for json path
+        ) as json
+        "#.to_string(),
+    ).await?;
+    let setting = |key: &str| -> String {
+        settings.iter().find_map(|row| {
+            row.get("infokey")?.as_str()?.eq_ignore_ascii_case(key).then(||
+                row.get("infovalue").and_then(|value| value.as_str()).unwrap_or_default().trim().to_string()
+            )
+        }).unwrap_or_default()
+    };
+    let access_key = setting("BACKUP_ACCESS_KEY");
+    let access_secret = setting("BACKUP_ACCESS_SECRET");
+    let bucket = setting("BACKUP_BUCKET");
+    let host = setting("BACKUP_HOST").trim_end_matches('/').to_string();
+    if access_key.is_empty() || access_secret.is_empty() || bucket.is_empty() || host.is_empty() {
+        return Err("The shared S3 restore configuration in oph_core.acctinfo is incomplete.".to_string());
+    }
+
+    let endpoint = host.trim_start_matches("https://").trim_start_matches("http://");
+    let credential_url = format!("s3://{endpoint}/{bucket}");
+    let object_url = format!("{credential_url}/{}", backup_key.trim_start_matches('/'));
+    let credential_url_sql = escape_sql_value(&credential_url);
+    let credential_identifier = credential_url.replace(']', "]]" );
+    let object_url_sql = escape_sql_value(&object_url);
+    let credential_secret_sql = escape_sql_value(&format!("{access_key}:{access_secret}"));
+    let target_sql = escape_sql_value(&target_database_name);
+
+    let exists = client.query(
+        format!("select name from sys.databases where name = N'{target_sql}'"), &[]
+    ).await.map_err(|error| format!("Cannot validate destination database: {error}"))?
+        .into_first_result().await.map_err(|error| format!("Cannot validate destination database: {error}"))?;
+    if !exists.is_empty() {
+        return Err(format!("Database {target_database_name} already exists. Enter a new database name."));
+    }
+
+    client.simple_query(format!(
+        r#"
+        if exists (select 1 from sys.credentials where name = N'{credential_url_sql}')
+          alter credential [{credential_identifier}] with identity = 'S3 Access Key', secret = N'{credential_secret_sql}';
+        else
+          create credential [{credential_identifier}] with identity = 'S3 Access Key', secret = N'{credential_secret_sql}';
+        "#
+    )).await.map_err(|_| "SQL Server could not configure the S3 restore credential.".to_string())?
+      .into_results().await.map_err(|_| "SQL Server could not configure the S3 restore credential.".to_string())?;
+
+    let files = client.query(
+        format!("restore filelistonly from url = N'{object_url_sql}'"), &[]
+    ).await.map_err(|error| format!("Cannot inspect backup file {backup_key}: {error}"))?
+      .into_first_result().await.map_err(|error| format!("Cannot inspect backup file {backup_key}: {error}"))?;
+    if files.is_empty() {
+        return Err("The selected backup does not contain restorable database files.".to_string());
+    }
+
+    let path_rows = client.query(
+        "select convert(nvarchar(4000), serverproperty('InstanceDefaultDataPath')) as datapath, convert(nvarchar(4000), serverproperty('InstanceDefaultLogPath')) as logpath",
+        &[],
+    ).await.map_err(|error| format!("Cannot read SQL Server storage paths: {error}"))?
+      .into_first_result().await.map_err(|error| format!("Cannot read SQL Server storage paths: {error}"))?;
+    let path_row = path_rows.first().ok_or_else(|| "SQL Server did not return its storage paths.".to_string())?;
+    let data_path = read_string(path_row, "datapath");
+    let log_path = read_string(path_row, "logpath");
+    if data_path.is_empty() || log_path.is_empty() {
+        return Err("SQL Server default data or log path is not configured.".to_string());
+    }
+
+    let mut moves = Vec::new();
+    let mut data_index = 0usize;
+    let mut log_index = 0usize;
+    for file in &files {
+        let logical_name = escape_sql_value(&read_string(file, "LogicalName"));
+        let file_type = read_string(file, "Type");
+        let (path, filename) = if file_type.eq_ignore_ascii_case("L") {
+            log_index += 1;
+            (&log_path, if log_index == 1 { format!("{target_database_name}_log.ldf") } else { format!("{target_database_name}_log{log_index}.ldf") })
+        } else {
+            data_index += 1;
+            (&data_path, if data_index == 1 { format!("{target_database_name}.mdf") } else { format!("{target_database_name}_{data_index}.ndf") })
+        };
+        let separator = if path.ends_with('/') || path.ends_with('\\') { "" } else if path.contains('\\') { "\\" } else { "/" };
+        let physical_path = escape_sql_value(&format!("{path}{separator}{filename}"));
+        moves.push(format!("move N'{logical_name}' to N'{physical_path}'"));
+    }
+    let target_identifier = target_database_name.replace(']', "]]" );
+    let restore_sql = format!(
+        "restore database [{target_identifier}] from url = N'{object_url_sql}' with {}, recovery, stats = 5",
+        moves.join(", ")
+    );
+    client.simple_query(restore_sql).await
+        .map_err(|error| format!("Cannot restore {backup_key} as {target_database_name}: {error}"))?
+        .into_results().await
+        .map_err(|error| format!("Restore of {target_database_name} did not complete: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1465,6 +1740,9 @@ async fn reset_user_password(
     if new_password.is_empty() {
         return Err("New password cannot be empty.".to_string());
     }
+    if user_guid.trim().is_empty() && user_id.trim().is_empty() {
+        return Err("User ID and user key are missing.".to_string());
+    }
 
     let server = selected_server(&config)?;
     let mut client = connect_sql_server_database(server, &database_name).await?;
@@ -1473,15 +1751,40 @@ async fn reset_user_password(
     let user_id = escape_sql_value(&user_id);
     let new_password = escape_sql_value(&new_password);
 
-    client
-        .execute(
+    let users = client
+        .query(
             format!(
-                "exec gen.resetPassword null, N'{user_id}', '{user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
+                r#"
+                select top 1 u.userguid, u.userid
+                from [user] u
+                inner join acct a on a.accountguid = u.accountguid
+                where a.accountid = N'{account_id}'
+                  and (
+                    (N'{user_guid}' <> N'' and convert(nvarchar(36), u.userguid) = N'{user_guid}')
+                    or (N'{user_id}' <> N'' and u.userid = N'{user_id}')
+                  )
+                "#
             ),
             &[],
         )
         .await
-        .map_err(|error| format!("Cannot reset password for user {user_id}: {error}"))?;
+        .map_err(|error| format!("Cannot resolve the selected user: {error}"))?
+        .into_first_result()
+        .await
+        .map_err(|error| format!("Cannot resolve the selected user: {error}"))?;
+    let user = users.first().ok_or_else(|| "The selected user was not found in this account.".to_string())?;
+    let resolved_user_guid = escape_sql_value(&read_string(user, "userguid"));
+    let resolved_user_id = escape_sql_value(&read_string(user, "userid"));
+
+    client
+        .execute(
+            format!(
+                "exec gen.resetPassword null, N'{resolved_user_id}', '{resolved_user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
+            ),
+            &[],
+        )
+        .await
+        .map_err(|error| format!("Cannot reset password for user {resolved_user_id}: {error}"))?;
 
     Ok(())
 }
@@ -1908,12 +2211,63 @@ async fn list_module_numbering(
 #[tauri::command]
 async fn list_module_mails(
     config: OphConnectionConfig,
+    account_id: String,
     database_name: String,
     module_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
     let mut client = connect_sql_server_database(server, &database_name).await?;
     let module_guid = module_guid.replace('\'', "''");
+    let account_id = escape_sql_value(&account_id);
+
+    client
+        .simple_query(format!(
+            r#"
+            declare @accountguid uniqueidentifier = (
+              select accountguid from acct where accountid = N'{account_id}'
+            );
+            if @accountguid is null throw 50001, 'Cannot initialize mail parameters: account was not found.', 1;
+
+            if not exists (select 1 from para where accountguid = @accountguid and upper(parameterid) = 'MACT')
+              insert into para (parameterguid, accountguid, parameterid, parameterdescription)
+              values (newid(), @accountguid, N'MACT', N'Mail Action');
+
+            if not exists (select 1 from para where accountguid = @accountguid and upper(parameterid) = 'MLST')
+              insert into para (parameterguid, accountguid, parameterid, parameterdescription)
+              values (newid(), @accountguid, N'MLST', N'Mail Status');
+
+            declare @defaults table (parameterid nvarchar(50), parametervalue nvarchar(100), parameterdescription nvarchar(255));
+            insert into @defaults values
+              (N'MACT', N'DELETE', N'DELETE'),
+              (N'MACT', N'EMAIL', N'EMAIL'),
+              (N'MACT', N'EXECUTE', N'EXECUTE'),
+              (N'MACT', N'FORCE', N'FORCE'),
+              (N'MACT', N'REOPEN', N'REOPEN'),
+              (N'MACT', N'SAVE', N'SAVE'),
+              (N'MACT', N'WIPE', N'WIPE'),
+              (N'MLST', N'0', N'Draft'),
+              (N'MLST', N'100', N'On Approval'),
+              (N'MLST', N'300', N'Rejected'),
+              (N'MLST', N'400', N'Released'),
+              (N'MLST', N'500', N'Force'),
+              (N'MLST', N'999', N'Deleted');
+
+            insert into paravalu (parametervalueguid, parameterguid, parametervalue, parameterdescription)
+            select newid(), p.parameterguid, d.parametervalue, d.parameterdescription
+            from @defaults d
+            inner join para p on p.accountguid = @accountguid and upper(p.parameterid) = d.parameterid
+            where not exists (
+              select 1 from paravalu existing
+              where existing.parameterguid = p.parameterguid
+                and upper(existing.parametervalue) = upper(d.parametervalue)
+            );
+            "#
+        ))
+        .await
+        .map_err(|error| format!("Cannot initialize MACT/MLST for {account_id}: {error}"))?
+        .into_results()
+        .await
+        .map_err(|error| format!("Cannot complete MACT/MLST initialization for {account_id}: {error}"))?;
 
     query_json(
         &mut client,
@@ -1921,19 +2275,28 @@ async fn list_module_mails(
             r#"
             select (
               select
-                modulemailguid,
-                moduleguid,
-                mailguid,
-                actionguid,
-                tokenstatus,
-                additional,
-                cc,
-                subject,
-                body,
-                reportattachment,
-                definedtable
-              from modlmail
-              where moduleguid = '{module_guid}'
+                mm.modulemailguid,
+                mm.moduleguid,
+                mm.mailguid,
+                mm.actionguid,
+                coalesce(action_value.parametervalue, convert(nvarchar(36), mm.actionguid), N'') as action,
+                mm.tokenstatus,
+                coalesce(status_values.status, N'') as status,
+                mm.additional,
+                mm.cc,
+                mm.subject,
+                mm.body,
+                mm.reportattachment,
+                mm.definedtable
+              from modlmail mm
+              left join paravalu action_value on action_value.parametervalueguid = mm.actionguid
+              outer apply (
+                select string_agg(coalesce(status_value.parameterdescription, status_value.parametervalue, token.value), N', ') as status
+                from string_split(isnull(mm.tokenstatus, N''), N'*') token
+                left join paravalu status_value on convert(nvarchar(36), status_value.parametervalueguid) = ltrim(rtrim(token.value))
+                where ltrim(rtrim(token.value)) <> N''
+              ) status_values
+              where mm.moduleguid = '{module_guid}'
               for json path
             ) as json
             "#
@@ -2490,6 +2853,8 @@ pub fn run() {
             list_oph_databases,
             list_account_info,
             list_account_databases,
+            list_database_backups,
+            restore_database_backup,
             list_sub_accounts,
             list_sub_account_users,
             list_users,

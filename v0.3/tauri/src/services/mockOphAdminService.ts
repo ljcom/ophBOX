@@ -820,6 +820,14 @@ async function listAccountDatabases(config: OphConnectionConfig, accountId: stri
   return invoke<MetadataRow[]>('list_account_databases', { config, accountId, databaseName })
 }
 
+async function listDatabaseBackups(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_database_backups', { config, accountId, databaseName })
+}
+
+async function restoreDatabaseBackup(config: OphConnectionConfig, backupKey: string, targetDatabaseName: string): Promise<void> {
+  return invoke<void>('restore_database_backup', { config, backupKey, targetDatabaseName })
+}
+
 async function listSubAccounts(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_sub_accounts', { config, accountId, databaseName })
 }
@@ -903,8 +911,8 @@ async function listModuleNumbering(config: OphConnectionConfig, _accountId: stri
   return invoke<MetadataRow[]>('list_module_numbering', { config, databaseName, moduleGuid })
 }
 
-async function listModuleMails(config: OphConnectionConfig, _accountId: string, databaseName: string, moduleGuid: string): Promise<MetadataRow[]> {
-  return invoke<MetadataRow[]>('list_module_mails', { config, databaseName, moduleGuid })
+async function listModuleMails(config: OphConnectionConfig, accountId: string, databaseName: string, moduleGuid: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_module_mails', { config, accountId, databaseName, moduleGuid })
 }
 
 async function listModuleStatuses(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
@@ -1063,6 +1071,8 @@ export const ophAdminService = {
   deleteAccount,
   listAccountInfo,
   listAccountDatabases,
+  listDatabaseBackups,
+  restoreDatabaseBackup,
   listSubAccounts,
   listSubAccountUsers,
   listUsers,

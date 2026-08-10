@@ -71,10 +71,25 @@ type PinnedWorkspaceTab = {
   selection: WorkspaceSelection
 }
 
+type ReportDesignerTab = {
+  id: string
+  title: string
+  databaseName: string
+  xml: string
+  error: string
+  isSaving: boolean
+  saveNotice: string
+  metadataSource: {
+    sourceTable: 'modlinfo'
+    row: MetadataRow
+  }
+}
+
 type SavedWorkspaceState = {
   mainSelection: WorkspaceSelection
   pinnedTabs: PinnedWorkspaceTab[]
   queryTabs: QueryTab[]
+  reportTabs: ReportDesignerTab[]
   activeTabId: string
 }
 
@@ -97,6 +112,12 @@ function loadSavedWorkspaceState(): SavedWorkspaceState | null {
         isSaving: false,
         saveNotice: '',
       })),
+      reportTabs: Array.isArray(parsed.reportTabs) ? parsed.reportTabs.map((tab) => ({
+        ...tab,
+        error: '',
+        isSaving: false,
+        saveNotice: '',
+      })) : [],
       activeTabId: typeof parsed.activeTabId === 'string' ? parsed.activeTabId : 'main',
     }
   } catch {
@@ -141,6 +162,7 @@ function App() {
   const [isAddingConnection, setIsAddingConnection] = useState(false)
   const [initialConnectionError, setInitialConnectionError] = useState('')
   const [queryTabs, setQueryTabs] = useState<QueryTab[]>(savedWorkspaceState.current?.queryTabs ?? [])
+  const [reportTabs, setReportTabs] = useState<ReportDesignerTab[]>(savedWorkspaceState.current?.reportTabs ?? [])
   const [pinnedTabs, setPinnedTabs] = useState<PinnedWorkspaceTab[]>(savedWorkspaceState.current?.pinnedTabs ?? [])
   const [activeTabId, setActiveTabId] = useState(savedWorkspaceState.current?.activeTabId ?? 'main')
   const [isWorkspaceStateReady, setIsWorkspaceStateReady] = useState(false)
@@ -212,6 +234,7 @@ function App() {
       mainSelection: selection,
       pinnedTabs,
       queryTabs: persistedQueryTabs,
+      reportTabs: reportTabs.map((tab) => ({ ...tab, error: '', isSaving: false, saveNotice: '' })),
       activeTabId,
     }
     try {
@@ -219,7 +242,7 @@ function App() {
     } catch {
       // The workspace remains usable if local persistence is unavailable or full.
     }
-  }, [activeTabId, isWorkspaceStateReady, pinnedTabs, queryTabs, selection])
+  }, [activeTabId, isWorkspaceStateReady, pinnedTabs, queryTabs, reportTabs, selection])
 
   const servers = connectionConfig?.servers ?? []
 
@@ -271,9 +294,67 @@ function App() {
     return () => window.removeEventListener('oph:open-metadata-query', handleOpenMetadataQuery)
   }, [])
 
+  useEffect(() => {
+    function handleOpenReportDesigner(event: Event) {
+      const detail = (event as CustomEvent<{ databaseName: string; row: MetadataRow }>).detail
+      const moduleInfoGuid = String(detail.row.moduleinfoguid ?? '')
+      if (!moduleInfoGuid || !detail.databaseName) return
+      const id = `report-designer-${moduleInfoGuid}`
+      setReportTabs((tabs) => {
+        if (tabs.some((tab) => tab.id === id)) return tabs
+        return [...tabs, {
+          id,
+          title: `Report — ${moduleInfoGuid.slice(0, 8)}`,
+          databaseName: detail.databaseName,
+          xml: String(detail.row.infovalue ?? ''),
+          error: '',
+          isSaving: false,
+          saveNotice: '',
+          metadataSource: { sourceTable: 'modlinfo', row: detail.row },
+        }]
+      })
+      setActiveTabId(id)
+    }
+
+    window.addEventListener('oph:open-report-designer', handleOpenReportDesigner)
+    return () => window.removeEventListener('oph:open-report-designer', handleOpenReportDesigner)
+  }, [])
+
   function closeQueryTab(id: string) {
     setQueryTabs((tabs) => tabs.filter((tab) => tab.id !== id))
     if (activeTabId === id) setActiveTabId('main')
+  }
+
+  function updateReportTab(id: string, changes: Partial<ReportDesignerTab>) {
+    setReportTabs((tabs) => tabs.map((tab) => tab.id === id ? { ...tab, ...changes } : tab))
+  }
+
+  function closeReportTab(id: string) {
+    setReportTabs((tabs) => tabs.filter((tab) => tab.id !== id))
+    if (activeTabId === id) setActiveTabId('main')
+  }
+
+  async function saveReportTab(tab: ReportDesignerTab) {
+    if (!connectionConfig) return
+    updateReportTab(tab.id, { isSaving: true, error: '', saveNotice: '' })
+    const originalRow = tab.metadataSource.row
+    const nextRow = { ...originalRow, infovalue: tab.xml }
+    try {
+      await ophAdminService.saveMetadataRow(
+        connectionConfig,
+        tab.databaseName,
+        tab.metadataSource.sourceTable,
+        originalRow,
+        nextRow,
+      )
+      updateReportTab(tab.id, {
+        isSaving: false,
+        saveNotice: 'Report layout saved to modlinfo.dplx_rpt.',
+        metadataSource: { ...tab.metadataSource, row: nextRow },
+      })
+    } catch (saveError) {
+      updateReportTab(tab.id, { isSaving: false, error: saveError instanceof Error ? saveError.message : String(saveError) })
+    }
   }
 
   function togglePinnedTab(nextSelection: WorkspaceSelection) {
@@ -580,7 +661,7 @@ function App() {
       return currentNode ? [{ id: tab.id, selection: workspaceSelectionFromNode(currentNode) }] : []
     })
     setPinnedTabs(restoredPinnedTabs)
-    const availableTabIds = new Set(['main', ...restoredPinnedTabs.map((tab) => tab.id), ...queryTabs.map((tab) => tab.id)])
+    const availableTabIds = new Set(['main', ...restoredPinnedTabs.map((tab) => tab.id), ...queryTabs.map((tab) => tab.id), ...reportTabs.map((tab) => tab.id)])
     if (!availableTabIds.has(activeTabId)) setActiveTabId('main')
   }
 
@@ -715,6 +796,7 @@ function App() {
   }
 
   const activeQueryTab = queryTabs.find((tab) => tab.id === activeTabId)
+  const activeReportTab = reportTabs.find((tab) => tab.id === activeTabId)
   const activePinnedTab = pinnedTabs.find((tab) => tab.id === activeTabId)
   const activeSelection = activePinnedTab?.selection ?? selection
 
@@ -768,6 +850,11 @@ function App() {
                       {tab.title} <small>{tab.databaseName || 'No database'}</small>
                     </button>
                   ))}
+                  {reportTabs.map((tab) => (
+                    <button key={tab.id} type="button" className={activeTabId === tab.id ? 'active-menu-item' : ''} onClick={() => { setActiveTabId(tab.id); setOpenAppMenu(null) }}>
+                      {tab.title} <small>{tab.databaseName}</small>
+                    </button>
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -794,6 +881,12 @@ function App() {
               <button type="button" className="tab-close-button" aria-label={`Close ${tab.title}`} onClick={() => closeQueryTab(tab.id)}><X size={13} /></button>
             </div>
           ))}
+          {reportTabs.map((tab) => (
+            <div key={tab.id} className={activeTabId === tab.id ? 'workspace-tab active-workspace-tab' : 'workspace-tab'}>
+              <button type="button" onClick={() => setActiveTabId(tab.id)}><FileCode2 size={12} /> {tab.title}</button>
+              <button type="button" className="tab-close-button" aria-label={`Close ${tab.title}`} onClick={() => closeReportTab(tab.id)}><X size={13} /></button>
+            </div>
+          ))}
           <button type="button" className="new-query-tab-button" onClick={openNewQuery}>+</button>
         </div>
         <div className="content-grid content-grid-full">
@@ -805,6 +898,12 @@ function App() {
                 onChange={(changes) => updateQueryTab(activeQueryTab.id, changes)}
                 onRun={() => runQueryTab(activeQueryTab)}
                 onSave={() => saveQueryTab(activeQueryTab)}
+              />
+            ) : activeReportTab ? (
+              <ReportDesignerWorkspace
+                tab={activeReportTab}
+                onChange={(xml) => updateReportTab(activeReportTab.id, { xml, error: '', saveNotice: '' })}
+                onSave={() => saveReportTab(activeReportTab)}
               />
             ) : (
               <Workspace
@@ -947,6 +1046,523 @@ function QueryWorkspace({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+const dplxBandNames = ['template', 'header', 'detail', 'footer'] as const
+const dplxElementNames = new Set(['label', 'recordBox', 'rectangle', 'line', 'image', 'subReport'])
+
+function parseDplx(xml: string): { document: XMLDocument | null; report: Element | null; error: string } {
+  if (!xml.trim()) return { document: null, report: null, error: 'DPLX XML is empty.' }
+  const document = new DOMParser().parseFromString(xml, 'application/xml')
+  const parserError = document.querySelector('parsererror')
+  if (parserError) return { document: null, report: null, error: parserError.textContent?.trim() || 'Invalid DPLX XML.' }
+  const report = document.documentElement.tagName === 'report' ? document.documentElement : document.querySelector('report')
+  return report ? { document, report, error: '' } : { document, report: null, error: 'DPLX report node not found.' }
+}
+
+function ReportDesignerWorkspace({
+  tab,
+  onChange,
+  onSave,
+}: {
+  tab: ReportDesignerTab
+  onChange: (xml: string) => void
+  onSave: () => void
+}) {
+  const [mode, setMode] = useState<'design' | 'xml'>('design')
+  const [selectedBand, setSelectedBand] = useState<string>('detail')
+  const [selectedElement, setSelectedElement] = useState<{ band: string; index: number } | null>(null)
+  const [selectedSubReportBand, setSelectedSubReportBand] = useState<string | null>(null)
+  const [selectedSubReportElement, setSelectedSubReportElement] = useState<{ band: string; index: number } | null>(null)
+  const parsed = useMemo(() => parseDplx(tab.xml), [tab.xml])
+  const bands = parsed.report ? dplxBandNames.flatMap((name) => Array.from(parsed.report?.children ?? []).filter((child) => child.tagName === name)) : []
+  const activeElement = selectedElement && parsed.report
+    ? Array.from(parsed.report.children)
+      .find((child) => child.tagName === selectedElement.band)
+      ?.children.item(selectedElement.index) ?? null
+    : null
+  const selectedSubReport = activeElement?.tagName === 'subReport' ? activeElement : null
+  const activeSubReportBand = selectedSubReport && selectedSubReportBand
+    ? Array.from(selectedSubReport.children).find((child) => child.tagName === selectedSubReportBand) ?? null
+    : null
+  const activeSubReportElement = selectedSubReport && selectedSubReportElement
+    ? Array.from(selectedSubReport.children)
+      .find((child) => child.tagName === selectedSubReportElement.band)
+      ?.children.item(selectedSubReportElement.index) ?? null
+    : null
+  const activeBand = !selectedElement && parsed.report && dplxBandNames.includes(selectedBand as typeof dplxBandNames[number])
+    ? Array.from(parsed.report.children).find((child) => child.tagName === selectedBand) ?? null
+    : null
+  const pageSizes: Record<string, { width: number; height: number }> = {
+    letter: { width: 612, height: 792 },
+    legal: { width: 612, height: 1008 },
+    a4: { width: 595, height: 842 },
+    a3: { width: 842, height: 1191 },
+    a5: { width: 420, height: 595 },
+  }
+  const reportPageSize = String(parsed.report?.getAttribute('pageSize') || 'letter').toLowerCase()
+  const standardPage = pageSizes[reportPageSize] ?? pageSizes.letter
+  const explicitWidth = Number(parsed.report?.getAttribute('pageWidth') || 0)
+  const explicitHeight = Number(parsed.report?.getAttribute('pageHeight') || 0)
+  const baseWidth = explicitWidth > 0 ? explicitWidth : standardPage.width
+  const baseHeight = explicitHeight > 0 ? explicitHeight : standardPage.height
+  const pageWidth = baseWidth
+  const pageHeight = baseHeight
+  const orientation = pageWidth > pageHeight ? 'landscape' : 'portrait'
+  const pageMargins = {
+    top: Number(parsed.report?.getAttribute('topMargin') || 50),
+    right: Number(parsed.report?.getAttribute('rightMargin') || 50),
+    bottom: Number(parsed.report?.getAttribute('bottomMargin') || 50),
+    left: Number(parsed.report?.getAttribute('leftMargin') || 50),
+  }
+  const reportBodyWidth = Math.max(100, pageWidth - pageMargins.left - pageMargins.right)
+  const reportBodyHeight = Math.max(100, pageHeight - pageMargins.top - pageMargins.bottom)
+  const visibleBands = selectedSubReport
+    ? Array.from(selectedSubReport.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName) && Number(child.getAttribute('height') ?? 0) > 0)
+    : selectedBand === 'template'
+      ? bands.filter((band) => band.tagName === 'template')
+      : bands.filter((band) => band.tagName !== 'template')
+  const previewBodyWidth = selectedSubReport
+    ? Math.max(100, Number(selectedSubReport.getAttribute('width') || reportBodyWidth))
+    : reportBodyWidth
+
+  function changeXml(mutator: (document: XMLDocument, report: Element) => void) {
+    const next = parseDplx(tab.xml)
+    if (!next.document || !next.report) return
+    mutator(next.document, next.report)
+    onChange(new XMLSerializer().serializeToString(next.document))
+  }
+
+  function updateElementAttribute(name: string, value: string) {
+    if (!selectedElement) return
+    changeXml((_document, report) => {
+      const band = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+      band?.children.item(selectedElement.index)?.setAttribute(name, value)
+    })
+  }
+
+  function updateBandAttribute(name: string, value: string) {
+    changeXml((_document, report) => {
+      Array.from(report.children).find((child) => child.tagName === selectedBand)?.setAttribute(name, value)
+    })
+  }
+
+  function updateSubReportBandAttribute(name: string, value: string) {
+    if (!selectedElement || !selectedSubReportBand) return
+    changeXml((_document, report) => {
+      const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+      const subReport = parentBand?.children.item(selectedElement.index)
+      Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportBand)?.setAttribute(name, value)
+    })
+  }
+
+  function updateSubReportElementAttribute(name: string, value: string) {
+    if (!selectedElement || !selectedSubReportElement) return
+    changeXml((_document, report) => {
+      const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+      const subReport = parentBand?.children.item(selectedElement.index)
+      const internalBand = Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
+      internalBand?.children.item(selectedSubReportElement.index)?.setAttribute(name, value)
+    })
+  }
+
+  function deleteSubReportElement() {
+    if (!selectedElement || !selectedSubReportElement) return
+    changeXml((_document, report) => {
+      const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+      const subReport = parentBand?.children.item(selectedElement.index)
+      const internalBand = Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
+      internalBand?.children.item(selectedSubReportElement.index)?.remove()
+    })
+    setSelectedSubReportElement(null)
+  }
+
+  function updateReportAttribute(name: string, value: string) {
+    changeXml((_document, report) => report.setAttribute(name, value))
+  }
+
+  function queryContainer(report: Element, target: 'report' | 'subreport') {
+    if (target === 'report') return report
+    if (!selectedElement) return null
+    const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+    const selected = parentBand?.children.item(selectedElement.index) ?? null
+    return selected?.tagName === 'subReport' ? selected : null
+  }
+
+  function ensureStoredProcedure(document: XMLDocument, container: Element) {
+    let query = Array.from(container.children).find((child) => child.tagName === 'query')
+    if (!query) {
+      query = document.createElement('query')
+      container.insertBefore(query, container.firstChild)
+    }
+    let procedure = Array.from(query.children).find((child) => child.tagName === 'storedProcedure')
+    if (!procedure) {
+      procedure = document.createElement('storedProcedure')
+      procedure.setAttribute('name', '')
+      query.appendChild(procedure)
+    }
+    return procedure
+  }
+
+  function updateQueryProcedure(target: 'report' | 'subreport', value: string) {
+    changeXml((document, report) => {
+      const container = queryContainer(report, target)
+      if (container) ensureStoredProcedure(document, container).setAttribute('name', value)
+    })
+  }
+
+  function updateQueryParameter(target: 'report' | 'subreport', index: number, name: string, value: string) {
+    changeXml((document, report) => {
+      const container = queryContainer(report, target)
+      const parameter = container ? Array.from(ensureStoredProcedure(document, container).children).filter((child) => child.tagName === 'parameter')[index] : null
+      parameter?.setAttribute(name, value)
+    })
+  }
+
+  function addQueryParameter(target: 'report' | 'subreport') {
+    changeXml((document, report) => {
+      const container = queryContainer(report, target)
+      if (!container) return
+      const parameter = document.createElement('parameter')
+      parameter.setAttribute('name', '@parameter')
+      parameter.setAttribute('type', 'nvarchar')
+      parameter.setAttribute('value', '')
+      ensureStoredProcedure(document, container).appendChild(parameter)
+    })
+  }
+
+  function queryProperties(container: Element | null, target: 'report' | 'subreport') {
+    const query = container ? Array.from(container.children).find((child) => child.tagName === 'query') : null
+    const procedure = query ? Array.from(query.children).find((child) => child.tagName === 'storedProcedure') : null
+    const parameters = procedure ? Array.from(procedure.children).filter((child) => child.tagName === 'parameter') : []
+    return (
+      <div className="report-query-properties">
+        <strong>Query</strong>
+        <label>
+          <span>Stored procedure</span>
+          <input value={procedure?.getAttribute('name') ?? ''} placeholder="Procedure name" onChange={(event) => updateQueryProcedure(target, event.target.value)} />
+        </label>
+        {parameters.map((parameter, index) => (
+          <div key={index} className="report-query-parameter">
+            <span>Parameter {index + 1}</span>
+            <input aria-label={`Parameter ${index + 1} name`} value={parameter.getAttribute('name') ?? ''} placeholder="Name" onChange={(event) => updateQueryParameter(target, index, 'name', event.target.value)} />
+            <input aria-label={`Parameter ${index + 1} type`} value={parameter.getAttribute('type') ?? ''} placeholder="Type" onChange={(event) => updateQueryParameter(target, index, 'type', event.target.value)} />
+            <input aria-label={`Parameter ${index + 1} value`} value={parameter.getAttribute('value') ?? ''} placeholder="Value" onChange={(event) => updateQueryParameter(target, index, 'value', event.target.value)} />
+          </div>
+        ))}
+        <button type="button" onClick={() => addQueryParameter(target)}>+ Query parameter</button>
+      </div>
+    )
+  }
+
+  function updatePageSize(value: string) {
+    changeXml((_document, report) => {
+      report.setAttribute('pageSize', value.toLowerCase())
+      if (value === 'custom') {
+        report.setAttribute('pageWidth', String(baseWidth))
+        report.setAttribute('pageHeight', String(baseHeight))
+      } else {
+        const dimensions = pageSizes[value] ?? pageSizes.letter
+        report.setAttribute('pageWidth', String(orientation === 'landscape' ? dimensions.height : dimensions.width))
+        report.setAttribute('pageHeight', String(orientation === 'landscape' ? dimensions.width : dimensions.height))
+      }
+      report.removeAttribute('pageOrientation')
+      report.removeAttribute('orientation')
+    })
+  }
+
+  function updatePageOrientation(value: string) {
+    changeXml((_document, report) => {
+      const shortSide = Math.min(baseWidth, baseHeight)
+      const longSide = Math.max(baseWidth, baseHeight)
+      report.setAttribute('pageWidth', String(value === 'landscape' ? longSide : shortSide))
+      report.setAttribute('pageHeight', String(value === 'landscape' ? shortSide : longSide))
+      report.removeAttribute('pageOrientation')
+      report.removeAttribute('orientation')
+    })
+  }
+
+  function updateCustomPageDimension(name: 'pageWidth' | 'pageHeight', value: string) {
+    changeXml((_document, report) => {
+      report.setAttribute('pageSize', 'custom')
+      report.setAttribute('pageWidth', name === 'pageWidth' ? value : String(baseWidth))
+      report.setAttribute('pageHeight', name === 'pageHeight' ? value : String(baseHeight))
+    })
+  }
+
+  function addElement(name: 'label' | 'recordBox' | 'rectangle' | 'line') {
+    changeXml((document, report) => {
+      let band = Array.from(report.children).find((child) => child.tagName === selectedBand)
+      if (!band) {
+        band = document.createElement(selectedBand)
+        if (selectedBand === 'detail') band.setAttribute('autoSplit', 'false')
+        report.appendChild(band)
+      }
+      const element = document.createElement(name)
+      if (name === 'line') {
+        Object.entries({ x1: '20', y1: '20', x2: '160', y2: '20' }).forEach(([key, value]) => element.setAttribute(key, value))
+      } else {
+        Object.entries({ x: '20', y: '20', width: '140', height: '20' }).forEach(([key, value]) => element.setAttribute(key, value))
+        if (name === 'label') element.setAttribute('text', 'New label')
+        if (name === 'recordBox') {
+          element.setAttribute('field', 'FieldName')
+          element.setAttribute('expandable', 'false')
+        }
+      }
+      band.appendChild(element)
+      setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
+    })
+  }
+
+  function addSubReport() {
+    const targetBand = ['header', 'detail', 'footer'].includes(selectedBand) ? selectedBand : 'detail'
+    changeXml((document, report) => {
+      let band = Array.from(report.children).find((child) => child.tagName === targetBand)
+      if (!band) {
+        band = document.createElement(targetBand)
+        report.appendChild(band)
+      }
+      const subReport = document.createElement('subReport')
+      Object.entries({ x: '20', y: '20', width: '472', height: '120' }).forEach(([key, value]) => subReport.setAttribute(key, value))
+      ;['header', 'detail', 'footer'].forEach((bandName) => {
+        const childBand = document.createElement(bandName)
+        childBand.setAttribute('height', bandName === 'detail' ? '40' : '20')
+        if (bandName === 'detail') childBand.setAttribute('autoSplit', 'false')
+        subReport.appendChild(childBand)
+      })
+      band.appendChild(subReport)
+      setSelectedBand(targetBand)
+      setSelectedElement({ band: targetBand, index: band.children.length - 1 })
+      setSelectedSubReportBand(null)
+      setSelectedSubReportElement(null)
+    })
+  }
+
+  function deleteElement() {
+    if (!selectedElement) return
+    changeXml((_document, report) => {
+      const band = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
+      band?.children.item(selectedElement.index)?.remove()
+    })
+    setSelectedElement(null)
+    setSelectedSubReportBand(null)
+    setSelectedSubReportElement(null)
+  }
+
+  return (
+    <div className="report-designer-workspace">
+      <div className="report-designer-header">
+        <div>
+          <span className="eyebrow">DPLX Report Designer</span>
+          <h1>{tab.title}</h1>
+          <small>{tab.databaseName} · database locked to metadata source</small>
+        </div>
+        <div className="report-designer-actions">
+          <button type="button" className={mode === 'design' ? 'active-tool' : ''} onClick={() => setMode('design')}>Design</button>
+          <button type="button" className={mode === 'xml' ? 'active-tool' : ''} onClick={() => setMode('xml')}>XML</button>
+          <button type="button" disabled={tab.isSaving || Boolean(parsed.error)} onClick={onSave}>{tab.isSaving ? 'Saving…' : 'Save Report'}</button>
+        </div>
+      </div>
+      {tab.error || parsed.error ? <div className="connection-error">{tab.error || parsed.error}</div> : null}
+      {tab.saveNotice ? <div className="action-notice">{tab.saveNotice}</div> : null}
+      {mode === 'xml' ? (
+        <textarea className="report-xml-editor" spellCheck={false} value={tab.xml} onChange={(event) => onChange(event.target.value)} />
+      ) : (
+        <div className="report-designer-grid">
+          <aside className="report-toolbox">
+            <strong>Page</strong>
+            <button type="button" className={selectedBand === 'page' ? 'active-tool' : ''} onClick={() => { setSelectedBand('page'); setSelectedElement(null); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>Page</button>
+            <strong>Bands</strong>
+            {dplxBandNames.map((bandName) => {
+              const band = parsed.report ? Array.from(parsed.report.children).find((child) => child.tagName === bandName) : null
+              const subReports = band ? Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => element.tagName === 'subReport') : []
+              return (
+                <div key={bandName} className="report-band-tree-item">
+                  <button type="button" className={selectedBand === bandName && !selectedElement ? 'active-tool' : ''} onClick={() => { setSelectedBand(bandName); setSelectedElement(null); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>{bandName}</button>
+                  {bandName !== 'template' ? subReports.map(({ element, index }, subReportIndex) => (
+                    <div key={index} className="report-subreport-tree-item">
+                      <button type="button" className={selectedBand === bandName && selectedElement?.index === index && !selectedSubReportBand ? 'active-tool report-subreport-active' : 'report-subreport-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>
+                        ↳ Subreport {subReportIndex + 1}
+                      </button>
+                      {Array.from(element.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName)).map((child) => (
+                        <button key={child.tagName} type="button" className={selectedBand === bandName && selectedElement?.index === index && selectedSubReportBand === child.tagName && !selectedSubReportElement ? 'report-subreport-band-button active-tool' : 'report-subreport-band-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(child.tagName); setSelectedSubReportElement(null) }}>
+                          {child.tagName}
+                        </button>
+                      ))}
+                    </div>
+                  )) : null}
+                </div>
+              )
+            })}
+            <strong>Controls</strong>
+            <button type="button" onClick={() => addElement('label')}>+ Label</button>
+            <button type="button" onClick={() => addElement('recordBox')}>+ Field</button>
+            <button type="button" onClick={() => addElement('rectangle')}>+ Rectangle</button>
+            <button type="button" onClick={() => addElement('line')}>+ Line</button>
+            <button type="button" onClick={addSubReport}>+ Subreport</button>
+          </aside>
+          <div className="report-canvas-scroll">
+            <div
+              className={`report-page-canvas ${selectedSubReport ? 'subreport-preview-canvas' : ''}`}
+              style={selectedSubReport
+                ? { width: previewBodyWidth + 48, minHeight: 280, padding: 24 }
+                : { width: pageWidth, minHeight: pageHeight, padding: `${pageMargins.top}px ${pageMargins.right}px ${pageMargins.bottom}px ${pageMargins.left}px` }}
+            >
+              {selectedSubReport ? <div className="subreport-preview-title">Subreport preview</div> : null}
+              {visibleBands.map((band) => {
+                const elements = Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => dplxElementNames.has(element.tagName))
+                const contentHeight = elements.reduce((max, { element }) => Math.max(max, Number(element.getAttribute('y') ?? element.getAttribute('y2') ?? 0) + Number(element.getAttribute('height') ?? 24)), 0)
+                const configuredBandHeight = Number(band.getAttribute('height') ?? 0)
+                const bandHeight = selectedSubReport
+                  ? configuredBandHeight
+                  : band.tagName === 'template'
+                  ? Math.max(Number(band.getAttribute('height') ?? 0), contentHeight, reportBodyHeight)
+                  : configuredBandHeight > 0 ? configuredBandHeight : Math.max(contentHeight, 80)
+                return (
+                  <section key={band.tagName} className={`report-band ${selectedSubReport ? 'subreport-band' : ''} ${band.tagName === 'template' ? 'report-template-area' : ''} ${selectedSubReport ? selectedSubReportBand === band.tagName ? 'selected-report-band' : '' : selectedBand === band.tagName ? 'selected-report-band' : ''}`} style={{ width: previewBodyWidth, height: bandHeight }} onClick={() => {
+                    if (selectedSubReport) {
+                      setSelectedSubReportBand(band.tagName)
+                      setSelectedSubReportElement(null)
+                    } else {
+                      setSelectedBand(band.tagName)
+                      setSelectedElement(null)
+                      setSelectedSubReportBand(null)
+                      setSelectedSubReportElement(null)
+                    }
+                  }}>
+                    <span className="report-band-label">{band.tagName}</span>
+                    {elements.map(({ element, index }) => {
+                      const isLine = element.tagName === 'line'
+                      const x1 = Number(element.getAttribute('x1') ?? 0)
+                      const y1 = Number(element.getAttribute('y1') ?? 0)
+                      const x2 = Number(element.getAttribute('x2') ?? x1)
+                      const y2 = Number(element.getAttribute('y2') ?? y1)
+                      const verticalLine = isLine && Math.abs(y2 - y1) > Math.abs(x2 - x1)
+                      const x = isLine ? Math.min(x1, x2) : Number(element.getAttribute('x') ?? 0)
+                      const y = isLine ? Math.min(y1, y2) : Number(element.getAttribute('y') ?? 0)
+                      const width = isLine ? Math.max(1, Math.abs(x2 - x1)) : Number(element.getAttribute('width') ?? 120)
+                      const height = isLine ? Math.max(1, Math.abs(y2 - y1)) : Number(element.getAttribute('height') ?? 20)
+                      const text = element.tagName === 'label' ? element.getAttribute('text') : element.tagName === 'recordBox' ? `[${element.getAttribute('field') || 'field'}]` : element.tagName
+                      const selected = selectedSubReport
+                        ? selectedSubReportElement?.band === band.tagName && selectedSubReportElement.index === index
+                        : selectedElement?.band === band.tagName && selectedElement.index === index
+                      return <button key={`${element.tagName}-${index}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height }} onClick={(event) => {
+                        event.stopPropagation()
+                        if (selectedSubReport) {
+                          setSelectedSubReportBand(band.tagName)
+                          setSelectedSubReportElement({ band: band.tagName, index })
+                        } else {
+                          setSelectedBand(band.tagName)
+                          setSelectedElement({ band: band.tagName, index })
+                          setSelectedSubReportBand(null)
+                          setSelectedSubReportElement(null)
+                        }
+                      }}>{text}</button>
+                    })}
+                  </section>
+                )
+              })}
+            </div>
+          </div>
+          <aside className="report-properties">
+            <strong>Properties</strong>
+            {activeSubReportElement ? (
+              <>
+                <span className="report-element-type">Subreport {activeSubReportElement.tagName}</span>
+                {Array.from(activeSubReportElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
+                  <label key={attribute.name}>
+                    <span>{attribute.name}</span>
+                    <input value={attribute.value} onChange={(event) => updateSubReportElementAttribute(attribute.name, event.target.value)} />
+                  </label>
+                ))}
+                {activeSubReportElement.tagName === 'recordBox' ? (
+                  <label><span>expandable</span><select value={activeSubReportElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateSubReportElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                <label><span>New attribute</span><button type="button" onClick={() => updateSubReportElementAttribute('fontSize', '10')}>Add fontSize</button></label>
+                <button type="button" className="danger-button" onClick={deleteSubReportElement}>Delete control</button>
+              </>
+            ) : activeSubReportBand ? (
+              <>
+                <span className="report-element-type">Subreport {activeSubReportBand.tagName} Band</span>
+                {Array.from(activeSubReportBand.attributes).filter((attribute) => attribute.name !== 'autoSplit').map((attribute) => (
+                  <label key={attribute.name}>
+                    <span>{attribute.name}</span>
+                    <input value={attribute.value} onChange={(event) => updateSubReportBandAttribute(attribute.name, event.target.value)} />
+                  </label>
+                ))}
+                {activeSubReportBand.tagName === 'detail' ? (
+                  <label><span>autoSplit</span><select value={activeSubReportBand.getAttribute('autoSplit') ?? 'false'} onChange={(event) => updateSubReportBandAttribute('autoSplit', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                {!activeSubReportBand.hasAttribute('height') ? (
+                  <label><span>Height</span><button type="button" onClick={() => updateSubReportBandAttribute('height', '40')}>Add height</button></label>
+                ) : null}
+                {activeSubReportBand.attributes.length === 0 ? <p>This Subreport band has no XML attributes yet.</p> : null}
+              </>
+            ) : activeElement ? (
+              <>
+                <span className="report-element-type">{activeElement.tagName}</span>
+                {Array.from(activeElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
+                  <label key={attribute.name}><span>{attribute.name}</span><input value={attribute.value} onChange={(event) => updateElementAttribute(attribute.name, event.target.value)} /></label>
+                ))}
+                {activeElement.tagName === 'recordBox' ? (
+                  <label><span>expandable</span><select value={activeElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                <label><span>New attribute</span><button type="button" onClick={() => updateElementAttribute('fontSize', '10')}>Add fontSize</button></label>
+                <button type="button" className="danger-button" onClick={deleteElement}>Delete control</button>
+                {activeElement.tagName === 'subReport' ? queryProperties(activeElement, 'subreport') : null}
+              </>
+            ) : selectedBand === 'page' ? (
+              <>
+                <span className="report-element-type">Report Page</span>
+                <label>
+                  <span>Paper size</span>
+                  <select value={pageSizes[reportPageSize] ? reportPageSize : 'custom'} onChange={(event) => updatePageSize(event.target.value)}>
+                    <option value="letter">Letter</option>
+                    <option value="legal">Legal</option>
+                    <option value="a4">A4</option>
+                    <option value="a3">A3</option>
+                    <option value="a5">A5</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Orientation</span>
+                  <select value={orientation === 'landscape' ? 'landscape' : 'portrait'} onChange={(event) => updatePageOrientation(event.target.value)}>
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </label>
+                <label><span>Page width</span><input type="number" min="1" value={baseWidth} onChange={(event) => updateCustomPageDimension('pageWidth', event.target.value)} /></label>
+                <label><span>Page height</span><input type="number" min="1" value={baseHeight} onChange={(event) => updateCustomPageDimension('pageHeight', event.target.value)} /></label>
+                <label><span>Top margin</span><input type="number" value={pageMargins.top} onChange={(event) => updateReportAttribute('topMargin', event.target.value)} /></label>
+                <label><span>Right margin</span><input type="number" value={pageMargins.right} onChange={(event) => updateReportAttribute('rightMargin', event.target.value)} /></label>
+                <label><span>Bottom margin</span><input type="number" value={pageMargins.bottom} onChange={(event) => updateReportAttribute('bottomMargin', event.target.value)} /></label>
+                <label><span>Left margin</span><input type="number" value={pageMargins.left} onChange={(event) => updateReportAttribute('leftMargin', event.target.value)} /></label>
+                {queryProperties(parsed.report, 'report')}
+              </>
+            ) : activeBand ? (
+              <>
+                <span className="report-element-type">{activeBand.tagName} Band</span>
+                {Array.from(activeBand.attributes).filter((attribute) => attribute.name !== 'autoSplit').map((attribute) => (
+                  <label key={attribute.name}>
+                    <span>{attribute.name}</span>
+                    <input value={attribute.value} onChange={(event) => updateBandAttribute(attribute.name, event.target.value)} />
+                  </label>
+                ))}
+                {activeBand.tagName === 'detail' ? (
+                  <label><span>autoSplit</span><select value={activeBand.getAttribute('autoSplit') ?? 'false'} onChange={(event) => updateBandAttribute('autoSplit', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                {!activeBand.hasAttribute('height') ? (
+                  <label><span>Height</span><button type="button" onClick={() => updateBandAttribute('height', '80')}>Add height</button></label>
+                ) : null}
+                {activeBand.attributes.length === 0 ? <p>This band has no XML attributes yet.</p> : null}
+              </>
+            ) : <p>Select Page, a band, or a control to edit its properties.</p>}
+          </aside>
+        </div>
+      )}
     </div>
   )
 }
@@ -1300,6 +1916,7 @@ function Workspace({
   if (selection.kind === 'database') {
     return (
       <DatabaseWorkspace
+        config={connectionConfig}
         selection={selection}
         tree={tree}
         onRefresh={() => selection.serverId ? onRefreshServer(selection.serverId) : undefined}
@@ -1620,12 +2237,9 @@ function Workspace({
 
   if (selection.kind === 'account' && selection.label === 'Databases') {
     return (
-      <MetadataWorkspace
+      <AccountDatabasesWorkspace
         config={connectionConfig}
         selection={selection}
-        title="Databases"
-        sourceTable="acctdbse"
-        loadRows={ophAdminService.listAccountDatabases}
       />
     )
   }
@@ -1923,13 +2537,23 @@ function countLeafChildren(node: OphTreeNode | undefined): number {
   return node.children?.length ?? 0
 }
 
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / (1024 ** unitIndex)
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
+}
+
 function DatabaseWorkspace({
+  config,
   selection,
   tree,
   onRefresh,
   onDelete,
   onNavigate,
 }: {
+  config: OphConnectionConfig
   selection: WorkspaceSelection
   tree: OphTreeNode
   onRefresh: () => void | Promise<void>
@@ -1941,6 +2565,9 @@ function DatabaseWorkspace({
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [backups, setBackups] = useState<MetadataRow[]>([])
+  const [isLoadingBackups, setIsLoadingBackups] = useState(true)
+  const [backupError, setBackupError] = useState('')
   const databaseNode = findTreeNode(tree, selection.id)
   const modulesNode = databaseNode?.children?.find((child) => child.label === 'Modules')
   const securityNode = databaseNode?.children?.find((child) => child.label === 'Security')
@@ -1951,6 +2578,18 @@ function DatabaseWorkspace({
   const securityCount = countLeafChildren(securityNode)
   const interfaceCount = countLeafChildren(interfaceNode)
   const accountCount = countLeafChildren(accountNode)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selection.accountId || !selection.databaseName) return
+    setIsLoadingBackups(true)
+    setBackupError('')
+    ophAdminService.listDatabaseBackups(config, selection.accountId, selection.databaseName)
+      .then((rows) => { if (!cancelled) setBackups(rows) })
+      .catch((error) => { if (!cancelled) setBackupError(error instanceof Error ? error.message : String(error)) })
+      .finally(() => { if (!cancelled) setIsLoadingBackups(false) })
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.databaseName])
 
   async function refreshTree() {
     setIsRefreshing(true)
@@ -2005,6 +2644,28 @@ function DatabaseWorkspace({
         <MetricCard label="Security" value={String(securityCount)} detail="Users and groups" onClick={securityNode ? () => onNavigate(workspaceSelectionFromNode(securityNode)) : undefined} />
         <MetricCard label="Interface" value={String(interfaceCount)} detail="Themes, menus, translator" onClick={interfaceNode ? () => onNavigate(workspaceSelectionFromNode(interfaceNode)) : undefined} />
         <MetricCard label="Account" value={String(accountCount)} detail="Parameters and mail" onClick={accountNode ? () => onNavigate(workspaceSelectionFromNode(accountNode)) : undefined} />
+      </div>
+      <div className="table-card">
+        <div className="metadata-toolbar">
+          <h2>S3 backups</h2>
+          <span>{backups.length} backup files for {selection.databaseName}</span>
+        </div>
+        {isLoadingBackups ? <div className="empty-result">Loading S3 backups...</div> : null}
+        {backupError ? <div className="connection-error">{backupError}</div> : null}
+        {!isLoadingBackups && !backupError && backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : null}
+        {!isLoadingBackups && !backupError && backups.length > 0 ? (
+          <table>
+            <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th></tr></thead>
+            <tbody>{backups.map((backup, index) => (
+              <tr key={`${backup.backupFile}-${index}`}>
+                <td><strong>{String(backup.backupFile ?? '')}</strong></td>
+                <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
+                <td>{String(backup.lastModified ?? '-')}</td>
+                <td>{String(backup.storageClass ?? '-')}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        ) : null}
       </div>
       {isConfirmingDelete ? (
         <div className="row-detail-backdrop" onMouseDown={() => !isDeleting && setIsConfirmingDelete(false)}>
@@ -2145,6 +2806,137 @@ function MetadataWorkspace({
         ) : (
           <ParentRecordOverlay config={config} selection={selection} sourceTable={parentDetailSource} onClose={() => setIsParentDetailOpen(false)} />
         )
+      ) : null}
+    </div>
+  )
+}
+
+function AccountDatabasesWorkspace({
+  config,
+  selection,
+}: {
+  config: OphConnectionConfig
+  selection: WorkspaceSelection
+}) {
+  const [databases, setDatabases] = useState<MetadataRow[]>([])
+  const [backupsByDatabase, setBackupsByDatabase] = useState<Record<string, MetadataRow[]>>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [selectedBackup, setSelectedBackup] = useState<{ databaseName: string; row: MetadataRow } | null>(null)
+  const [targetDatabaseName, setTargetDatabaseName] = useState('')
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState('')
+  const [restoreNotice, setRestoreNotice] = useState('')
+
+  function openRestore(databaseName: string, row: MetadataRow) {
+    setSelectedBackup({ databaseName, row })
+    setTargetDatabaseName(`${databaseName}_001`)
+    setRestoreError('')
+    setRestoreNotice('')
+  }
+
+  async function restoreBackup() {
+    if (!selectedBackup) return
+    setIsRestoring(true)
+    setRestoreError('')
+    setRestoreNotice('')
+    try {
+      await ophAdminService.restoreDatabaseBackup(config, String(selectedBackup.row.backupFile ?? ''), targetDatabaseName.trim())
+      setRestoreNotice(`Database ${targetDatabaseName.trim()} restored successfully.`)
+    } catch (restoreFailure) {
+      setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure))
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selection.accountId || !selection.databaseName) {
+      setError('No account database is selected.')
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+    ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName)
+      .then(async (rows) => {
+        const backupResults = await Promise.all(rows.map(async (database) => {
+          const physicalName = String(database.databasename ?? '')
+          if (!physicalName) return [physicalName, []] as const
+          const backups = await ophAdminService.listDatabaseBackups(config, selection.accountId ?? '', physicalName)
+          return [physicalName, backups] as const
+        }))
+        if (!cancelled) {
+          setDatabases(rows)
+          setBackupsByDatabase(Object.fromEntries(backupResults))
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.databaseName])
+
+  return (
+    <div className="page-stack">
+      <SectionHeader
+        eyebrow="Account"
+        title="Physical Databases & S3 Backups"
+        description={`Physical databases for ${selection.accountId}, with backup files loaded from the configured S3 bucket.`}
+      />
+      {isLoading ? <div className="empty-result">Loading physical databases and S3 backups...</div> : null}
+      {error ? <div className="connection-error">{error}</div> : null}
+      {!isLoading && !error ? databases.map((database) => {
+        const physicalName = String(database.databasename ?? '')
+        const backups = backupsByDatabase[physicalName] ?? []
+        return (
+          <div className="table-card" key={String(database.accountdbguid ?? physicalName)}>
+            <div className="metadata-toolbar">
+              <h2>{physicalName}</h2>
+              <span>{backups.length} S3 backup files</span>
+            </div>
+            {backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : (
+              <table>
+                <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th></tr></thead>
+                <tbody>{backups.map((backup, index) => (
+                  <tr key={`${backup.backupFile}-${index}`} className="clickable-table-row" onClick={() => openRestore(physicalName, backup)}>
+                    <td><strong>{String(backup.backupFile ?? '')}</strong></td>
+                    <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
+                    <td>{String(backup.lastModified ?? '-')}</td>
+                    <td>{String(backup.storageClass ?? '-')}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        )
+      }) : null}
+      {selectedBackup ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isRestoring && setSelectedBackup(null)}>
+          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div><span className="eyebrow">Restore S3 Backup</span><h2>{selectedBackup.databaseName}</h2></div>
+              <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <label><span>Backup File</span><input value={String(selectedBackup.row.backupFile ?? '')} disabled /></label>
+              <label>
+                <span>New Database Name</span>
+                <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />
+              </label>
+              <p className="delete-warning">Restore always creates a new database. An existing database will never be overwritten.</p>
+              <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
+                {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
+              </button>
+            </div>
+            {restoreError ? <div className="connection-error">{restoreError}</div> : null}
+            {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
+          </aside>
+        </div>
       ) : null}
     </div>
   )
@@ -2415,11 +3207,13 @@ function MetadataTable({
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
   const [columnTypeOptions, setColumnTypeOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [mailActionOptions, setMailActionOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [mailStatusOptions, setMailStatusOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
     '[user]': ['userid', 'username', 'email', 'expirypwd'],
     acctinfo: ['infokey', 'infovalue'],
     acct: ['accountid'],
-    acctdbse: ['databasename', 'ismaster', 'version'],
+    acctdbse: ['databasename', 'ismaster', 'version', 's3backupinfo'],
     userinfo: ['infokey', 'infovalue'],
     ugrp: ['groupid', 'groupdescription'],
     ugrpmodl: ['moduleid', 'moduledescription', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
@@ -2440,7 +3234,7 @@ function MetadataTable({
     modlcolminfo: ['infokey', 'infovalue'],
     modlappr: ['approvalgroup', 'uppergroup', 'lvl', 'sqlfilter', 'zonegroup'],
     modldocn: ['format', 'month', 'no'],
-    modlmail: ['mailguid', 'actionguid', 'tokenstatus', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
+    modlmail: ['mailguid', 'action', 'status', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
     modl: [
       'moduleid',
       'moduledescription',
@@ -2541,6 +3335,10 @@ function MetadataTable({
     modulestatus: 'Module Status',
     modulegroup: 'Module Group',
     accountdbguid: 'Account DB',
+    databasename: 'Physical Database',
+    ismaster: 'Primary',
+    version: 'Version',
+    s3backupinfo: 'S3 Backup',
     themepageguid: 'Theme Page',
     modulestatusguid: 'Module Status',
     modulegroupguid: 'Module Group',
@@ -2743,6 +3541,41 @@ function MetadataTable({
     }
   }, [config, selection.accountId, selection.databaseName, sourceKey])
   useEffect(() => {
+    if (sourceKey !== 'modlmail' || !selection.accountId || !selection.databaseName) {
+      setMailActionOptions([])
+      setMailStatusOptions([])
+      return
+    }
+
+    let cancelled = false
+    ophAdminService.listParameters(config, selection.accountId, selection.databaseName)
+      .then(async (parameters) => {
+        const mact = parameters.find((row) => String(row.parameterid ?? '').toUpperCase() === 'MACT')
+        const mlst = parameters.find((row) => String(row.parameterid ?? '').toUpperCase() === 'MLST')
+        const [actions, statuses] = await Promise.all([
+          mact ? ophAdminService.listParameterValues(config, selection.accountId ?? '', selection.databaseName ?? '', String(mact.parameterguid ?? '')) : Promise.resolve([]),
+          mlst ? ophAdminService.listParameterValues(config, selection.accountId ?? '', selection.databaseName ?? '', String(mlst.parameterguid ?? '')) : Promise.resolve([]),
+        ])
+        if (cancelled) return
+        setMailActionOptions(actions.map((row) => ({
+          value: String(row.parametervalueguid ?? ''),
+          label: String(row.parametervalue ?? row.parameterdescription ?? ''),
+        })).filter((option) => option.value))
+        setMailStatusOptions(statuses.map((row) => ({
+          value: String(row.parametervalueguid ?? ''),
+          label: [row.parametervalue, row.parameterdescription].filter(Boolean).join(' — '),
+        })).filter((option) => option.value))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMailActionOptions([])
+          setMailStatusOptions([])
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.databaseName, sourceKey])
+  useEffect(() => {
     if (sourceKey !== 'modlcolm' || !selection.databaseName) {
       setColumnTypeOptions([])
       return
@@ -2870,6 +3703,7 @@ function MetadataTable({
     widg: ['widgetid', 'widgetdescription', 'sqlstr'],
     modl: ['moduleid', 'moduledescription', 'settingmode', 'accountdbguid', 'orderno', 'needlogin', 'themepageguid', 'modulestatusguid', 'modulegroupguid'],
     modlappr: ['approvalgroupguid', 'uppergroupguid', 'lvl', 'sqlfilter', 'zonegroup'],
+    modlmail: ['mailguid', 'actionguid', 'tokenstatus', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
   }
   const overlayColumns = overlayColumnMap[sourceKey]
     ?? columns.filter((column) => !['createddate', 'updateddate'].includes(column.toLowerCase()))
@@ -2907,6 +3741,34 @@ function MetadataTable({
     if (!selection.databaseName) {
       setActionError('Cannot save row: database is missing.')
       return
+    }
+
+    const infoTables = new Set(['modlinfo', 'modlcolminfo', 'userinfo', 'acctinfo'])
+    if (infoTables.has(sourceKey)) {
+      const infoKey = String(draftRow.infokey ?? '').trim()
+      const infoValue = String(draftRow.infovalue ?? '')
+      if (!infoKey) {
+        setActionError('Info Key is required.')
+        return
+      }
+      const duplicateInfoKey = tableRows.some((row, index) =>
+        index !== selectedRowIndex
+        && String(getCellValue(row, 'infokey') ?? '').trim().toLowerCase() === infoKey.toLowerCase())
+      if (duplicateInfoKey) {
+        setActionError(`Info Key "${infoKey}" already exists.`)
+        return
+      }
+      if (sourceKey === 'modlinfo' && /^dplx(?:_rpt)?$/i.test(infoKey)) {
+        if (!infoValue.trim()) {
+          setActionError('Info Value must contain the DPLX report XML.')
+          return
+        }
+        const dplx = parseDplx(infoValue)
+        if (dplx.error) {
+          setActionError(`Invalid DPLX XML: ${dplx.error}`)
+          return
+        }
+      }
     }
 
     const nextRow = { ...(selectedRow ?? {}) }
@@ -3008,8 +3870,8 @@ function MetadataTable({
 
     const userGuid = String(getCellValue(selectedRow, 'userguid') || selection.userGuid || '')
     const userId = String(getCellValue(selectedRow, 'userid') || selection.label || '')
-    if (!userGuid || !userId) {
-      setActionError('Cannot reset password: User ID or user key is missing.')
+    if (!userGuid && !userId) {
+      setActionError('Cannot reset password: User ID and user key are missing.')
       return
     }
     if (!newPassword) {
@@ -3122,7 +3984,16 @@ function MetadataTable({
             {overlayColumns.map((column) => (
               <label key={column}>
                 <span>{columnLabels[column.toLowerCase()] ?? column}</span>
-                {column.toLowerCase() === 'coltype' && sourceKey === 'modlcolm' ? (
+                {column.toLowerCase() === 'actionguid' && sourceKey === 'modlmail' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">Select mail action</option>
+                    {mailActionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : column.toLowerCase() === 'coltype' && sourceKey === 'modlcolm' ? (
                   <select
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     disabled={!isEditing}
@@ -3152,8 +4023,14 @@ function MetadataTable({
                       ? userTokenOptions
                       : column.toLowerCase() === 'tokenenv'
                         ? moduleGroupTokenOptions
+                        : sourceKey === 'modlmail' && column.toLowerCase() === 'tokenstatus'
+                          ? mailStatusOptions
                         : []}
-                    inputLabel={column.toLowerCase() === 'tokenuser' ? 'User ID' : 'Module Group ID'}
+                    inputLabel={column.toLowerCase() === 'tokenuser'
+                      ? 'User ID'
+                      : sourceKey === 'modlmail' && column.toLowerCase() === 'tokenstatus'
+                        ? 'Mail Status'
+                        : 'Module Group ID'}
                     onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
                   />
                 ) : column.toLowerCase().startsWith('allexcept') ? (
@@ -3218,7 +4095,7 @@ function MetadataTable({
             <button type="button" onClick={saveDraft}>Save</button>
             {sourceKey === 'modlinfo'
               && !isCreating
-              && /^(view_|script_)/i.test(String(getCellValue(selectedRow, 'infokey') ?? '')) ? (
+              && /^(view(?:_|$)|script(?:_|$))/i.test(String(getCellValue(selectedRow, 'infokey') ?? '')) ? (
                 <button type="button" onClick={() => {
                   window.dispatchEvent(new CustomEvent('oph:open-metadata-query', {
                     detail: { databaseName: selection.databaseName, row: selectedRow },
@@ -3226,6 +4103,18 @@ function MetadataTable({
                   cancelEdit()
                 }}>
                   See in Query
+                </button>
+              ) : null}
+            {sourceKey === 'modlinfo'
+              && !isCreating
+              && /^dplx(?:_rpt)?$/i.test(String(getCellValue(selectedRow, 'infokey') ?? '')) ? (
+                <button type="button" onClick={() => {
+                  window.dispatchEvent(new CustomEvent('oph:open-report-designer', {
+                    detail: { databaseName: selection.databaseName, row: selectedRow },
+                  }))
+                  cancelEdit()
+                }}>
+                  Design Report
                 </button>
               ) : null}
             <button type="button" onClick={cancelEdit}>Cancel</button>
