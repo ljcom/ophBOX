@@ -118,6 +118,7 @@ export type OphTreeNode = {
   menuGuid?: string
   parameterGuid?: string
   moduleStatusGuid?: string
+  moduleGroupGuid?: string
   userGuid?: string
   userGroupGuid?: string
   settingMode?: number
@@ -139,6 +140,7 @@ export type WorkspaceSelection = {
   menuGuid?: string
   parameterGuid?: string
   moduleStatusGuid?: string
+  moduleGroupGuid?: string
   userGuid?: string
   userGroupGuid?: string
   settingMode?: number

@@ -51,6 +51,7 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     list_module_theme_pages: [],
     list_module_groups: [],
     list_all_module_groups: [],
+    list_module_group_info: [],
     list_themes: [],
     list_theme_pages: [],
     list_menus: [],
@@ -414,6 +415,7 @@ function buildDatabaseChildren(
   subAccountUserRows: MetadataRow[] = [],
   parameterRows: MetadataRow[] = [],
   moduleStatusRows: MetadataRow[] = [],
+  moduleGroupRows: MetadataRow[] = [],
 ): OphTreeNode[] {
   const accountId = getAccountId(database)
 
@@ -509,7 +511,19 @@ function buildDatabaseChildren(
             moduleStatusGuid: String(status.modulestatusguid ?? ''),
           })),
         },
-        { id: `${database.id}:modules:groups`, label: 'Module Groups', kind: 'module-category', accountId, databaseName: database.databaseName, databaseId: database.id },
+        {
+          id: `${database.id}:modules:groups`, label: 'Module Groups', kind: 'module-category', accountId, databaseName: database.databaseName, databaseId: database.id,
+          children: moduleGroupRows.map((group) => ({
+            id: `${database.id}:modules:groups:${String(group.modulegroupguid ?? '')}`,
+            label: String(group.modulegroupid ?? group.modulegroupname ?? ''),
+            description: String(group.modulegroupdescription ?? ''),
+            kind: 'module-category' as const,
+            accountId,
+            databaseName: database.databaseName,
+            databaseId: database.id,
+            moduleGroupGuid: String(group.modulegroupguid ?? ''),
+          })),
+        },
       ],
     },
     {
@@ -661,6 +675,7 @@ function buildTree(
   subAccountUserRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   parameterRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   moduleStatusRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  moduleGroupRowsByDatabaseId: Record<string, MetadataRow[]> = {},
 ): OphTreeNode {
   return {
     id: 'servers',
@@ -700,6 +715,7 @@ function buildTree(
             subAccountUserRowsByDatabaseId[database.id] ?? [],
             parameterRowsByDatabaseId[database.id] ?? [],
             moduleStatusRowsByDatabaseId[database.id] ?? [],
+            moduleGroupRowsByDatabaseId[database.id] ?? [],
           ),
         })),
     })),
@@ -935,6 +951,10 @@ async function listAllModuleGroups(config: OphConnectionConfig, databaseName: st
   return invoke<MetadataRow[]>('list_all_module_groups', { config, databaseName })
 }
 
+async function listModuleGroupInfo(config: OphConnectionConfig, databaseName: string, moduleGroupGuid: string): Promise<MetadataRow[]> {
+  return invoke<MetadataRow[]>('list_module_group_info', { config, databaseName, moduleGroupGuid })
+}
+
 async function listThemes(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_themes', { config, accountId, databaseName })
 }
@@ -986,6 +1006,7 @@ async function saveMetadataRow(
   menuGuid?: string,
   parameterGuid?: string,
   moduleStatusGuid?: string,
+  moduleGroupGuid?: string,
 ): Promise<void> {
   return invoke<void>('save_metadata_row', {
     config,
@@ -1002,6 +1023,7 @@ async function saveMetadataRow(
     menuGuid,
     parameterGuid,
     moduleStatusGuid,
+    moduleGroupGuid,
   })
 }
 
@@ -1097,6 +1119,7 @@ export const ophAdminService = {
   listModuleThemePages,
   listModuleGroups,
   listAllModuleGroups,
+  listModuleGroupInfo,
   listThemes,
   listThemePages,
   listMenus,

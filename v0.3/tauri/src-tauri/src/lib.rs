@@ -3,6 +3,7 @@ use std::{fs, path::PathBuf};
 use tauri::Manager;
 use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, Row};
 use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,6 +365,14 @@ fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
             parent_context: Some("accountId"),
             writable_columns: &["modulegroupid", "modulegroupname", "modulegroupdescription"],
         }),
+        "modginfo" => Some(CrudMapping {
+            table_name: "modginfo",
+            key_column: "envinfoguid",
+            key_field: "envinfoguid",
+            parent_column: Some("modulegroupguid"),
+            parent_context: Some("moduleGroupGuid"),
+            writable_columns: &["infokey", "infovalue"],
+        }),
         "menusmnu" => Some(CrudMapping {
             table_name: "menusmnu",
             key_column: "menudetailguid",
@@ -480,6 +489,7 @@ fn crud_mapping(source_table: &str) -> Option<CrudMapping> {
                 "moduleid",
                 "moduledescription",
                 "settingmode",
+                "parentmoduleguid",
                 "accountdbguid",
                 "orderno",
                 "needlogin",
@@ -657,6 +667,7 @@ async fn save_metadata_row(
     menu_guid: Option<String>,
     parameter_guid: Option<String>,
     module_status_guid: Option<String>,
+    module_group_guid: Option<String>,
 ) -> Result<(), String> {
     let mapping = crud_mapping(&source_table)
         .ok_or_else(|| format!("Save is not supported for {source_table} yet."))?;
@@ -688,6 +699,7 @@ async fn save_metadata_row(
             Some("menuGuid") => menu_guid.unwrap_or_default(),
             Some("parameterGuid") => parameter_guid.unwrap_or_default(),
             Some("moduleStatusGuid") => module_status_guid.unwrap_or_default(),
+            Some("moduleGroupGuid") => module_group_guid.unwrap_or_default(),
             _ => String::new(),
         };
 
@@ -730,10 +742,15 @@ async fn save_metadata_row(
         let assignments = mapping
             .writable_columns
             .iter()
+            .filter(|column| draft_field(&draft_row, column) != draft_field(&original_row, column))
             .map(|column| {
                 format!("{column} = {}", draft_sql_value(&draft_row, column))
             })
             .collect::<Vec<_>>();
+
+        if assignments.is_empty() {
+            return Ok(());
+        }
 
         format!(
             "update {} set {} where {} = N'{}'",
@@ -1776,14 +1793,12 @@ async fn reset_user_password(
     let resolved_user_guid = escape_sql_value(&read_string(user, "userguid"));
     let resolved_user_id = escape_sql_value(&read_string(user, "userid"));
 
-    client
-        .execute(
-            format!(
-                "exec gen.resetPassword null, N'{resolved_user_id}', '{resolved_user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
-            ),
-            &[],
-        )
+    let reset_query = format!(
+        "set lock_timeout 15000; exec gen.resetPassword null, N'{resolved_user_id}', '{resolved_user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
+    );
+    timeout(Duration::from_secs(20), client.execute(reset_query, &[]))
         .await
+        .map_err(|_| format!("Password reset for user {resolved_user_id} timed out after 20 seconds."))?
         .map_err(|error| format!("Cannot reset password for user {resolved_user_id}: {error}"))?;
 
     Ok(())
@@ -2111,6 +2126,7 @@ async fn list_child_modules(
                 m.moduleid,
                 m.moduledescription,
                 m.settingmode,
+                m.parentmoduleguid,
                 m.accountdbguid,
                 m.themepageguid,
                 m.modulestatusguid,
@@ -2526,6 +2542,33 @@ async fn list_all_module_groups(
 }
 
 #[tauri::command]
+async fn list_module_group_info(
+    config: OphConnectionConfig,
+    database_name: String,
+    module_group_guid: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let server = selected_server(&config)?;
+    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let module_group_guid = escape_sql_value(&module_group_guid);
+
+    query_json(
+        &mut client,
+        format!(
+            r#"
+            select (
+              select envinfoguid, modulegroupguid, infokey, infovalue
+              from modginfo
+              where modulegroupguid = N'{module_group_guid}'
+              order by infokey
+              for json path
+            ) as json
+            "#
+        ),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn list_themes(
     config: OphConnectionConfig,
     account_id: String,
@@ -2642,6 +2685,7 @@ async fn list_menu_submenus(
             select (
               select
                 menudetailguid,
+                menudetailguid as submenuguid,
                 menuguid,
                 submenudescription,
                 tag,
@@ -2654,7 +2698,7 @@ async fn list_menu_submenus(
                 icon_url
               from menusmnu
               where menuguid = N'{menu_guid}'
-              order by uppersubmenuguid, submenudescription
+              order by orderno, submenudescription
               for json path
             ) as json
             "#
@@ -2879,6 +2923,7 @@ pub fn run() {
             list_module_theme_pages,
             list_module_groups,
             list_all_module_groups,
+            list_module_group_info,
             list_themes,
             list_theme_pages,
             list_menus,

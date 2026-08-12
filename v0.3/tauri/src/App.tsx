@@ -1,28 +1,64 @@
 import {
   Activity,
   AlertTriangle,
+  BadgeDollarSign,
+  Banknote,
+  BarChart3,
+  BookOpen,
+  Boxes,
+  Building2,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
+  CreditCard,
   Database,
   FileCode2,
+  FileChartColumn,
+  FolderTree,
   Gauge,
+  GraduationCap,
+  HandCoins,
+  History,
+  House,
+  IdCard,
   KeyRound,
   Layers3,
+  LayoutDashboard,
+  Link,
+  ListChecks,
+  MessageSquare,
   MonitorCog,
+  Package,
+  PackageCheck,
   Pin,
   Play,
+  ReceiptText,
+  RefreshCw,
+  ShoppingBag,
+  ShoppingCart,
+  Store,
+  Target,
+  Truck,
   ArrowRight,
   Search,
   Server,
   Settings,
   ShieldCheck,
   Table2,
+  User,
+  UserPlus,
+  UserRoundCheck,
   UserRoundCog,
+  Users,
+  WalletCards,
+  Warehouse,
   X,
 } from 'lucide-react'
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ComponentType, ReactNode } from 'react'
+import menuIcons from './data/menu-icons.json'
 import { ophAdminService } from './services/mockOphAdminService'
 import type {
   OphConnectionConfig,
@@ -39,6 +75,50 @@ type MetricCardProps = {
   value: string
   detail: string
   onClick?: () => void
+}
+
+type MenuIconDefinition = {
+  key: string
+  label: string
+  component: string
+  aliases: string[]
+}
+
+const menuIconCatalog = menuIcons as MenuIconDefinition[]
+const moduleSettingModeOptions = [
+  { value: '0', label: 'Core' },
+  { value: '1', label: 'Master' },
+  { value: '4', label: 'Transaction' },
+  { value: '5', label: 'Report' },
+  { value: '6', label: 'Blank' },
+  { value: '7', label: 'View' },
+]
+const menuIconComponents: Record<string, ComponentType<{ size?: number; 'aria-hidden'?: boolean }>> = {
+  LayoutDashboard, House, Users, User, UserPlus, UserRoundCheck, IdCard, Store,
+  ShoppingCart, ShoppingBag, Package, Boxes, PackageCheck, Warehouse, Truck, Link,
+  Target, WalletCards, Banknote, HandCoins, BadgeDollarSign, CreditCard, ReceiptText,
+  BarChart3, FileChartColumn, History, MessageSquare, CalendarDays, FolderTree,
+  GraduationCap, BookOpen, Building2, ListChecks, ClipboardCheck, ShieldCheck,
+  Settings, Database,
+}
+
+function findMenuIcon(value: string) {
+  const normalizedValue = value.trim().toLowerCase()
+  return menuIconCatalog.find((icon) =>
+    icon.key.toLowerCase() === normalizedValue
+    || icon.aliases.some((alias) => alias.toLowerCase() === normalizedValue),
+  )
+}
+
+function MenuIcon({ value, withLabel = false }: { value: string; withLabel?: boolean }) {
+  const definition = findMenuIcon(value)
+  const Icon = definition ? menuIconComponents[definition.component] : null
+  return (
+    <span className="menu-icon-preview">
+      {Icon ? <Icon size={18} aria-hidden /> : <span className="menu-icon-placeholder">—</span>}
+      {withLabel ? <span>{definition?.label ?? (value || 'No icon')}</span> : null}
+    </span>
+  )
 }
 
 type SectionHeaderProps = {
@@ -158,6 +238,7 @@ function App() {
   const [subAccountUserRowsByDatabaseId, setSubAccountUserRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [parameterRowsByDatabaseId, setParameterRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [moduleStatusRowsByDatabaseId, setModuleStatusRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
+  const [moduleGroupRowsByDatabaseId, setModuleGroupRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [isAddingConnection, setIsAddingConnection] = useState(false)
   const [initialConnectionError, setInitialConnectionError] = useState('')
@@ -184,6 +265,7 @@ function App() {
         subAccountUserRowsByDatabaseId,
         parameterRowsByDatabaseId,
         moduleStatusRowsByDatabaseId,
+        moduleGroupRowsByDatabaseId,
       )
     },
     [
@@ -200,6 +282,7 @@ function App() {
       subAccountUserRowsByDatabaseId,
       parameterRowsByDatabaseId,
       moduleStatusRowsByDatabaseId,
+      moduleGroupRowsByDatabaseId,
     ],
   )
   const firstDatabase = tree?.children?.[0]?.children?.[0]
@@ -607,6 +690,17 @@ function App() {
     return Object.fromEntries(entries)
   }
 
+  async function loadModuleGroupRowsByDatabase(config: OphConnectionConfig, databases: OphDatabase[]) {
+    const entries = await Promise.all(databases.map(async (database) => {
+      try {
+        return [database.id, await ophAdminService.listModuleGroups(config, database.name, database.databaseName)] as const
+      } catch {
+        return [database.id, []] as const
+      }
+    }))
+    return Object.fromEntries(entries)
+  }
+
   async function activateConnection(config: OphConnectionConfig, preferredAccountId?: string) {
     const loadedDatabases = await ophAdminService.listOphDatabases(config)
     const loadedModuleRows = await loadModuleRowsByDatabase(config, loadedDatabases)
@@ -619,6 +713,7 @@ function App() {
     const loadedMenuRows = await loadMenuRowsByDatabase(config, loadedDatabases)
     const loadedParameterRows = await loadParameterRowsByDatabase(config, loadedDatabases)
     const loadedModuleStatusRows = await loadModuleStatusRowsByDatabase(config, loadedDatabases)
+    const loadedModuleGroupRows = await loadModuleGroupRowsByDatabase(config, loadedDatabases)
     const loadedTree = ophAdminService.buildTree(
       config,
       loadedDatabases,
@@ -632,6 +727,7 @@ function App() {
       loadedSubAccountUserRows,
       loadedParameterRows,
       loadedModuleStatusRows,
+      loadedModuleGroupRows,
     )
     const loadedDatabase = loadedTree.children?.[0]?.children?.find((database) =>
       preferredAccountId
@@ -650,6 +746,7 @@ function App() {
     setMenuRowsByDatabaseId(loadedMenuRows)
     setParameterRowsByDatabaseId(loadedParameterRows)
     setModuleStatusRowsByDatabaseId(loadedModuleStatusRows)
+    setModuleGroupRowsByDatabaseId(loadedModuleGroupRows)
     setInitialConnectionError('')
     setConnectionConfig(config)
     const restoredSelectionNode = preferredAccountId ? loadedDatabase : findTreeNode(loadedTree, selection.id)
@@ -735,6 +832,27 @@ function App() {
     }
   }
 
+  async function refreshModuleTreeNode(node: OphTreeNode) {
+    if (!connectionConfig || !node.databaseId) return
+    const database = discoveredDatabases.find((candidate) => candidate.id === node.databaseId)
+    if (!database) return
+
+    if (node.kind === 'module') {
+      const [modules, columns] = await Promise.all([
+        ophAdminService.listModuleTree(connectionConfig, database.name, database.databaseName),
+        ophAdminService.listModuleColumnTree(connectionConfig, database.name, database.databaseName),
+      ])
+      setModuleRowsByDatabaseId((current) => ({ ...current, [database.id]: modules }))
+      setColumnRowsByDatabaseId((current) => ({ ...current, [database.id]: columns }))
+      return
+    }
+
+    if (node.kind === 'module-column' || (node.kind === 'module-action' && node.label === 'Columns')) {
+      const columns = await ophAdminService.listModuleColumnTree(connectionConfig, database.name, database.databaseName)
+      setColumnRowsByDatabaseId((current) => ({ ...current, [database.id]: columns }))
+    }
+  }
+
   async function refreshServerConnection(serverId: string, expectedAccountId?: string) {
     if (!connectionConfig) return
     const nextConfig = { ...connectionConfig, selectedServerId: serverId }
@@ -815,6 +933,7 @@ function App() {
           selectionId={activeSelection.id}
           pinnedIds={new Set(pinnedTabs.map((tab) => tab.selection.id))}
           onPin={togglePinnedTab}
+          onRefresh={refreshModuleTreeNode}
           onSelect={(nextSelection) => {
           setSelection(nextSelection)
           setActiveTabId('main')
@@ -913,6 +1032,7 @@ function App() {
                 onRefreshConnection={refreshConnection}
                 onRefreshServer={refreshServerConnection}
                 onDeleteAccount={deleteAccount}
+                onRefreshTreeNode={refreshModuleTreeNode}
                 onNavigate={(nextSelection) => {
                   setSelection(nextSelection)
                   setActiveTabId('main')
@@ -1051,7 +1171,66 @@ function QueryWorkspace({
 }
 
 const dplxBandNames = ['template', 'header', 'detail', 'footer'] as const
-const dplxElementNames = new Set(['label', 'recordBox', 'rectangle', 'line', 'image', 'subReport'])
+const dplxElementNames = new Set(['label', 'symbol', 'recordBox', 'recordArea', 'rectangle', 'placeholder', 'line', 'image', 'subReport', 'contentGroup', 'formattedRecordArea', 'pageBreak', 'noSplitZone', 'softBreak', 'pageNumberingLabel'])
+
+type DplxRenderElement = {
+  element: Element
+  index: number
+  xOffset: number
+  yOffset: number
+}
+
+function collectDplxRenderElements(band: Element): DplxRenderElement[] {
+  const result: DplxRenderElement[] = []
+  Array.from(band.children).forEach((element, index) => {
+    if (!dplxElementNames.has(element.tagName)) return
+    result.push({ element, index, xOffset: 0, yOffset: 0 })
+    if (element.tagName !== 'contentGroup') return
+    const groupX = Number(element.getAttribute('x') ?? 0)
+    const groupY = Number(element.getAttribute('y') ?? 0)
+    Array.from(element.children).forEach((child) => {
+      if (dplxElementNames.has(child.tagName) && child.tagName !== 'contentGroup') {
+        result.push({ element: child, index, xOffset: groupX, yOffset: groupY })
+      }
+    })
+  })
+  return result
+}
+
+function dplxElementText(element: Element) {
+  if (element.tagName === 'label') return element.getAttribute('text') ?? ''
+  if (element.tagName === 'symbol') return element.getAttribute('text') || element.getAttribute('symbol') || '●'
+  if (['recordBox', 'recordArea'].includes(element.tagName)) return `[${element.getAttribute('field') || 'field'}]`
+  if (element.tagName === 'image') return `[Image: ${element.getAttribute('path') || 'Select image'}]`
+  if (element.tagName === 'pageNumberingLabel') return element.getAttribute('text') || 'Page %%CP%% of %%TP%%'
+  if (element.tagName === 'placeholder') return `[${element.getAttribute('name') || 'Placeholder'}]`
+  if (element.tagName === 'pageBreak') return 'Page Break'
+  if (element.tagName === 'noSplitZone') return 'No Split Zone'
+  if (element.tagName === 'softBreak') return 'Soft Break'
+  if (element.tagName === 'formattedRecordArea') {
+    const source = Array.from(element.children).find((child) => child.tagName === 'text')?.textContent ?? ''
+    const html = new DOMParser().parseFromString(source.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n'), 'text/html')
+    return (html.body.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+  }
+  return element.tagName === 'subReport' ? 'subReport' : ''
+}
+
+function DplxAttributeInput({ name, value, onChange }: { name: string; value: string; onChange: (value: string) => void }) {
+  if (!['x', 'y', 'x1', 'x2', 'y1', 'y2', 'width', 'height'].includes(name)) return <input value={value} onChange={(event) => onChange(event.target.value)} />
+  const adjust = (amount: number) => {
+    const current = Number(value)
+    onChange(String((Number.isFinite(current) ? current : 0) + amount))
+  }
+  return (
+    <div className="report-pixel-input">
+      <input type="number" step="any" value={value} onChange={(event) => onChange(event.target.value)} />
+      <div className="report-pixel-stepper">
+        <button type="button" aria-label={`Increase ${name} by 1 pixel`} onClick={() => adjust(1)}>▲</button>
+        <button type="button" aria-label={`Decrease ${name} by 1 pixel`} onClick={() => adjust(-1)}>▼</button>
+      </div>
+    </div>
+  )
+}
 
 function parseDplx(xml: string): { document: XMLDocument | null; report: Element | null; error: string } {
   if (!xml.trim()) return { document: null, report: null, error: 'DPLX XML is empty.' }
@@ -1076,6 +1255,11 @@ function ReportDesignerWorkspace({
   const [selectedElement, setSelectedElement] = useState<{ band: string; index: number } | null>(null)
   const [selectedSubReportBand, setSelectedSubReportBand] = useState<string | null>(null)
   const [selectedSubReportElement, setSelectedSubReportElement] = useState<{ band: string; index: number } | null>(null)
+  const [fieldType, setFieldType] = useState<'recordBox' | 'recordArea' | 'formattedRecordArea'>('recordBox')
+  const [labelType, setLabelType] = useState<'label' | 'symbol'>('label')
+  const [imageType, setImageType] = useState<'image' | 'placeholder'>('image')
+  const [breakType, setBreakType] = useState<'pageBreak' | 'noSplitZone' | 'softBreak'>('pageBreak')
+  const [previewZoom, setPreviewZoom] = useState(100)
   const parsed = useMemo(() => parseDplx(tab.xml), [tab.xml])
   const bands = parsed.report ? dplxBandNames.flatMap((name) => Array.from(parsed.report?.children ?? []).filter((child) => child.tagName === name)) : []
   const activeElement = selectedElement && parsed.report
@@ -1083,14 +1267,19 @@ function ReportDesignerWorkspace({
       .find((child) => child.tagName === selectedElement.band)
       ?.children.item(selectedElement.index) ?? null
     : null
-  const selectedSubReport = activeElement?.tagName === 'subReport' ? activeElement : null
+  const selectedSubReport = activeElement && ['subReport', 'contentGroup'].includes(activeElement.tagName) ? activeElement : null
+  const selectedContainerType = selectedSubReport?.tagName === 'contentGroup' ? 'Content Group' : 'Subreport'
   const activeSubReportBand = selectedSubReport && selectedSubReportBand
-    ? Array.from(selectedSubReport.children).find((child) => child.tagName === selectedSubReportBand) ?? null
+    ? selectedSubReport.tagName === 'contentGroup'
+      ? null
+      : Array.from(selectedSubReport.children).find((child) => child.tagName === selectedSubReportBand) ?? null
     : null
   const activeSubReportElement = selectedSubReport && selectedSubReportElement
-    ? Array.from(selectedSubReport.children)
-      .find((child) => child.tagName === selectedSubReportElement.band)
-      ?.children.item(selectedSubReportElement.index) ?? null
+    ? selectedSubReport.tagName === 'contentGroup'
+      ? selectedSubReport.children.item(selectedSubReportElement.index)
+      : Array.from(selectedSubReport.children)
+        .find((child) => child.tagName === selectedSubReportElement.band)
+        ?.children.item(selectedSubReportElement.index) ?? null
     : null
   const activeBand = !selectedElement && parsed.report && dplxBandNames.includes(selectedBand as typeof dplxBandNames[number])
     ? Array.from(parsed.report.children).find((child) => child.tagName === selectedBand) ?? null
@@ -1106,8 +1295,12 @@ function ReportDesignerWorkspace({
   const standardPage = pageSizes[reportPageSize] ?? pageSizes.letter
   const explicitWidth = Number(parsed.report?.getAttribute('pageWidth') || 0)
   const explicitHeight = Number(parsed.report?.getAttribute('pageHeight') || 0)
-  const baseWidth = explicitWidth > 0 ? explicitWidth : standardPage.width
-  const baseHeight = explicitHeight > 0 ? explicitHeight : standardPage.height
+  const declaredOrientation = String(parsed.report?.getAttribute('pageOrientation') || parsed.report?.getAttribute('orientation') || '').toLowerCase()
+  const orientedStandardPage = declaredOrientation === 'landscape'
+    ? { width: Math.max(standardPage.width, standardPage.height), height: Math.min(standardPage.width, standardPage.height) }
+    : standardPage
+  const baseWidth = explicitWidth > 0 ? explicitWidth : orientedStandardPage.width
+  const baseHeight = explicitHeight > 0 ? explicitHeight : orientedStandardPage.height
   const pageWidth = baseWidth
   const pageHeight = baseHeight
   const orientation = pageWidth > pageHeight ? 'landscape' : 'portrait'
@@ -1120,10 +1313,12 @@ function ReportDesignerWorkspace({
   const reportBodyWidth = Math.max(100, pageWidth - pageMargins.left - pageMargins.right)
   const reportBodyHeight = Math.max(100, pageHeight - pageMargins.top - pageMargins.bottom)
   const visibleBands = selectedSubReport
-    ? Array.from(selectedSubReport.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName) && Number(child.getAttribute('height') ?? 0) > 0)
+    ? selectedSubReport.tagName === 'contentGroup'
+      ? [selectedSubReport]
+      : Array.from(selectedSubReport.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName) && Number(child.getAttribute('height') ?? 0) > 0)
     : selectedBand === 'template'
       ? bands.filter((band) => band.tagName === 'template')
-      : bands.filter((band) => band.tagName !== 'template')
+      : bands.filter((band) => band.tagName !== 'template' && (!['header', 'footer'].includes(band.tagName) || Number(band.getAttribute('height') ?? 0) > 0))
   const previewBodyWidth = selectedSubReport
     ? Math.max(100, Number(selectedSubReport.getAttribute('width') || reportBodyWidth))
     : reportBodyWidth
@@ -1154,7 +1349,8 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportBand)?.setAttribute(name, value)
+      if (subReport?.tagName === 'contentGroup' && selectedSubReportBand === 'detail') subReport.setAttribute(name, value)
+      else Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportBand)?.setAttribute(name, value)
     })
   }
 
@@ -1163,7 +1359,9 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      const internalBand = Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
+      const internalBand = subReport?.tagName === 'contentGroup'
+        ? subReport
+        : Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
       internalBand?.children.item(selectedSubReportElement.index)?.setAttribute(name, value)
     })
   }
@@ -1173,7 +1371,9 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      const internalBand = Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
+      const internalBand = subReport?.tagName === 'contentGroup'
+        ? subReport
+        : Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
       internalBand?.children.item(selectedSubReportElement.index)?.remove()
     })
     setSelectedSubReportElement(null)
@@ -1292,7 +1492,7 @@ function ReportDesignerWorkspace({
     })
   }
 
-  function addElement(name: 'label' | 'recordBox' | 'rectangle' | 'line') {
+  function addElement(name: 'label' | 'symbol' | 'recordBox' | 'recordArea' | 'rectangle' | 'placeholder' | 'line' | 'image' | 'pageBreak' | 'noSplitZone' | 'softBreak' | 'pageNumberingLabel') {
     changeXml((document, report) => {
       let band = Array.from(report.children).find((child) => child.tagName === selectedBand)
       if (!band) {
@@ -1300,19 +1500,87 @@ function ReportDesignerWorkspace({
         if (selectedBand === 'detail') band.setAttribute('autoSplit', 'false')
         report.appendChild(band)
       }
+      const contentGroup = selectedSubReport?.tagName === 'contentGroup' && selectedElement
+        ? band.children.item(selectedElement.index)
+        : null
+      const target = contentGroup?.tagName === 'contentGroup' ? contentGroup : band
       const element = document.createElement(name)
-      if (name === 'line') {
+      if (['pageBreak', 'softBreak'].includes(name)) {
+        Object.entries({ x: '0', y: '40', width: String(reportBodyWidth), height: '2' }).forEach(([key, value]) => element.setAttribute(key, value))
+      } else if (name === 'noSplitZone') {
+        Object.entries({ x: '0', y: '20', width: String(reportBodyWidth), height: '80' }).forEach(([key, value]) => element.setAttribute(key, value))
+      } else if (name === 'line') {
         Object.entries({ x1: '20', y1: '20', x2: '160', y2: '20' }).forEach(([key, value]) => element.setAttribute(key, value))
       } else {
         Object.entries({ x: '20', y: '20', width: '140', height: '20' }).forEach(([key, value]) => element.setAttribute(key, value))
         if (name === 'label') element.setAttribute('text', 'New label')
-        if (name === 'recordBox') {
+        if (name === 'symbol') element.setAttribute('text', '●')
+        if (name === 'placeholder') element.setAttribute('name', 'Placeholder')
+        if (name === 'pageNumberingLabel') {
+          element.setAttribute('text', 'Page %%CP%% of %%TP%%')
+          element.setAttribute('align', 'right')
+          element.setAttribute('width', '200')
+        }
+        if (name === 'image') element.setAttribute('path', 'image.png')
+        if (['recordBox', 'recordArea'].includes(name)) {
           element.setAttribute('field', 'FieldName')
           element.setAttribute('expandable', 'false')
         }
       }
-      band.appendChild(element)
-      setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
+      target.appendChild(element)
+      if (target === band) setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
+      else {
+        setSelectedSubReportBand(null)
+        setSelectedSubReportElement({ band: 'contentGroup', index: target.children.length - 1 })
+      }
+    })
+  }
+
+  function addRecordArea() {
+    changeXml((document, report) => {
+      let band = Array.from(report.children).find((child) => child.tagName === selectedBand)
+      if (!band) {
+        band = document.createElement(selectedBand)
+        report.appendChild(band)
+      }
+      const contentGroup = selectedSubReport?.tagName === 'contentGroup' && selectedElement
+        ? band.children.item(selectedElement.index)
+        : null
+      const target = contentGroup?.tagName === 'contentGroup' ? contentGroup : band
+      const area = document.createElement('formattedRecordArea')
+      Object.entries({ x: '20', y: '20', width: '180', height: '40', expandable: 'true' }).forEach(([key, value]) => area.setAttribute(key, value))
+      const text = document.createElement('text')
+      text.appendChild(document.createCDATASection('<P>#FieldName#</P>'))
+      area.appendChild(text)
+      target.appendChild(area)
+      if (target === band) setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
+      else {
+        setSelectedSubReportBand(null)
+        setSelectedSubReportElement({ band: 'contentGroup', index: target.children.length - 1 })
+      }
+    })
+  }
+
+  function addField() {
+    if (fieldType === 'formattedRecordArea') addRecordArea()
+    else addElement(fieldType)
+  }
+
+  function addContentGroup() {
+    const targetBand = ['header', 'detail', 'footer'].includes(selectedBand) ? selectedBand : 'detail'
+    changeXml((document, report) => {
+      let band = Array.from(report.children).find((child) => child.tagName === targetBand)
+      if (!band) {
+        band = document.createElement(targetBand)
+        report.appendChild(band)
+      }
+      const group = document.createElement('contentGroup')
+      Object.entries({ x: '20', y: '20', width: '220', height: '100' }).forEach(([key, value]) => group.setAttribute(key, value))
+      band.appendChild(group)
+      setSelectedBand(targetBand)
+      setSelectedElement({ band: targetBand, index: band.children.length - 1 })
+      setSelectedSubReportBand(null)
+      setSelectedSubReportElement(null)
     })
   }
 
@@ -1360,6 +1628,13 @@ function ReportDesignerWorkspace({
           <small>{tab.databaseName} · database locked to metadata source</small>
         </div>
         <div className="report-designer-actions">
+          {mode === 'design' ? (
+            <div className="report-zoom-controls" aria-label="Preview zoom">
+              <button type="button" aria-label="Zoom out" disabled={previewZoom <= 25} onClick={() => setPreviewZoom((value) => Math.max(25, value - 25))}>−</button>
+              <button type="button" className="report-zoom-value" title="Reset zoom" onClick={() => setPreviewZoom(100)}>{previewZoom}%</button>
+              <button type="button" aria-label="Zoom in" disabled={previewZoom >= 200} onClick={() => setPreviewZoom((value) => Math.min(200, value + 25))}>+</button>
+            </div>
+          ) : null}
           <button type="button" className={mode === 'design' ? 'active-tool' : ''} onClick={() => setMode('design')}>Design</button>
           <button type="button" className={mode === 'xml' ? 'active-tool' : ''} onClick={() => setMode('xml')}>XML</button>
           <button type="button" disabled={tab.isSaving || Boolean(parsed.error)} onClick={onSave}>{tab.isSaving ? 'Saving…' : 'Save Report'}</button>
@@ -1377,18 +1652,18 @@ function ReportDesignerWorkspace({
             <strong>Bands</strong>
             {dplxBandNames.map((bandName) => {
               const band = parsed.report ? Array.from(parsed.report.children).find((child) => child.tagName === bandName) : null
-              const subReports = band ? Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => element.tagName === 'subReport') : []
+              const nestedContainers = band ? Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => ['subReport', 'contentGroup'].includes(element.tagName)) : []
               return (
                 <div key={bandName} className="report-band-tree-item">
                   <button type="button" className={selectedBand === bandName && !selectedElement ? 'active-tool' : ''} onClick={() => { setSelectedBand(bandName); setSelectedElement(null); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>{bandName}</button>
-                  {bandName !== 'template' ? subReports.map(({ element, index }, subReportIndex) => (
+                  {bandName !== 'template' ? nestedContainers.map(({ element, index }, containerIndex) => (
                     <div key={index} className="report-subreport-tree-item">
                       <button type="button" className={selectedBand === bandName && selectedElement?.index === index && !selectedSubReportBand ? 'active-tool report-subreport-active' : 'report-subreport-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>
-                        ↳ Subreport {subReportIndex + 1}
+                        ↳ {element.tagName === 'contentGroup' ? 'Content Group' : 'Subreport'} {containerIndex + 1}
                       </button>
-                      {Array.from(element.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName)).map((child) => (
-                        <button key={child.tagName} type="button" className={selectedBand === bandName && selectedElement?.index === index && selectedSubReportBand === child.tagName && !selectedSubReportElement ? 'report-subreport-band-button active-tool' : 'report-subreport-band-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(child.tagName); setSelectedSubReportElement(null) }}>
-                          {child.tagName}
+                      {(element.tagName === 'contentGroup' ? [] : Array.from(element.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName)).map((child) => child.tagName)).map((childName) => (
+                        <button key={childName} type="button" className={selectedBand === bandName && selectedElement?.index === index && selectedSubReportBand === childName && !selectedSubReportElement ? 'report-subreport-band-button active-tool' : 'report-subreport-band-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(childName); setSelectedSubReportElement(null) }}>
+                          {childName}
                         </button>
                       ))}
                     </div>
@@ -1397,23 +1672,57 @@ function ReportDesignerWorkspace({
               )
             })}
             <strong>Controls</strong>
-            <button type="button" onClick={() => addElement('label')}>+ Label</button>
-            <button type="button" onClick={() => addElement('recordBox')}>+ Field</button>
+            <label className="report-toolbox-field">
+              <span>Label type</span>
+              <select value={labelType} onChange={(event) => setLabelType(event.target.value as typeof labelType)}>
+                <option value="label">label</option>
+                <option value="symbol">symbol</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => addElement(labelType)}>+ Label</button>
+            <label className="report-toolbox-field">
+              <span>Field type</span>
+              <select value={fieldType} onChange={(event) => setFieldType(event.target.value as typeof fieldType)}>
+                <option value="recordBox">recordBox</option>
+                <option value="recordArea">recordArea</option>
+                <option value="formattedRecordArea">formattedRecordArea</option>
+              </select>
+            </label>
+            <button type="button" onClick={addField}>+ Field</button>
             <button type="button" onClick={() => addElement('rectangle')}>+ Rectangle</button>
+            <label className="report-toolbox-field">
+              <span>Break type</span>
+              <select value={breakType} onChange={(event) => setBreakType(event.target.value as typeof breakType)}>
+                <option value="pageBreak">pageBreak</option>
+                <option value="noSplitZone">noSplitZone</option>
+                <option value="softBreak">softBreak</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => addElement(breakType)}>+ Break</button>
+            <button type="button" onClick={() => addElement('pageNumberingLabel')}>+ Page Numbering</button>
             <button type="button" onClick={() => addElement('line')}>+ Line</button>
+            <label className="report-toolbox-field">
+              <span>Image type</span>
+              <select value={imageType} onChange={(event) => setImageType(event.target.value as typeof imageType)}>
+                <option value="image">image</option>
+                <option value="placeholder">placeholder</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => addElement(imageType)}>+ Image</button>
+            <button type="button" onClick={addContentGroup}>+ Content Group</button>
             <button type="button" onClick={addSubReport}>+ Subreport</button>
           </aside>
           <div className="report-canvas-scroll">
             <div
               className={`report-page-canvas ${selectedSubReport ? 'subreport-preview-canvas' : ''}`}
               style={selectedSubReport
-                ? { width: previewBodyWidth + 48, minHeight: 280, padding: 24 }
-                : { width: pageWidth, minHeight: pageHeight, padding: `${pageMargins.top}px ${pageMargins.right}px ${pageMargins.bottom}px ${pageMargins.left}px` }}
+                ? { width: previewBodyWidth + 48, minHeight: 280, padding: 24, zoom: `${previewZoom}%` }
+                : { width: pageWidth, minHeight: pageHeight, padding: `${pageMargins.top}px ${pageMargins.right}px ${pageMargins.bottom}px ${pageMargins.left}px`, zoom: `${previewZoom}%` }}
             >
-              {selectedSubReport ? <div className="subreport-preview-title">Subreport preview</div> : null}
+              {selectedSubReport ? <div className="subreport-preview-title">{selectedContainerType}</div> : null}
               {visibleBands.map((band) => {
-                const elements = Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => dplxElementNames.has(element.tagName))
-                const contentHeight = elements.reduce((max, { element }) => Math.max(max, Number(element.getAttribute('y') ?? element.getAttribute('y2') ?? 0) + Number(element.getAttribute('height') ?? 24)), 0)
+                const elements = collectDplxRenderElements(band)
+                const contentHeight = elements.reduce((max, { element, yOffset }) => Math.max(max, yOffset + Number(element.getAttribute('y') ?? element.getAttribute('y2') ?? 0) + Number(element.getAttribute('height') ?? 24)), 0)
                 const configuredBandHeight = Number(band.getAttribute('height') ?? 0)
                 const bandHeight = selectedSubReport
                   ? configuredBandHeight
@@ -1423,7 +1732,7 @@ function ReportDesignerWorkspace({
                 return (
                   <section key={band.tagName} className={`report-band ${selectedSubReport ? 'subreport-band' : ''} ${band.tagName === 'template' ? 'report-template-area' : ''} ${selectedSubReport ? selectedSubReportBand === band.tagName ? 'selected-report-band' : '' : selectedBand === band.tagName ? 'selected-report-band' : ''}`} style={{ width: previewBodyWidth, height: bandHeight }} onClick={() => {
                     if (selectedSubReport) {
-                      setSelectedSubReportBand(band.tagName)
+                      setSelectedSubReportBand(selectedSubReport.tagName === 'contentGroup' ? null : band.tagName)
                       setSelectedSubReportElement(null)
                     } else {
                       setSelectedBand(band.tagName)
@@ -1432,26 +1741,28 @@ function ReportDesignerWorkspace({
                       setSelectedSubReportElement(null)
                     }
                   }}>
-                    <span className="report-band-label">{band.tagName}</span>
-                    {elements.map(({ element, index }) => {
+                    {band.tagName !== 'contentGroup' ? <span className="report-band-label">{band.tagName}</span> : null}
+                    {elements.map(({ element, index, xOffset, yOffset }, renderIndex) => {
                       const isLine = element.tagName === 'line'
                       const x1 = Number(element.getAttribute('x1') ?? 0)
                       const y1 = Number(element.getAttribute('y1') ?? 0)
                       const x2 = Number(element.getAttribute('x2') ?? x1)
                       const y2 = Number(element.getAttribute('y2') ?? y1)
                       const verticalLine = isLine && Math.abs(y2 - y1) > Math.abs(x2 - x1)
-                      const x = isLine ? Math.min(x1, x2) : Number(element.getAttribute('x') ?? 0)
-                      const y = isLine ? Math.min(y1, y2) : Number(element.getAttribute('y') ?? 0)
+                      const x = xOffset + (isLine ? Math.min(x1, x2) : Number(element.getAttribute('x') ?? 0))
+                      const y = yOffset + (isLine ? Math.min(y1, y2) : Number(element.getAttribute('y') ?? 0))
                       const width = isLine ? Math.max(1, Math.abs(x2 - x1)) : Number(element.getAttribute('width') ?? 120)
                       const height = isLine ? Math.max(1, Math.abs(y2 - y1)) : Number(element.getAttribute('height') ?? 20)
-                      const text = element.tagName === 'label' ? element.getAttribute('text') : element.tagName === 'recordBox' ? `[${element.getAttribute('field') || 'field'}]` : element.tagName
+                      const text = dplxElementText(element)
                       const selected = selectedSubReport
                         ? selectedSubReportElement?.band === band.tagName && selectedSubReportElement.index === index
                         : selectedElement?.band === band.tagName && selectedElement.index === index
-                      return <button key={`${element.tagName}-${index}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height }} onClick={(event) => {
+                      const fontSize = Number(element.getAttribute('fontSize') || 10)
+                      const align = element.getAttribute('align') as 'left' | 'center' | 'right' | null
+                      return <button key={`${element.tagName}-${index}-${renderIndex}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height, fontSize, textAlign: align ?? 'left', fontWeight: /bold/i.test(element.getAttribute('font') ?? '') ? 700 : undefined, backgroundColor: element.getAttribute('fillColor') || undefined, borderColor: element.getAttribute('borderColor') || undefined }} onClick={(event) => {
                         event.stopPropagation()
                         if (selectedSubReport) {
-                          setSelectedSubReportBand(band.tagName)
+                          setSelectedSubReportBand(selectedSubReport.tagName === 'contentGroup' ? null : band.tagName)
                           setSelectedSubReportElement({ band: band.tagName, index })
                         } else {
                           setSelectedBand(band.tagName)
@@ -1470,14 +1781,14 @@ function ReportDesignerWorkspace({
             <strong>Properties</strong>
             {activeSubReportElement ? (
               <>
-                <span className="report-element-type">Subreport {activeSubReportElement.tagName}</span>
+                <span className="report-element-type">{selectedContainerType} {activeSubReportElement.tagName}</span>
                 {Array.from(activeSubReportElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
                   <label key={attribute.name}>
                     <span>{attribute.name}</span>
-                    <input value={attribute.value} onChange={(event) => updateSubReportElementAttribute(attribute.name, event.target.value)} />
+                    <DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateSubReportElementAttribute(attribute.name, value)} />
                   </label>
                 ))}
-                {activeSubReportElement.tagName === 'recordBox' ? (
+                {['recordBox', 'recordArea', 'formattedRecordArea'].includes(activeSubReportElement.tagName) ? (
                   <label><span>expandable</span><select value={activeSubReportElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateSubReportElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateSubReportElementAttribute('fontSize', '10')}>Add fontSize</button></label>
@@ -1485,28 +1796,28 @@ function ReportDesignerWorkspace({
               </>
             ) : activeSubReportBand ? (
               <>
-                <span className="report-element-type">Subreport {activeSubReportBand.tagName} Band</span>
+                <span className="report-element-type">{selectedContainerType} Detail</span>
                 {Array.from(activeSubReportBand.attributes).filter((attribute) => attribute.name !== 'autoSplit').map((attribute) => (
                   <label key={attribute.name}>
                     <span>{attribute.name}</span>
-                    <input value={attribute.value} onChange={(event) => updateSubReportBandAttribute(attribute.name, event.target.value)} />
+                    <DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateSubReportBandAttribute(attribute.name, value)} />
                   </label>
                 ))}
-                {activeSubReportBand.tagName === 'detail' ? (
+                {activeSubReportBand.tagName === 'detail' && selectedSubReport?.tagName === 'subReport' ? (
                   <label><span>autoSplit</span><select value={activeSubReportBand.getAttribute('autoSplit') ?? 'false'} onChange={(event) => updateSubReportBandAttribute('autoSplit', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
                 ) : null}
                 {!activeSubReportBand.hasAttribute('height') ? (
                   <label><span>Height</span><button type="button" onClick={() => updateSubReportBandAttribute('height', '40')}>Add height</button></label>
                 ) : null}
-                {activeSubReportBand.attributes.length === 0 ? <p>This Subreport band has no XML attributes yet.</p> : null}
+                {activeSubReportBand.attributes.length === 0 ? <p>This {selectedContainerType} detail has no XML attributes yet.</p> : null}
               </>
             ) : activeElement ? (
               <>
                 <span className="report-element-type">{activeElement.tagName}</span>
                 {Array.from(activeElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
-                  <label key={attribute.name}><span>{attribute.name}</span><input value={attribute.value} onChange={(event) => updateElementAttribute(attribute.name, event.target.value)} /></label>
+                  <label key={attribute.name}><span>{attribute.name}</span><DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateElementAttribute(attribute.name, value)} /></label>
                 ))}
-                {activeElement.tagName === 'recordBox' ? (
+                {['recordBox', 'recordArea', 'formattedRecordArea'].includes(activeElement.tagName) ? (
                   <label><span>expandable</span><select value={activeElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateElementAttribute('fontSize', '10')}>Add fontSize</button></label>
@@ -1548,7 +1859,7 @@ function ReportDesignerWorkspace({
                 {Array.from(activeBand.attributes).filter((attribute) => attribute.name !== 'autoSplit').map((attribute) => (
                   <label key={attribute.name}>
                     <span>{attribute.name}</span>
-                    <input value={attribute.value} onChange={(event) => updateBandAttribute(attribute.name, event.target.value)} />
+                    <DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateBandAttribute(attribute.name, value)} />
                   </label>
                 ))}
                 {activeBand.tagName === 'detail' ? (
@@ -1719,15 +2030,33 @@ function TreeView({
   selectionId,
   pinnedIds,
   onPin,
+  onRefresh,
   onSelect,
 }: {
   root: OphTreeNode
   selectionId: string
   pinnedIds: Set<string>
   onPin: (selection: WorkspaceSelection) => void
+  onRefresh: (node: OphTreeNode) => Promise<void>
   onSelect: (selection: WorkspaceSelection) => void
 }) {
   const treeViewRef = useRef<HTMLDivElement>(null)
+  const [treeSearch, setTreeSearch] = useState('')
+  const normalizedTreeSearch = treeSearch.trim().toLocaleLowerCase()
+  const treeSearchResults = useMemo(() => {
+    if (!normalizedTreeSearch) return []
+    const results: Array<{ node: OphTreeNode; path: string[] }> = []
+    function collect(node: OphTreeNode, parentPath: string[]) {
+      const path = node.kind === 'root' || node.kind === 'server' ? parentPath : [...parentPath, node.label]
+      const searchable = `${path.join(' ')} ${node.description ?? ''}`.toLocaleLowerCase()
+      if (node.kind !== 'root' && node.kind !== 'server' && searchable.includes(normalizedTreeSearch)) {
+        results.push({ node, path })
+      }
+      node.children?.forEach((child) => collect(child, path))
+    }
+    collect(root, [])
+    return results.slice(0, 100)
+  }, [normalizedTreeSearch, root])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -1741,8 +2070,42 @@ function TreeView({
   }, [selectionId])
 
   return (
-    <div ref={treeViewRef} className="tree-view">
-      <TreeNodeView node={root} depth={0} selectionId={selectionId} pinnedIds={pinnedIds} onPin={onPin} onSelect={onSelect} />
+    <div className="tree-view-shell">
+      <label className="tree-search">
+        <Search size={15} />
+        <input
+          type="search"
+          value={treeSearch}
+          placeholder="Search tree..."
+          aria-label="Search tree"
+          onChange={(event) => setTreeSearch(event.target.value)}
+        />
+        {treeSearch ? <button type="button" aria-label="Clear tree search" onClick={() => setTreeSearch('')}><X size={13} /></button> : null}
+      </label>
+      <div ref={treeViewRef} className="tree-view">
+        {normalizedTreeSearch ? (
+          treeSearchResults.length > 0 ? (
+            <div className="tree-search-results">
+              <span className="tree-search-result-count">{treeSearchResults.length} result(s)</span>
+              {treeSearchResults.map(({ node, path }) => {
+                const ResultIcon = treeIcons[node.kind]
+                return (
+                  <button type="button" key={node.id} className="tree-search-result" onClick={() => onSelect(workspaceSelectionFromNode(node))}>
+                    <ResultIcon size={16} />
+                    <span>
+                      <strong>{node.label}</strong>
+                      <small>{path.join(' : ')}</small>
+                      {node.description ? <small className="tree-search-result-description">{node.description}</small> : null}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : <div className="tree-search-empty">No matching nodes.</div>
+        ) : (
+          <TreeNodeView node={root} depth={0} selectionId={selectionId} pinnedIds={pinnedIds} onPin={onPin} onRefresh={onRefresh} onSelect={onSelect} />
+        )}
+      </div>
     </div>
   )
 }
@@ -1763,6 +2126,7 @@ function workspaceSelectionFromNode(node: OphTreeNode): WorkspaceSelection {
     menuGuid: node.menuGuid,
     parameterGuid: node.parameterGuid,
     moduleStatusGuid: node.moduleStatusGuid,
+    moduleGroupGuid: node.moduleGroupGuid,
     userGuid: node.userGuid,
     userGroupGuid: node.userGroupGuid,
     settingMode: node.settingMode,
@@ -1772,22 +2136,27 @@ function workspaceSelectionFromNode(node: OphTreeNode): WorkspaceSelection {
 function TreeNodeView({
   node,
   depth,
+  expandAll = false,
   selectionId,
   pinnedIds,
   onPin,
+  onRefresh,
   onSelect,
 }: {
   node: OphTreeNode
   depth: number
+  expandAll?: boolean
   selectionId: string
   pinnedIds: Set<string>
   onPin: (selection: WorkspaceSelection) => void
+  onRefresh: (node: OphTreeNode) => Promise<void>
   onSelect: (selection: WorkspaceSelection) => void
 }) {
   const [expanded, setExpanded] = useState(depth < 2)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const hasChildren = Boolean(node.children?.length)
   const containsSelection = Boolean(findTreeNode(node, selectionId))
-  const isExpanded = expanded || (containsSelection && node.id !== selectionId)
+  const isExpanded = expandAll || expanded || (containsSelection && node.id !== selectionId)
   const Icon = treeIcons[node.kind]
 
   function nodeSelection(): WorkspaceSelection {
@@ -1818,6 +2187,23 @@ function TreeNodeView({
           <strong>{node.label}</strong>
           {node.description ? <small>{node.description}</small> : null}
         </span>
+        {node.kind === 'module' || node.kind === 'module-column' ? (
+          <span
+            role="button"
+            tabIndex={0}
+            className="tree-refresh-button"
+            aria-label={`Refresh ${node.label}`}
+            title={`Refresh ${node.kind === 'module' ? 'module and column' : 'column'} tree`}
+            onClick={(event) => {
+              event.stopPropagation()
+              if (isRefreshing) return
+              setIsRefreshing(true)
+              void onRefresh(node).finally(() => setIsRefreshing(false))
+            }}
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'tree-refresh-spinning' : ''} />
+          </span>
+        ) : <span />}
         <span
           role="button"
           tabIndex={0}
@@ -1846,9 +2232,11 @@ function TreeNodeView({
               key={child.id}
               node={child}
               depth={depth + 1}
+              expandAll={expandAll}
               selectionId={selectionId}
               pinnedIds={pinnedIds}
               onPin={onPin}
+              onRefresh={onRefresh}
               onSelect={onSelect}
             />
           ))}
@@ -1878,6 +2266,7 @@ function Workspace({
   onRefreshConnection,
   onRefreshServer,
   onDeleteAccount,
+  onRefreshTreeNode,
   onNavigate,
   selection,
   servers,
@@ -1889,6 +2278,7 @@ function Workspace({
   onRefreshConnection: () => void | Promise<void>
   onRefreshServer: (serverId: string, expectedAccountId?: string) => void | Promise<void>
   onDeleteAccount: (serverId: string, accountId: string) => void | Promise<void>
+  onRefreshTreeNode: (node: OphTreeNode) => Promise<void>
   onNavigate: (selection: WorkspaceSelection) => void
   selection: WorkspaceSelection
   servers: OphServer[]
@@ -1938,6 +2328,10 @@ function Workspace({
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleInfo(config, accountId, databaseName, selection.moduleGuid ?? '')
         }
+        onRefreshTree={() => {
+          const node = findTreeNode(tree, selection.id)
+          return node ? onRefreshTreeNode(node) : Promise.resolve()
+        }}
       />
     )
   }
@@ -1952,6 +2346,10 @@ function Workspace({
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleColumns(config, accountId, databaseName, selection.moduleGuid ?? '')
         }
+        onRefreshTree={() => {
+          const node = findTreeNode(tree, selection.id)
+          return node ? onRefreshTreeNode(node) : Promise.resolve()
+        }}
       />
     )
   }
@@ -1966,6 +2364,10 @@ function Workspace({
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleColumnInfo(config, accountId, databaseName, selection.columnGuid ?? '')
         }
+        onRefreshTree={() => {
+          const node = findTreeNode(tree, selection.id)
+          return node ? onRefreshTreeNode(node) : Promise.resolve()
+        }}
       />
     )
   }
@@ -2031,6 +2433,20 @@ function Workspace({
   }
 
   if (selection.kind === 'modules' || selection.kind === 'module-category') {
+    if (selection.moduleGroupGuid) {
+      return (
+        <MetadataWorkspace
+          config={connectionConfig}
+          selection={selection}
+          title={`${selection.label} Info`}
+          sourceTable="modginfo"
+          loadRows={(config, _accountId, databaseName) =>
+            ophAdminService.listModuleGroupInfo(config, databaseName, selection.moduleGroupGuid ?? '')
+          }
+        />
+      )
+    }
+
     if (selection.moduleStatusGuid) {
       return (
         <MetadataWorkspace
@@ -2735,12 +3151,14 @@ function MetadataWorkspace({
   title,
   sourceTable,
   loadRows,
+  onRefreshTree,
 }: {
   config: OphConnectionConfig
   selection: WorkspaceSelection
   title: string
   sourceTable: string
   loadRows: (config: OphConnectionConfig, accountId: string, databaseName: string) => Promise<MetadataRow[]>
+  onRefreshTree?: () => void | Promise<void>
 }) {
   const [rows, setRows] = useState<MetadataRow[]>([])
   const [error, setError] = useState('')
@@ -2786,6 +3204,23 @@ function MetadataWorkspace({
     }
   }, [config, loadRows, selection.accountId, selection.databaseName])
 
+  async function refreshWorkspace() {
+    if (!selection.accountId || !selection.databaseName) return
+    setIsLoading(true)
+    setError('')
+    try {
+      const [loadedRows] = await Promise.all([
+        loadRows(config, selection.accountId, selection.databaseName),
+        onRefreshTree?.(),
+      ])
+      setRows(loadedRows)
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
     <div className="page-stack">
       <SectionHeader
@@ -2793,6 +3228,7 @@ function MetadataWorkspace({
         title={selection.label}
         description={`Loaded from ${sourceTable} in ${selection.databaseName}.`}
         action="Refresh"
+        onAction={() => { void refreshWorkspace() }}
         onTitleClick={parentDetailSource ? () => setIsParentDetailOpen(true) : undefined}
       />
       {isLoading ? <div className="empty-result">Loading metadata...</div> : null}
@@ -2962,6 +3398,7 @@ function ModuleDetailOverlay({
     'moduleid',
     'moduledescription',
     'settingmode',
+    'parentmoduleguid',
     'accountdbguid',
     'orderno',
     'needlogin',
@@ -2973,6 +3410,7 @@ function ModuleDetailOverlay({
     moduleid: 'Module ID',
     moduledescription: 'Module Description',
     settingmode: 'Setting Mode',
+    parentmoduleguid: 'Parent Module',
     accountdbguid: 'Account DB',
     orderno: 'Order No',
     needlogin: 'Need Login',
@@ -3000,13 +3438,20 @@ function ModuleDetailOverlay({
       ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName),
       ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName),
       ophAdminService.listModuleThemePages(config, selection.accountId, selection.databaseName),
-    ]).then(([modules, statuses, groups, databases, themePages]) => {
+      ophAdminService.listModuleTree(config, selection.accountId, selection.databaseName),
+    ]).then(([modules, statuses, groups, databases, themePages, allModules]) => {
       if (cancelled) return
       const moduleRow = modules.find((row) => rowValue(row, 'moduleguid') === selection.moduleGuid)
       if (!moduleRow) throw new Error(`Module ${selection.label} was not found.`)
       setOriginalRow(moduleRow)
       setDraft(Object.fromEntries(fields.map((field) => [field, rowValue(moduleRow, field)])))
       setOptions({
+        parentmoduleguid: allModules
+          .filter((row) => rowValue(row, 'moduleguid') !== selection.moduleGuid)
+          .map((row) => ({
+            value: rowValue(row, 'moduleguid'),
+            label: [rowValue(row, 'moduleid'), rowValue(row, 'moduledescription')].filter(Boolean).join(' — '),
+          })),
         accountdbguid: databases.map((row) => ({ value: rowValue(row, 'accountdbguid'), label: rowValue(row, 'databasename') || rowValue(row, 'accountdbguid') })),
         themepageguid: themePages.map((row) => ({ value: rowValue(row, 'themepageguid'), label: [rowValue(row, 'themecode'), rowValue(row, 'pageurl')].filter(Boolean).join(' — ') })),
         modulestatusguid: statuses.map((row) => ({ value: rowValue(row, 'modulestatusguid'), label: rowValue(row, 'modulestatusname') || rowValue(row, 'modulestatusguid') })),
@@ -3067,7 +3512,7 @@ function ModuleDetailOverlay({
                   <CheckboxInput value={draft[field] ?? ''} readOnly={isSaving} onChange={(value) => setDraft((current) => ({ ...current, [field]: value }))} />
                 ) : field === 'settingmode' ? (
                   <select value={draft[field] ?? ''} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}>
-                    <option value="0">Core</option><option value="1">Master</option><option value="4">Transaction</option><option value="5">Report</option><option value="6">Blank</option><option value="7">View</option>
+                    {moduleSettingModeOptions.map((option) => <option key={option.value} value={option.value}>{option.value} — {option.label}</option>)}
                   </select>
                 ) : options[field] ? (
                   <select value={draft[field] ?? ''} disabled={isSaving} onChange={(event) => setDraft((current) => ({ ...current, [field]: event.target.value }))}>
@@ -3203,6 +3648,9 @@ function MetadataTable({
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isResettingPassword, setIsResettingPassword] = useState(false)
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [listSearch, setListSearch] = useState('')
   const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
@@ -3342,6 +3790,10 @@ function MetadataTable({
     themepageguid: 'Theme Page',
     modulestatusguid: 'Module Status',
     modulegroupguid: 'Module Group',
+    uppersubmenuguid: 'Upper Submenu',
+    type: 'Menu Type',
+    icon_fa: 'Menu Icon',
+    icon_url: 'Icon URL',
   }
   const hiddenColumns = new Set([
     'accountguid',
@@ -3356,12 +3808,14 @@ function MetadataTable({
     'moduleguid',
     'columnguid',
     'moduleinfoguid',
+    'envinfoguid',
     'columninfoguid',
     'approvalguid',
     'docnumberguid',
     'modulemailguid',
     'modulestatusdetailguid',
     'parentmoduleguid',
+    'submenuguid',
     'accountdbguid',
     'themepageguid',
     'themeguid',
@@ -3400,9 +3854,50 @@ function MetadataTable({
     setActionNotice('')
     setNewPassword('')
     setConfirmPassword('')
+    setListSearch('')
+    setIsBulkDeleteOpen(false)
   }, [rows])
 
-  const allRowsChecked = tableRows.length > 0 && checkedRowIndexes.size === tableRows.length
+  const sourceKey = sourceTable.toLowerCase()
+  const normalizedListSearch = listSearch.trim().toLocaleLowerCase()
+  const displayedRows = tableRows
+    .map((row, originalIndex) => ({ row, originalIndex }))
+    .filter(({ row }) => !normalizedListSearch || Object.values(row).some((value) =>
+      String(value ?? '').toLocaleLowerCase().includes(normalizedListSearch),
+    ))
+  const submenuOptions = sourceKey === 'menusmnu'
+    ? tableRows
+      .filter((row) => ['treeview', 'treeroot'].includes(String(getCellValue(row, 'type') ?? '').toLowerCase()))
+      .map((row) => ({
+        value: String(getCellValue(row, 'submenuguid') ?? getCellValue(row, 'menudetailguid') ?? ''),
+        label: String(getCellValue(row, 'submenudescription') ?? getCellValue(row, 'caption') ?? ''),
+      }))
+      .filter((option) => option.value && option.label)
+    : []
+  const menuTypeOptions = [
+    { value: 'label', label: 'Label' },
+    { value: 'treeview', label: 'Treeview' },
+    { value: 'disable', label: 'Disable' },
+  ]
+  function displayCellValue(row: MetadataRow, column: string) {
+    const value = String(getCellValue(row, column) ?? '')
+    if (sourceKey === 'menusmnu' && column.toLowerCase() === 'uppersubmenuguid') {
+      return submenuOptions.find((option) => option.value.toLowerCase() === value.toLowerCase())?.label ?? value
+    }
+    if (sourceKey === 'menusmnu' && column.toLowerCase() === 'type') {
+      return menuTypeOptions.find((option) => option.value === value.toLowerCase())?.label ?? value
+    }
+    if (sourceKey === 'menusmnu' && column.toLowerCase() === 'icon_fa') {
+      return <MenuIcon value={value} withLabel />
+    }
+    if (sourceKey === 'modl' && column.toLowerCase() === 'settingmode') {
+      const option = moduleSettingModeOptions.find((candidate) => candidate.value === value)
+      return option ? `${option.value} — ${option.label}` : value
+    }
+    return value
+  }
+  const allRowsChecked = displayedRows.length > 0
+    && displayedRows.every(({ originalIndex }) => checkedRowIndexes.has(originalIndex))
 
   function toggleRowChecked(index: number) {
     setCheckedRowIndexes((currentIndexes) => {
@@ -3414,7 +3909,14 @@ function MetadataTable({
   }
 
   function toggleAllRows() {
-    setCheckedRowIndexes(allRowsChecked ? new Set() : new Set(tableRows.map((_, index) => index)))
+    setCheckedRowIndexes((currentIndexes) => {
+      const nextIndexes = new Set(currentIndexes)
+      displayedRows.forEach(({ originalIndex }) => {
+        if (allRowsChecked) nextIndexes.delete(originalIndex)
+        else nextIndexes.add(originalIndex)
+      })
+      return nextIndexes
+    })
   }
 
   async function openCopyTo() {
@@ -3516,9 +4018,8 @@ function MetadataTable({
   }
 
   const rowColumns = Array.from(new Set(tableRows.flatMap((row) => Object.keys(row))))
-  const sourceKey = sourceTable.toLowerCase()
   useEffect(() => {
-    if (sourceKey !== 'ugrp' || !selection.accountId || !selection.databaseName) {
+    if (sourceKey !== 'ugrp' || !selection.databaseName) {
       setUserTokenOptions([])
       return
     }
@@ -3539,7 +4040,7 @@ function MetadataTable({
     return () => {
       cancelled = true
     }
-  }, [config, selection.accountId, selection.databaseName, sourceKey])
+  }, [config, selection.databaseName, sourceKey])
   useEffect(() => {
     if (sourceKey !== 'modlmail' || !selection.accountId || !selection.databaseName) {
       setMailActionOptions([])
@@ -3599,7 +4100,7 @@ function MetadataTable({
     }
   }, [config, selection.databaseName, sourceKey])
   useEffect(() => {
-    if (!selection.accountId || !selection.databaseName || !['modl', 'modlappr'].includes(sourceKey)) {
+    if (!selection.accountId || !selection.databaseName || !['modl', 'modlappr', 'ugrpmodl'].includes(sourceKey)) {
       setModuleRelationOptions({})
       return
     }
@@ -3627,14 +4128,39 @@ function MetadataTable({
       }
     }
 
+    if (sourceKey === 'ugrpmodl') {
+      ophAdminService.listModuleTree(config, selection.accountId, selection.databaseName)
+        .then((modules) => {
+          if (cancelled) return
+          setModuleRelationOptions({
+            moduleguid: modules.map((row) => ({
+              value: String(row.moduleguid ?? ''),
+              label: [row.moduleid, row.moduledescription].filter(Boolean).join(' — ') || String(row.moduleguid ?? ''),
+            })).filter((option) => option.value),
+          })
+        })
+        .catch(() => {
+          if (!cancelled) setModuleRelationOptions({})
+        })
+
+      return () => {
+        cancelled = true
+      }
+    }
+
     Promise.all([
       ophAdminService.listModuleStatuses(config, selection.accountId, selection.databaseName),
       ophAdminService.listModuleGroups(config, selection.accountId, selection.databaseName),
       ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName),
       ophAdminService.listModuleThemePages(config, selection.accountId, selection.databaseName),
-    ]).then(([statuses, groups, accountDatabases, themePages]) => {
+      ophAdminService.listModuleTree(config, selection.accountId, selection.databaseName),
+    ]).then(([statuses, groups, accountDatabases, themePages, modules]) => {
       if (cancelled) return
       setModuleRelationOptions({
+        parentmoduleguid: modules.map((row) => ({
+          value: String(row.moduleguid ?? ''),
+          label: [row.moduleid, row.moduledescription].filter(Boolean).join(' — ') || String(row.moduleguid ?? ''),
+        })),
         modulestatusguid: statuses.map((row) => ({
           value: String(row.modulestatusguid ?? ''),
           label: String(row.modulestatusname ?? row.modulestatusguid ?? ''),
@@ -3661,7 +4187,7 @@ function MetadataTable({
     }
   }, [config, selection.accountId, selection.databaseName, sourceKey])
   useEffect(() => {
-    if (sourceKey !== 'ugrp' || !selection.accountId || !selection.databaseName) {
+    if (sourceKey !== 'ugrp' || !selection.databaseName) {
       setModuleGroupTokenOptions([])
       return
     }
@@ -3682,7 +4208,7 @@ function MetadataTable({
     return () => {
       cancelled = true
     }
-  }, [config, selection.accountId, selection.databaseName, sourceKey])
+  }, [config, selection.databaseName, sourceKey])
   const allowedColumns = visibleColumnMap[sourceKey]
   const columns = allowedColumns
     ? rowColumns.length === 0
@@ -3701,7 +4227,7 @@ function MetadataTable({
     ugrp: ['groupid', 'groupdescription', 'allexceptuser', 'tokenuser', 'allexceptenv', 'tokenenv', 'allexceptmodule'],
     ugrpmodl: ['moduleguid', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
     widg: ['widgetid', 'widgetdescription', 'sqlstr'],
-    modl: ['moduleid', 'moduledescription', 'settingmode', 'accountdbguid', 'orderno', 'needlogin', 'themepageguid', 'modulestatusguid', 'modulegroupguid'],
+    modl: ['moduleid', 'moduledescription', 'settingmode', 'parentmoduleguid', 'accountdbguid', 'orderno', 'needlogin', 'themepageguid', 'modulestatusguid', 'modulegroupguid'],
     modlappr: ['approvalgroupguid', 'uppergroupguid', 'lvl', 'sqlfilter', 'zonegroup'],
     modlmail: ['mailguid', 'actionguid', 'tokenstatus', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
   }
@@ -3792,6 +4318,7 @@ function MetadataTable({
         selection.menuGuid,
         selection.parameterGuid,
         selection.moduleStatusGuid,
+        selection.moduleGroupGuid,
       )
     } catch (saveError) {
       setActionError(saveError instanceof Error ? saveError.message : String(saveError))
@@ -3862,6 +4389,40 @@ function MetadataTable({
     setActionError('')
   }
 
+  async function deleteCheckedRows() {
+    if (!selection.databaseName || checkedRowIndexes.size === 0) return
+    setIsBulkDeleting(true)
+    setActionError('')
+    setActionNotice('')
+    const selectedEntries = Array.from(checkedRowIndexes)
+      .sort((left, right) => left - right)
+      .map((index) => ({ index, row: tableRows[index] }))
+      .filter((entry): entry is { index: number; row: MetadataRow } => Boolean(entry.row))
+    const deletedIndexes = new Set<number>()
+    const failures: string[] = []
+
+    for (const entry of selectedEntries) {
+      try {
+        await ophAdminService.deleteMetadataRow(config, selection.databaseName, sourceTable, entry.row)
+        deletedIndexes.add(entry.index)
+      } catch (deleteError) {
+        failures.push(deleteError instanceof Error ? deleteError.message : String(deleteError))
+      }
+    }
+
+    setTableRows((currentRows) => currentRows.filter((_, index) => !deletedIndexes.has(index)))
+    setCheckedRowIndexes(new Set())
+    setSelectedRow(null)
+    setSelectedRowIndex(null)
+    setDraftRow({})
+    setIsBulkDeleting(false)
+    setIsBulkDeleteOpen(false)
+    if (deletedIndexes.size > 0) setActionNotice(`${deletedIndexes.size} row(s) deleted.`)
+    if (failures.length > 0) {
+      setActionError(`${failures.length} row(s) could not be deleted. ${failures[0]}`)
+    }
+  }
+
   async function resetSelectedUserPassword() {
     if (!selection.databaseName || !selection.accountId || !selectedRow) {
       setActionError('Cannot reset password: database, account, or user is missing.')
@@ -3909,20 +4470,38 @@ function MetadataTable({
     <div className="metadata-table-shell">
       {!overlayOnly ? <>
       <div className="metadata-toolbar">
+        <label className="metadata-search">
+          <Search size={16} />
+          <input
+            type="search"
+            value={listSearch}
+            placeholder={`Search ${sourceTable}...`}
+            aria-label={`Search ${sourceTable}`}
+            onChange={(event) => setListSearch(event.target.value)}
+          />
+        </label>
         <button type="button" onClick={openCreate}>Add</button>
-        <button type="button" disabled={tableRows.length === 0} onClick={toggleAllRows}>
+        <button type="button" disabled={displayedRows.length === 0} onClick={toggleAllRows}>
           {allRowsChecked ? 'Clear All' : 'Select All'}
         </button>
         {copyableTables.has(sourceKey) ? (
           <button type="button" disabled={checkedRowIndexes.size === 0} onClick={openCopyTo}>Copy To</button>
         ) : null}
+        <button
+          type="button"
+          className="danger-button"
+          disabled={checkedRowIndexes.size === 0}
+          onClick={() => setIsBulkDeleteOpen(true)}
+        >
+          Delete Selected
+        </button>
         <span className="selection-count">{checkedRowIndexes.size} selected</span>
       </div>
       {!selectedRow && actionError ? <div className="connection-error">{actionError}</div> : null}
       {!selectedRow && actionNotice ? <div className="action-notice">{actionNotice}</div> : null}
       <div className="table-card metadata-table">
-        {tableRows.length === 0 ? (
-          <div className="empty-result">No rows found.</div>
+        {displayedRows.length === 0 ? (
+          <div className="empty-result">{tableRows.length === 0 ? 'No rows found.' : 'No matching rows found.'}</div>
         ) : (
           <table>
             <thead>
@@ -3942,22 +4521,22 @@ function MetadataTable({
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((row, index) => (
+              {displayedRows.map(({ row, originalIndex }) => (
                 <tr
-                  className={`clickable-row ${selectedRowIndex === index ? 'selected-row' : ''} ${checkedRowIndexes.has(index) ? 'checked-row' : ''}`}
-                  key={index}
-                  onClick={() => openRow(row, index)}
+                  className={`clickable-row ${selectedRowIndex === originalIndex ? 'selected-row' : ''} ${checkedRowIndexes.has(originalIndex) ? 'checked-row' : ''}`}
+                  key={originalIndex}
+                  onClick={() => openRow(row, originalIndex)}
                 >
                   <td className="selection-column" onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
-                      aria-label={`Select row ${index + 1}`}
-                      checked={checkedRowIndexes.has(index)}
-                      onChange={() => toggleRowChecked(index)}
+                      aria-label={`Select row ${originalIndex + 1}`}
+                      checked={checkedRowIndexes.has(originalIndex)}
+                      onChange={() => toggleRowChecked(originalIndex)}
                     />
                   </td>
                   {columns.map((column) => (
-                    <td key={column}>{String(getCellValue(row, column) ?? '')}</td>
+                    <td key={column}>{displayCellValue(row, column)}</td>
                   ))}
                 </tr>
               ))}
@@ -3966,6 +4545,25 @@ function MetadataTable({
         )}
       </div>
       </> : null}
+      {isBulkDeleteOpen ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isBulkDeleting && setIsBulkDeleteOpen(false)}>
+          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div><span className="eyebrow">Delete Selected</span><h2>{sourceTable}</h2></div>
+              <button className="overlay-close-button" type="button" disabled={isBulkDeleting} onClick={() => setIsBulkDeleteOpen(false)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <p className="delete-warning">Delete {checkedRowIndexes.size} selected row(s)? This action cannot be undone.</p>
+              <div className="row-detail-actions">
+                <button className="danger-button" type="button" disabled={isBulkDeleting} onClick={() => { void deleteCheckedRows() }}>
+                  {isBulkDeleting ? 'Deleting…' : `Delete ${checkedRowIndexes.size} Row(s)`}
+                </button>
+                <button type="button" disabled={isBulkDeleting} onClick={() => setIsBulkDeleteOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
       {selectedRow ? (
         <div className="row-detail-backdrop" onMouseDown={cancelEdit}>
         <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
@@ -4004,6 +4602,47 @@ function MetadataTable({
                       <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>
                     ))}
                   </select>
+                ) : sourceKey === 'modl' && column.toLowerCase() === 'settingmode' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">Select setting mode</option>
+                    {moduleSettingModeOptions.map((option) => <option key={option.value} value={option.value}>{option.value} — {option.label}</option>)}
+                  </select>
+                ) : sourceKey === 'menusmnu' && column.toLowerCase() === 'uppersubmenuguid' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">None</option>
+                    {submenuOptions
+                      .filter((option) => option.value !== String(getCellValue(selectedRow, 'menudetailguid') ?? ''))
+                      .map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : sourceKey === 'menusmnu' && column.toLowerCase() === 'type' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">Select menu type</option>
+                    {menuTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : sourceKey === 'menusmnu' && column.toLowerCase() === 'icon_fa' ? (
+                  <div className="menu-icon-field">
+                    <MenuIcon value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')} withLabel />
+                    <select
+                      value={findMenuIcon(draftRow[column] ?? String(getCellValue(selectedRow, column) ?? ''))?.key ?? (draftRow[column] ?? String(getCellValue(selectedRow, column) ?? ''))}
+                      disabled={!isEditing}
+                      onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                    >
+                      <option value="">No icon</option>
+                      {menuIconCatalog.map((icon) => <option key={icon.key} value={icon.key}>{icon.label}</option>)}
+                    </select>
+                  </div>
                 ) : moduleRelationOptions[column.toLowerCase()] ? (
                   <select
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
@@ -4011,7 +4650,10 @@ function MetadataTable({
                     onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
                   >
                     <option value="">None</option>
-                    {moduleRelationOptions[column.toLowerCase()].filter((option) => option.value).map((option) => (
+                    {moduleRelationOptions[column.toLowerCase()]
+                      .filter((option) => option.value && !(column.toLowerCase() === 'parentmoduleguid'
+                        && option.value === String(getCellValue(selectedRow, 'moduleguid') ?? '')))
+                      .map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
@@ -4045,11 +4687,27 @@ function MetadataTable({
                     readOnly={!isEditing}
                     onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
                   />
+                ) : column.toLowerCase() === 'infovalue' ? (
+                  <textarea
+                    className="raw-metadata-editor"
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    readOnly={!isEditing}
+                    rows={8}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-enable-grammarly="false"
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  />
                 ) : (draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')).length > 80 ? (
                   <textarea
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     readOnly={!isEditing}
                     rows={4}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
                     onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
                   />
                 ) : (
