@@ -42,6 +42,7 @@ import {
   Target,
   Truck,
   ArrowRight,
+  ArrowUp,
   Search,
   Server,
   Settings,
@@ -85,6 +86,19 @@ type MenuIconDefinition = {
 }
 
 const menuIconCatalog = menuIcons as MenuIconDefinition[]
+const auditLogKey = 'oph-control-studio.audit-log'
+
+function appendAuditLog(operation: string, target: string, result: 'success' | 'failed', detail: string) {
+  try {
+    const current = JSON.parse(window.localStorage.getItem(auditLogKey) ?? '[]') as unknown[]
+    window.localStorage.setItem(auditLogKey, JSON.stringify([
+      { timestamp: new Date().toISOString(), operation, target, result, detail },
+      ...current,
+    ].slice(0, 500)))
+  } catch {
+    // Audit persistence must not block the requested administration operation.
+  }
+}
 const moduleSettingModeOptions = [
   { value: '0', label: 'Core' },
   { value: '1', label: 'Master' },
@@ -128,6 +142,8 @@ type SectionHeaderProps = {
   action?: string
   onAction?: () => void
   onTitleClick?: () => void
+  parentLabel?: string
+  onParentClick?: () => void
 }
 
 type QueryTab = {
@@ -141,8 +157,9 @@ type QueryTab = {
   isSaving?: boolean
   saveNotice?: string
   metadataSource?: {
-    sourceTable: 'modlinfo'
+    sourceTable: 'modlinfo' | 'widg'
     row: MetadataRow
+    sqlField?: 'infovalue' | 'sqlstr'
   }
 }
 
@@ -354,20 +371,24 @@ function App() {
     function handleOpenMetadataQuery(event: Event) {
       const detail = (event as CustomEvent<{ databaseName: string; row: MetadataRow }>).detail
       const moduleInfoGuid = String(detail.row.moduleinfoguid ?? '')
-      const infoKey = String(detail.row.infokey ?? 'modlinfo')
-      if (!moduleInfoGuid || !detail.databaseName) return
-      const id = `modlinfo-query-${moduleInfoGuid}`
+      const widgetGuid = String(detail.row.widgetguid ?? '')
+      const sourceTable = widgetGuid ? 'widg' : 'modlinfo'
+      const sourceGuid = widgetGuid || moduleInfoGuid
+      const infoKey = widgetGuid ? String(detail.row.widgetid ?? 'Widget') : String(detail.row.infokey ?? 'modlinfo')
+      const sqlField = widgetGuid ? 'sqlstr' : 'infovalue'
+      if (!sourceGuid || !detail.databaseName) return
+      const id = `${sourceTable}-query-${sourceGuid}`
       setQueryTabs((tabs) => {
         if (tabs.some((tab) => tab.id === id)) return tabs
         return [...tabs, {
           id,
-          title: `${infoKey} [${moduleInfoGuid.slice(0, 8)}]`,
+          title: `${infoKey} [${sourceGuid.slice(0, 8)}]`,
           databaseName: detail.databaseName,
-          sql: String(detail.row.infovalue ?? ''),
+          sql: String(detail.row[sqlField] ?? ''),
           results: [],
           error: '',
           isRunning: false,
-          metadataSource: { sourceTable: 'modlinfo', row: detail.row },
+          metadataSource: { sourceTable, row: detail.row, sqlField },
         }]
       })
       setActiveTabId(id)
@@ -477,7 +498,8 @@ function App() {
     if (!connectionConfig || !tab.metadataSource) return
     updateQueryTab(tab.id, { isSaving: true, error: '', saveNotice: '' })
     const originalRow = tab.metadataSource.row
-    const nextRow = { ...originalRow, infovalue: tab.sql }
+    const sqlField = tab.metadataSource.sqlField ?? 'infovalue'
+    const nextRow = { ...originalRow, [sqlField]: tab.sql }
     try {
       await ophAdminService.saveMetadataRow(
         connectionConfig,
@@ -488,7 +510,7 @@ function App() {
       )
       updateQueryTab(tab.id, {
         isSaving: false,
-        saveNotice: `Saved directly to ${String(originalRow.infokey ?? 'modlinfo')}.`,
+        saveNotice: `Saved directly to ${String(originalRow.infokey ?? originalRow.widgetid ?? tab.metadataSource.sourceTable)}.`,
         metadataSource: { ...tab.metadataSource, row: nextRow },
       })
     } catch (saveError) {
@@ -880,8 +902,14 @@ function App() {
 
   async function deleteAccount(serverId: string, accountId: string) {
     if (!connectionConfig) return
-    await ophAdminService.deleteAccount(connectionConfig, serverId, accountId)
-    await refreshServerConnection(serverId)
+    try {
+      await ophAdminService.deleteAccount(connectionConfig, serverId, accountId)
+      appendAuditLog('delete-account', accountId, 'success', `Account marked as deleted on server ${serverId}.`)
+      await refreshServerConnection(serverId)
+    } catch (error) {
+      appendAuditLog('delete-account', accountId, 'failed', error instanceof Error ? error.message : String(error))
+      throw error
+    }
   }
 
   if (isLoadingConfig) {
@@ -1172,6 +1200,8 @@ function QueryWorkspace({
 
 const dplxBandNames = ['template', 'header', 'detail', 'footer'] as const
 const dplxElementNames = new Set(['label', 'symbol', 'recordBox', 'recordArea', 'rectangle', 'placeholder', 'line', 'image', 'subReport', 'contentGroup', 'formattedRecordArea', 'pageBreak', 'noSplitZone', 'softBreak', 'pageNumberingLabel'])
+const dplxTypographyElementNames = new Set(['label', 'recordBox'])
+const dplxTypographyAttributes = new Set(['align', 'fontSize', 'font'])
 
 type DplxRenderElement = {
   element: Element
@@ -1514,6 +1544,11 @@ function ReportDesignerWorkspace({
       } else {
         Object.entries({ x: '20', y: '20', width: '140', height: '20' }).forEach(([key, value]) => element.setAttribute(key, value))
         if (name === 'label') element.setAttribute('text', 'New label')
+        if (dplxTypographyElementNames.has(name)) {
+          element.setAttribute('align', 'left')
+          element.setAttribute('fontSize', '10')
+          element.setAttribute('font', 'Helvetica')
+        }
         if (name === 'symbol') element.setAttribute('text', '●')
         if (name === 'placeholder') element.setAttribute('name', 'Placeholder')
         if (name === 'pageNumberingLabel') {
@@ -1672,14 +1707,16 @@ function ReportDesignerWorkspace({
               )
             })}
             <strong>Controls</strong>
-            <label className="report-toolbox-field">
-              <span>Label type</span>
-              <select value={labelType} onChange={(event) => setLabelType(event.target.value as typeof labelType)}>
-                <option value="label">label</option>
-                <option value="symbol">symbol</option>
-              </select>
-            </label>
-            <button type="button" onClick={() => addElement(labelType)}>+ Label</button>
+            <div className="report-toolbox-control-row">
+              <label className="report-toolbox-field">
+                <span>Label type</span>
+                <select value={labelType} onChange={(event) => setLabelType(event.target.value as typeof labelType)}>
+                  <option value="label">label</option>
+                  <option value="symbol">symbol</option>
+                </select>
+              </label>
+              <button type="button" onClick={() => addElement(labelType)}>+ Label</button>
+            </div>
             <label className="report-toolbox-field">
               <span>Field type</span>
               <select value={fieldType} onChange={(event) => setFieldType(event.target.value as typeof fieldType)}>
@@ -1759,7 +1796,8 @@ function ReportDesignerWorkspace({
                         : selectedElement?.band === band.tagName && selectedElement.index === index
                       const fontSize = Number(element.getAttribute('fontSize') || 10)
                       const align = element.getAttribute('align') as 'left' | 'center' | 'right' | null
-                      return <button key={`${element.tagName}-${index}-${renderIndex}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height, fontSize, textAlign: align ?? 'left', fontWeight: /bold/i.test(element.getAttribute('font') ?? '') ? 700 : undefined, backgroundColor: element.getAttribute('fillColor') || undefined, borderColor: element.getAttribute('borderColor') || undefined }} onClick={(event) => {
+                      const font = element.getAttribute('font') || 'Helvetica'
+                      return <button key={`${element.tagName}-${index}-${renderIndex}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height, fontSize, fontFamily: font, textAlign: align ?? 'left', fontWeight: /bold/i.test(font) ? 700 : undefined, backgroundColor: element.getAttribute('fillColor') || undefined, borderColor: element.getAttribute('borderColor') || undefined }} onClick={(event) => {
                         event.stopPropagation()
                         if (selectedSubReport) {
                           setSelectedSubReportBand(selectedSubReport.tagName === 'contentGroup' ? null : band.tagName)
@@ -1782,7 +1820,7 @@ function ReportDesignerWorkspace({
             {activeSubReportElement ? (
               <>
                 <span className="report-element-type">{selectedContainerType} {activeSubReportElement.tagName}</span>
-                {Array.from(activeSubReportElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
+                {Array.from(activeSubReportElement.attributes).filter((attribute) => attribute.name !== 'expandable' && (!dplxTypographyElementNames.has(activeSubReportElement.tagName) || !dplxTypographyAttributes.has(attribute.name))).map((attribute) => (
                   <label key={attribute.name}>
                     <span>{attribute.name}</span>
                     <DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateSubReportElementAttribute(attribute.name, value)} />
@@ -1790,6 +1828,13 @@ function ReportDesignerWorkspace({
                 ))}
                 {['recordBox', 'recordArea', 'formattedRecordArea'].includes(activeSubReportElement.tagName) ? (
                   <label><span>expandable</span><select value={activeSubReportElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateSubReportElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                {dplxTypographyElementNames.has(activeSubReportElement.tagName) ? (
+                  <>
+                    <label><span>align</span><select value={activeSubReportElement.getAttribute('align') || 'left'} onChange={(event) => updateSubReportElementAttribute('align', event.target.value)}><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></label>
+                    <label><span>fontSize</span><input type="number" min="1" value={activeSubReportElement.getAttribute('fontSize') || '10'} onChange={(event) => updateSubReportElementAttribute('fontSize', event.target.value)} /></label>
+                    <label><span>font</span><input value={activeSubReportElement.getAttribute('font') || 'Helvetica'} onChange={(event) => updateSubReportElementAttribute('font', event.target.value)} /></label>
+                  </>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateSubReportElementAttribute('fontSize', '10')}>Add fontSize</button></label>
                 <button type="button" className="danger-button" onClick={deleteSubReportElement}>Delete control</button>
@@ -1814,11 +1859,18 @@ function ReportDesignerWorkspace({
             ) : activeElement ? (
               <>
                 <span className="report-element-type">{activeElement.tagName}</span>
-                {Array.from(activeElement.attributes).filter((attribute) => attribute.name !== 'expandable').map((attribute) => (
+                {Array.from(activeElement.attributes).filter((attribute) => attribute.name !== 'expandable' && (!dplxTypographyElementNames.has(activeElement.tagName) || !dplxTypographyAttributes.has(attribute.name))).map((attribute) => (
                   <label key={attribute.name}><span>{attribute.name}</span><DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateElementAttribute(attribute.name, value)} /></label>
                 ))}
                 {['recordBox', 'recordArea', 'formattedRecordArea'].includes(activeElement.tagName) ? (
                   <label><span>expandable</span><select value={activeElement.getAttribute('expandable') ?? 'false'} onChange={(event) => updateElementAttribute('expandable', event.target.value)}><option value="false">false</option><option value="true">true</option></select></label>
+                ) : null}
+                {dplxTypographyElementNames.has(activeElement.tagName) ? (
+                  <>
+                    <label><span>align</span><select value={activeElement.getAttribute('align') || 'left'} onChange={(event) => updateElementAttribute('align', event.target.value)}><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></label>
+                    <label><span>fontSize</span><input type="number" min="1" value={activeElement.getAttribute('fontSize') || '10'} onChange={(event) => updateElementAttribute('fontSize', event.target.value)} /></label>
+                    <label><span>font</span><input value={activeElement.getAttribute('font') || 'Helvetica'} onChange={(event) => updateElementAttribute('font', event.target.value)} /></label>
+                  </>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateElementAttribute('fontSize', '10')}>Add fontSize</button></label>
                 <button type="button" className="danger-button" onClick={deleteElement}>Delete control</button>
@@ -2040,23 +2092,47 @@ function TreeView({
   onRefresh: (node: OphTreeNode) => Promise<void>
   onSelect: (selection: WorkspaceSelection) => void
 }) {
+  const treeSearchHistoryKey = 'oph-control-studio.tree-search-history'
   const treeViewRef = useRef<HTMLDivElement>(null)
   const [treeSearch, setTreeSearch] = useState('')
+  const [treeSearchHistory, setTreeSearchHistory] = useState<string[]>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(treeSearchHistoryKey) ?? '[]')
+    } catch {
+      return []
+    }
+  })
   const normalizedTreeSearch = treeSearch.trim().toLocaleLowerCase()
+  const treeSearchTerms = useMemo(() => normalizedTreeSearch.split(/\s+/).filter(Boolean), [normalizedTreeSearch])
   const treeSearchResults = useMemo(() => {
-    if (!normalizedTreeSearch) return []
+    if (treeSearchTerms.length === 0) return []
     const results: Array<{ node: OphTreeNode; path: string[] }> = []
     function collect(node: OphTreeNode, parentPath: string[]) {
       const path = node.kind === 'root' || node.kind === 'server' ? parentPath : [...parentPath, node.label]
-      const searchable = `${path.join(' ')} ${node.description ?? ''}`.toLocaleLowerCase()
-      if (node.kind !== 'root' && node.kind !== 'server' && searchable.includes(normalizedTreeSearch)) {
+      const searchable = `${path.join(' ')} ${node.description ?? ''} ${node.accountId ?? ''} ${node.databaseName ?? ''} ${node.searchText ?? ''}`.toLocaleLowerCase()
+      if (node.kind !== 'root' && node.kind !== 'server' && treeSearchTerms.every((term) => searchable.includes(term))) {
         results.push({ node, path })
       }
       node.children?.forEach((child) => collect(child, path))
     }
     collect(root, [])
     return results.slice(0, 100)
-  }, [normalizedTreeSearch, root])
+  }, [root, treeSearchTerms])
+
+  function rememberTreeSearch(value = treeSearch) {
+    const normalized = value.trim()
+    if (!normalized) return
+    setTreeSearchHistory((current) => {
+      const next = [normalized, ...current.filter((item) => item.toLocaleLowerCase() !== normalized.toLocaleLowerCase())].slice(0, 10)
+      window.localStorage.setItem(treeSearchHistoryKey, JSON.stringify(next))
+      return next
+    })
+  }
+
+  function clearTreeSearchHistory() {
+    setTreeSearchHistory([])
+    window.localStorage.removeItem(treeSearchHistoryKey)
+  }
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -2079,9 +2155,22 @@ function TreeView({
           placeholder="Search tree..."
           aria-label="Search tree"
           onChange={(event) => setTreeSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') rememberTreeSearch()
+          }}
         />
         {treeSearch ? <button type="button" aria-label="Clear tree search" onClick={() => setTreeSearch('')}><X size={13} /></button> : null}
       </label>
+      {!treeSearch && treeSearchHistory.length > 0 ? (
+        <div className="tree-search-history">
+          <div><span>Recent searches</span><button type="button" onClick={clearTreeSearchHistory}>Clear</button></div>
+          <div>
+            {treeSearchHistory.map((item) => (
+              <button key={item} type="button" title={`Search for ${item}`} onClick={() => setTreeSearch(item)}>{item}</button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div ref={treeViewRef} className="tree-view">
         {normalizedTreeSearch ? (
           treeSearchResults.length > 0 ? (
@@ -2090,7 +2179,10 @@ function TreeView({
               {treeSearchResults.map(({ node, path }) => {
                 const ResultIcon = treeIcons[node.kind]
                 return (
-                  <button type="button" key={node.id} className="tree-search-result" onClick={() => onSelect(workspaceSelectionFromNode(node))}>
+                  <button type="button" key={node.id} className="tree-search-result" onClick={() => {
+                    rememberTreeSearch()
+                    onSelect(workspaceSelectionFromNode(node))
+                  }}>
                     <ResultIcon size={16} />
                     <span>
                       <strong>{node.label}</strong>
@@ -2153,18 +2245,26 @@ function TreeNodeView({
   onSelect: (selection: WorkspaceSelection) => void
 }) {
   const [expanded, setExpanded] = useState(depth < 2)
+  const [manuallyCollapsed, setManuallyCollapsed] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const hasChildren = Boolean(node.children?.length)
   const containsSelection = Boolean(findTreeNode(node, selectionId))
-  const isExpanded = expandAll || expanded || (containsSelection && node.id !== selectionId)
+  const isExpanded = expandAll || (!manuallyCollapsed && (expanded || (containsSelection && node.id !== selectionId)))
   const Icon = treeIcons[node.kind]
+
+  useEffect(() => {
+    setManuallyCollapsed(false)
+  }, [selectionId])
 
   function nodeSelection(): WorkspaceSelection {
     return workspaceSelectionFromNode(node)
   }
 
   function selectNode() {
-    if (hasChildren) setExpanded(true)
+    if (hasChildren) {
+      setExpanded(true)
+      setManuallyCollapsed(false)
+    }
     onSelect(nodeSelection())
   }
 
@@ -2179,6 +2279,7 @@ function TreeNodeView({
         <span className="tree-expander" onClick={(event) => {
           event.stopPropagation()
           setExpanded(!isExpanded)
+          setManuallyCollapsed(isExpanded)
         }}>
           {hasChildren ? isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} /> : null}
         </span>
@@ -2319,12 +2420,15 @@ function Workspace({
   }
 
   if (selection.kind === 'module' && selection.moduleGuid) {
+    const parentModuleList = findTreeParent(tree, selection.id)
     return (
       <MetadataWorkspace
         config={connectionConfig}
         selection={selection}
         title="Module Info"
         sourceTable="modlinfo"
+        onNavigate={onNavigate}
+        parentSelection={parentModuleList ? workspaceSelectionFromNode(parentModuleList) : undefined}
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleInfo(config, accountId, databaseName, selection.moduleGuid ?? '')
         }
@@ -2337,12 +2441,15 @@ function Workspace({
   }
 
   if (selection.kind === 'module-action' && selection.label === 'Columns' && selection.moduleGuid) {
+    const parentModule = findTreeNode(tree, `${selection.databaseId}:module:${selection.moduleGuid}`)
     return (
       <MetadataWorkspace
         config={connectionConfig}
         selection={selection}
         title="Columns"
         sourceTable="modlcolm"
+        onNavigate={onNavigate}
+        parentSelection={parentModule ? workspaceSelectionFromNode(parentModule) : undefined}
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleColumns(config, accountId, databaseName, selection.moduleGuid ?? '')
         }
@@ -2355,12 +2462,15 @@ function Workspace({
   }
 
   if (selection.kind === 'module-column' && selection.columnGuid) {
+    const parentColumns = findTreeNode(tree, `${selection.databaseId}:module:${selection.moduleGuid}:columns`)
     return (
       <MetadataWorkspace
         config={connectionConfig}
         selection={selection}
         title="Column Info"
         sourceTable="modlcolminfo"
+        onNavigate={onNavigate}
+        parentSelection={parentColumns ? workspaceSelectionFromNode(parentColumns) : undefined}
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listModuleColumnInfo(config, accountId, databaseName, selection.columnGuid ?? '')
         }
@@ -2656,6 +2766,7 @@ function Workspace({
       <AccountDatabasesWorkspace
         config={connectionConfig}
         selection={selection}
+        onRestoreComplete={() => selection.serverId ? onRefreshServer(selection.serverId) : Promise.resolve()}
       />
     )
   }
@@ -2754,18 +2865,25 @@ function ConnectionIssuePage({ error, onRefresh }: { error: string; onRefresh: (
 }
 
 
-function SectionHeader({ eyebrow, title, description, action, onAction, onTitleClick }: SectionHeaderProps) {
+function SectionHeader({ eyebrow, title, description, action, onAction, onTitleClick, parentLabel, onParentClick }: SectionHeaderProps) {
   return (
     <div className="section-header">
-      <div>
-        <span className="eyebrow">{eyebrow}</span>
-        {onTitleClick ? (
-          <button type="button" className="section-title-shortcut" onClick={onTitleClick} title={`Edit ${title}`}>
-            <h1>{title}</h1>
-            <span>Edit details <ArrowRight size={14} /></span>
+      <div className="section-header-title-area">
+        {onParentClick ? (
+          <button type="button" className="section-parent-link" onClick={onParentClick} title={`Back to ${parentLabel ?? 'parent'}`} aria-label={`Back to ${parentLabel ?? 'parent'}`}>
+            <ArrowUp size={18} />
           </button>
-        ) : <h1>{title}</h1>}
-        <p>{description}</p>
+        ) : null}
+        <div>
+          <span className="eyebrow">{eyebrow}</span>
+          {onTitleClick ? (
+            <button type="button" className="section-title-shortcut" onClick={onTitleClick} title={`Edit ${title}`}>
+              <h1>{title}</h1>
+              <span>Edit details <ArrowRight size={14} /></span>
+            </button>
+          ) : <h1>{title}</h1>}
+          <p>{description}</p>
+        </div>
       </div>
       {action ? <button className="primary-button" onClick={onAction}>{action}</button> : null}
     </div>
@@ -2936,6 +3054,17 @@ function findTreeNode(root: OphTreeNode, nodeId: string): OphTreeNode | undefine
   for (const child of root.children ?? []) {
     const result = findTreeNode(child, nodeId)
     if (result) return result
+  }
+
+  return undefined
+}
+
+function findTreeParent(root: OphTreeNode, nodeId: string): OphTreeNode | undefined {
+  if (root.children?.some((child) => child.id === nodeId)) return root
+
+  for (const child of root.children ?? []) {
+    const parent = findTreeParent(child, nodeId)
+    if (parent) return parent
   }
 
   return undefined
@@ -3151,6 +3280,8 @@ function MetadataWorkspace({
   title,
   sourceTable,
   loadRows,
+  onNavigate,
+  parentSelection,
   onRefreshTree,
 }: {
   config: OphConnectionConfig
@@ -3158,6 +3289,8 @@ function MetadataWorkspace({
   title: string
   sourceTable: string
   loadRows: (config: OphConnectionConfig, accountId: string, databaseName: string) => Promise<MetadataRow[]>
+  onNavigate?: (selection: WorkspaceSelection) => void
+  parentSelection?: WorkspaceSelection
   onRefreshTree?: () => void | Promise<void>
 }) {
   const [rows, setRows] = useState<MetadataRow[]>([])
@@ -3230,15 +3363,17 @@ function MetadataWorkspace({
         action="Refresh"
         onAction={() => { void refreshWorkspace() }}
         onTitleClick={parentDetailSource ? () => setIsParentDetailOpen(true) : undefined}
+        parentLabel={parentSelection?.label}
+        onParentClick={parentSelection && onNavigate ? () => onNavigate(parentSelection) : undefined}
       />
       {isLoading ? <div className="empty-result">Loading metadata...</div> : null}
       {error ? <div className="connection-error">{error}</div> : null}
       {!isLoading && !error ? (
-        <MetadataTable config={config} rows={rows} selection={selection} sourceTable={sourceTable} />
+        <MetadataTable config={config} rows={rows} selection={selection} sourceTable={sourceTable} onNavigate={onNavigate} />
       ) : null}
       {isParentDetailOpen && parentDetailSource ? (
         parentDetailSource === 'modl' ? (
-          <ModuleDetailOverlay config={config} selection={selection} onClose={() => setIsParentDetailOpen(false)} />
+          <ModuleDetailOverlay config={config} selection={selection} onNavigate={onNavigate} onClose={() => setIsParentDetailOpen(false)} />
         ) : (
           <ParentRecordOverlay config={config} selection={selection} sourceTable={parentDetailSource} onClose={() => setIsParentDetailOpen(false)} />
         )
@@ -3250,9 +3385,11 @@ function MetadataWorkspace({
 function AccountDatabasesWorkspace({
   config,
   selection,
+  onRestoreComplete,
 }: {
   config: OphConnectionConfig
   selection: WorkspaceSelection
+  onRestoreComplete: () => void | Promise<void>
 }) {
   const [databases, setDatabases] = useState<MetadataRow[]>([])
   const [backupsByDatabase, setBackupsByDatabase] = useState<Record<string, MetadataRow[]>>({})
@@ -3263,6 +3400,46 @@ function AccountDatabasesWorkspace({
   const [isRestoring, setIsRestoring] = useState(false)
   const [restoreError, setRestoreError] = useState('')
   const [restoreNotice, setRestoreNotice] = useState('')
+  const [backupSearch, setBackupSearch] = useState('')
+  const [backupDateFrom, setBackupDateFrom] = useState('')
+  const [backupSort, setBackupSort] = useState<'newest' | 'oldest' | 'name'>('newest')
+  const [backupPage, setBackupPage] = useState(1)
+  const [restoreStage, setRestoreStage] = useState('')
+  const restoreHistoryKey = 'oph-control-studio.restore-history'
+  const [restoreHistory, setRestoreHistory] = useState<Array<{
+    backupFile: string
+    destination: string
+    startedAt: string
+    durationMs: number
+    result: 'success' | 'failed'
+    detail: string
+  }>>(() => {
+    try { return JSON.parse(window.localStorage.getItem(restoreHistoryKey) ?? '[]') }
+    catch { return [] }
+  })
+  const backupPageSize = 50
+
+  function filteredBackups(rows: MetadataRow[]) {
+    const search = backupSearch.trim().toLocaleLowerCase()
+    const fromTime = backupDateFrom ? new Date(`${backupDateFrom}T00:00:00`).getTime() : 0
+    return rows.filter((row) => {
+      const name = String(row.backupFile ?? '').toLocaleLowerCase()
+      const modified = new Date(String(row.lastModified ?? '')).getTime()
+      return (!search || name.includes(search)) && (!fromTime || (Number.isFinite(modified) && modified >= fromTime))
+    }).sort((left, right) => {
+      if (backupSort === 'name') return String(left.backupFile ?? '').localeCompare(String(right.backupFile ?? ''))
+      const difference = new Date(String(left.lastModified ?? '')).getTime() - new Date(String(right.lastModified ?? '')).getTime()
+      return backupSort === 'oldest' ? difference : -difference
+    })
+  }
+
+  function recordRestore(entry: typeof restoreHistory[number]) {
+    setRestoreHistory((current) => {
+      const next = [entry, ...current].slice(0, 100)
+      window.localStorage.setItem(restoreHistoryKey, JSON.stringify(next))
+      return next
+    })
+  }
 
   function openRestore(databaseName: string, row: MetadataRow) {
     setSelectedBackup({ databaseName, row })
@@ -3273,16 +3450,28 @@ function AccountDatabasesWorkspace({
 
   async function restoreBackup() {
     if (!selectedBackup) return
+    const startedAt = new Date()
+    const backupFile = String(selectedBackup.row.backupFile ?? '')
+    const destination = targetDatabaseName.trim()
     setIsRestoring(true)
+    setRestoreStage('Verifying backup integrity, preparing files, and restoring database…')
     setRestoreError('')
     setRestoreNotice('')
     try {
-      await ophAdminService.restoreDatabaseBackup(config, String(selectedBackup.row.backupFile ?? ''), targetDatabaseName.trim())
-      setRestoreNotice(`Database ${targetDatabaseName.trim()} restored successfully.`)
+      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
+      setRestoreStage('Restore completed. Refreshing server and database tree…')
+      await onRestoreComplete()
+      setRestoreNotice(`Database ${destination} restored successfully.`)
+      recordRestore({ backupFile, destination, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(), result: 'success', detail: 'Backup verified and restored.' })
+      appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
     } catch (restoreFailure) {
-      setRestoreError(restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure))
+      const detail = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
+      setRestoreError(`${detail} The destination may be incomplete; check SQL Server restore status before retrying or choose a new database name.`)
+      recordRestore({ backupFile, destination, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(), result: 'failed', detail })
+      appendAuditLog('restore-database', destination, 'failed', detail)
     } finally {
       setIsRestoring(false)
+      setRestoreStage('')
     }
   }
 
@@ -3324,11 +3513,21 @@ function AccountDatabasesWorkspace({
         title="Physical Databases & S3 Backups"
         description={`Physical databases for ${selection.accountId}, with backup files loaded from the configured S3 bucket.`}
       />
+      <div className="metadata-toolbar backup-toolbar">
+        <label className="metadata-search"><Search size={16} /><input type="search" value={backupSearch} placeholder="Search backup files..." onChange={(event) => { setBackupSearch(event.target.value); setBackupPage(1) }} /></label>
+        <input type="date" aria-label="Backups from date" value={backupDateFrom} onChange={(event) => { setBackupDateFrom(event.target.value); setBackupPage(1) }} />
+        <select aria-label="Sort backups" value={backupSort} onChange={(event) => setBackupSort(event.target.value as typeof backupSort)}>
+          <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">File name</option>
+        </select>
+      </div>
       {isLoading ? <div className="empty-result">Loading physical databases and S3 backups...</div> : null}
       {error ? <div className="connection-error">{error}</div> : null}
       {!isLoading && !error ? databases.map((database) => {
         const physicalName = String(database.databasename ?? '')
-        const backups = backupsByDatabase[physicalName] ?? []
+        const backups = filteredBackups(backupsByDatabase[physicalName] ?? [])
+        const pageCount = Math.max(1, Math.ceil(backups.length / backupPageSize))
+        const currentPage = Math.min(backupPage, pageCount)
+        const visibleBackups = backups.slice((currentPage - 1) * backupPageSize, currentPage * backupPageSize)
         return (
           <div className="table-card" key={String(database.accountdbguid ?? physicalName)}>
             <div className="metadata-toolbar">
@@ -3338,7 +3537,7 @@ function AccountDatabasesWorkspace({
             {backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : (
               <table>
                 <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th></tr></thead>
-                <tbody>{backups.map((backup, index) => (
+                <tbody>{visibleBackups.map((backup, index) => (
                   <tr key={`${backup.backupFile}-${index}`} className="clickable-table-row" onClick={() => openRestore(physicalName, backup)}>
                     <td><strong>{String(backup.backupFile ?? '')}</strong></td>
                     <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
@@ -3348,6 +3547,7 @@ function AccountDatabasesWorkspace({
                 ))}</tbody>
               </table>
             )}
+            {pageCount > 1 ? <div className="backup-pagination"><button disabled={currentPage === 1} onClick={() => setBackupPage((page) => Math.max(1, page - 1))}>Previous</button><span>Page {currentPage} of {pageCount}</span><button disabled={currentPage === pageCount} onClick={() => setBackupPage((page) => Math.min(pageCount, page + 1))}>Next</button></div> : null}
           </div>
         )
       }) : null}
@@ -3368,12 +3568,17 @@ function AccountDatabasesWorkspace({
               <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
                 {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
               </button>
+              {restoreStage ? <p className="field-help">{restoreStage}</p> : null}
             </div>
             {restoreError ? <div className="connection-error">{restoreError}</div> : null}
             {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
           </aside>
         </div>
       ) : null}
+      <div className="table-card">
+        <div className="metadata-toolbar"><h2>Restore History</h2><span>{restoreHistory.length} operation(s)</span></div>
+        {restoreHistory.length === 0 ? <div className="empty-result">No restore history yet.</div> : <table><thead><tr><th>Backup</th><th>Destination</th><th>Started</th><th>Duration</th><th>Result</th><th>Detail</th></tr></thead><tbody>{restoreHistory.map((entry, index) => <tr key={`${entry.startedAt}-${index}`}><td>{entry.backupFile}</td><td>{entry.destination}</td><td>{new Date(entry.startedAt).toLocaleString()}</td><td>{(entry.durationMs / 1000).toFixed(1)}s</td><td>{entry.result}</td><td>{entry.detail}</td></tr>)}</tbody></table>}
+      </div>
     </div>
   )
 }
@@ -3381,10 +3586,12 @@ function AccountDatabasesWorkspace({
 function ModuleDetailOverlay({
   config,
   selection,
+  onNavigate,
   onClose,
 }: {
   config: OphConnectionConfig
   selection: WorkspaceSelection
+  onNavigate?: (selection: WorkspaceSelection) => void
   onClose: () => void
 }) {
   const [originalRow, setOriginalRow] = useState<MetadataRow | null>(null)
@@ -3495,6 +3702,23 @@ function ModuleDetailOverlay({
     }
   }
 
+  function openModuleArea(label: 'Info' | 'Columns' | 'Children' | 'Approvals' | 'Numbering' | 'Mails') {
+    if (!selection.moduleGuid || !onNavigate) return
+    const moduleBaseId = `${selection.databaseId}:module:${selection.moduleGuid}`
+    onClose()
+    onNavigate(label === 'Info' ? {
+      ...selection,
+      id: moduleBaseId,
+      kind: 'module',
+      label: draft.moduleid || selection.label,
+    } : {
+      ...selection,
+      id: `${moduleBaseId}:${label.toLowerCase()}`,
+      kind: 'module-action',
+      label,
+    })
+  }
+
   return (
     <div className="row-detail-backdrop" onMouseDown={() => !isSaving && onClose()}>
       <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
@@ -3502,6 +3726,16 @@ function ModuleDetailOverlay({
           <div><span className="eyebrow">Module</span><h2>{selection.label}</h2></div>
           <button className="overlay-close-button" type="button" disabled={isSaving} onClick={onClose}>×</button>
         </div>
+        {onNavigate ? (
+          <nav className="row-detail-links" aria-label="Open module metadata">
+            {(['Info', 'Columns', 'Children', 'Approvals', 'Numbering', 'Mails'] as const).map((label) => (
+              <a key={label} href="#" aria-disabled={isSaving} onClick={(event) => {
+                event.preventDefault()
+                if (!isSaving) openModuleArea(label)
+              }}>Open {label}</a>
+            ))}
+          </nav>
+        ) : null}
         {isLoading ? <div className="empty-result">Loading module information...</div> : null}
         {!isLoading && originalRow ? (
           <form className="row-detail-form" onSubmit={(event) => { event.preventDefault(); void saveModule() }}>
@@ -3615,6 +3849,7 @@ function MetadataTable({
   rows,
   selection,
   sourceTable,
+  onNavigate,
   autoOpenFirstRow = false,
   overlayOnly = false,
   onOverlayClose,
@@ -3623,6 +3858,7 @@ function MetadataTable({
   rows: MetadataRow[]
   selection: WorkspaceSelection
   sourceTable: string
+  onNavigate?: (selection: WorkspaceSelection) => void
   autoOpenFirstRow?: boolean
   overlayOnly?: boolean
   onOverlayClose?: () => void
@@ -3634,6 +3870,7 @@ function MetadataTable({
   const [isCopyTargetOpen, setIsCopyTargetOpen] = useState(false)
   const [copyTargets, setCopyTargets] = useState<MetadataRow[]>([])
   const [copyTargetGuid, setCopyTargetGuid] = useState('')
+  const [copyTargetSearch, setCopyTargetSearch] = useState('')
   const [copyAccounts, setCopyAccounts] = useState<MetadataRow[]>([])
   const [copyAccountIndex, setCopyAccountIndex] = useState('')
   const [copyTargetDatabaseName, setCopyTargetDatabaseName] = useState('')
@@ -3651,12 +3888,16 @@ function MetadataTable({
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false)
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [listSearch, setListSearch] = useState('')
+  const [columnListMode, setColumnListMode] = useState<'table' | 'visual'>('table')
+  const [activeColumnPage, setActiveColumnPage] = useState('')
+  const [activeColumnVisualArea, setActiveColumnVisualArea] = useState<'browse' | 'form'>('browse')
   const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
   const [columnTypeOptions, setColumnTypeOptions] = useState<Array<{ value: string; label: string }>>([])
   const [mailActionOptions, setMailActionOptions] = useState<Array<{ value: string; label: string }>>([])
   const [mailStatusOptions, setMailStatusOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [mailProfileOptions, setMailProfileOptions] = useState<Array<{ value: string; label: string }>>([])
   const visibleColumnMap: Record<string, string[]> = {
     '[user]': ['userid', 'username', 'email', 'expirypwd'],
     acctinfo: ['infokey', 'infovalue'],
@@ -3678,11 +3919,12 @@ function MetadataTable({
     widg: ['widgetid', 'widgetdescription'],
     mail: ['profilename', 'accountname', 'displayname', 'emailaddress', 'bcc', 'createddate', 'updateddate'],
     modlinfo: ['infokey', 'infovalue'],
-    modlcolm: ['colkey', 'coltype', 'titlecaption', 'colorder', 'collength'],
+    modginfo: ['infokey', 'infovalue'],
+    modlcolm: ['colkey', 'coltype', 'titlecaption', 'colorder', 'collength', 'pageno', 'sectionno', 'columnno', 'rowno', 'fieldno', 'isviewable', 'isbrowsable', 'iseditable'],
     modlcolminfo: ['infokey', 'infovalue'],
     modlappr: ['approvalgroup', 'uppergroup', 'lvl', 'sqlfilter', 'zonegroup'],
     modldocn: ['format', 'month', 'no'],
-    modlmail: ['mailguid', 'action', 'status', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
+    modlmail: ['mail', 'action', 'status', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
     modl: [
       'moduleid',
       'moduledescription',
@@ -3750,6 +3992,14 @@ function MetadataTable({
     titlecaption: 'Title Caption',
     colorder: 'Column Order',
     collength: 'Column Length',
+    pageno: 'Page No',
+    sectionno: 'Section No',
+    columnno: 'Column No',
+    rowno: 'Row No',
+    fieldno: 'Field No',
+    isviewable: 'Viewable',
+    isbrowsable: 'Browsable',
+    iseditable: 'Editable',
     infokey: 'Info Key',
     infovalue: 'Info Value',
     approvalgroupguid: 'Approval Group',
@@ -3763,6 +4013,7 @@ function MetadataTable({
     month: 'Month',
     no: 'No',
     mailguid: 'Mail',
+    mail: 'Mail',
     actionguid: 'Action',
     tokenstatus: 'Token Status',
     additional: 'Additional',
@@ -3833,6 +4084,9 @@ function MetadataTable({
     'allowforce',
     'allowwipe',
     'reportattachment',
+    'isviewable',
+    'isbrowsable',
+    'iseditable',
   ])
   const copyableTables = new Set(['modl', 'modlinfo', 'modlcolm', 'modlcolminfo', 'modlappr', 'modldocn', 'modlmail'])
   useEffect(() => {
@@ -3841,6 +4095,7 @@ function MetadataTable({
     setIsCopyTargetOpen(false)
     setCopyTargets([])
     setCopyTargetGuid('')
+    setCopyTargetSearch('')
     setCopyAccounts([])
     setCopyAccountIndex('')
     setCopyTargetDatabaseName('')
@@ -3960,6 +4215,7 @@ function MetadataTable({
   async function changeCopyAccount(indexValue: string) {
     setCopyAccountIndex(indexValue)
     setCopyTargetGuid('')
+    setCopyTargetSearch('')
     setCopyTargets([])
     const account = copyAccounts[Number(indexValue)]
     if (!account) return
@@ -4045,12 +4301,15 @@ function MetadataTable({
     if (sourceKey !== 'modlmail' || !selection.accountId || !selection.databaseName) {
       setMailActionOptions([])
       setMailStatusOptions([])
+      setMailProfileOptions([])
       return
     }
 
     let cancelled = false
-    ophAdminService.listParameters(config, selection.accountId, selection.databaseName)
-      .then(async (parameters) => {
+    Promise.all([
+      ophAdminService.listParameters(config, selection.accountId, selection.databaseName),
+      ophAdminService.listMailProfiles(config, selection.accountId, selection.databaseName),
+    ]).then(async ([parameters, profiles]) => {
         const mact = parameters.find((row) => String(row.parameterid ?? '').toUpperCase() === 'MACT')
         const mlst = parameters.find((row) => String(row.parameterid ?? '').toUpperCase() === 'MLST')
         const [actions, statuses] = await Promise.all([
@@ -4058,6 +4317,10 @@ function MetadataTable({
           mlst ? ophAdminService.listParameterValues(config, selection.accountId ?? '', selection.databaseName ?? '', String(mlst.parameterguid ?? '')) : Promise.resolve([]),
         ])
         if (cancelled) return
+        setMailProfileOptions(profiles.map((row) => ({
+          value: String(row.mailguid ?? ''),
+          label: [row.profilename, row.displayname, row.emailaddress].filter(Boolean).join(' — ') || String(row.mailguid ?? ''),
+        })).filter((option) => option.value))
         setMailActionOptions(actions.map((row) => ({
           value: String(row.parametervalueguid ?? ''),
           label: String(row.parametervalue ?? row.parameterdescription ?? ''),
@@ -4071,6 +4334,7 @@ function MetadataTable({
         if (!cancelled) {
           setMailActionOptions([])
           setMailStatusOptions([])
+          setMailProfileOptions([])
         }
       })
 
@@ -4223,10 +4487,45 @@ function MetadataTable({
     const actualColumn = Object.keys(row).find((rowColumn) => rowColumn.toLowerCase() === column)
     return actualColumn ? row[actualColumn] : ''
   }
+  const columnPages = sourceKey === 'modlcolm'
+    ? Array.from(new Set(displayedRows.map(({ row }) => String(getCellValue(row, 'pageno') || '0'))))
+      .sort((left, right) => Number(left) - Number(right) || left.localeCompare(right))
+    : []
+  const selectedColumnPage = columnPages.includes(activeColumnPage) ? activeColumnPage : columnPages[0] ?? '0'
+  const visualColumnRows = sourceKey === 'modlcolm'
+    ? displayedRows
+      .filter(({ row }) => String(getCellValue(row, 'pageno') || '0') === selectedColumnPage)
+      .sort((left, right) => ['sectionno', 'columnno', 'rowno', 'fieldno'].reduce((difference, field) => {
+        if (difference) return difference
+        return Number(getCellValue(left.row, field) || 0) - Number(getCellValue(right.row, field) || 0)
+      }, 0))
+    : []
+  function metadataFlag(row: MetadataRow, field: string) {
+    const value = String(getCellValue(row, field) ?? '').trim().toLowerCase()
+    if (!value || ['0', 'false', 'no'].includes(value)) return false
+    const numericValue = Number(value)
+    return Number.isFinite(numericValue) ? numericValue !== 0 : true
+  }
+
+  function renderVisualField(row: MetadataRow, originalIndex: number) {
+    return (
+      <button key={originalIndex} type="button" className="column-visual-field" onClick={() => openRow(row, originalIndex)}>
+        <span className="column-visual-position">R{String(getCellValue(row, 'rowno') || '0')} · F{String(getCellValue(row, 'fieldno') || '0')}</span>
+        <strong>{String(getCellValue(row, 'titlecaption') || getCellValue(row, 'colkey') || 'Untitled field')}</strong>
+        <small>{String(getCellValue(row, 'colkey') || '')}</small>
+        <span className="column-visual-flags">
+          <i className={metadataFlag(row, 'isviewable') ? 'enabled' : ''}>Viewable</i>
+          <i className={metadataFlag(row, 'isbrowsable') ? 'enabled' : ''}>Browsable</i>
+          <i className={metadataFlag(row, 'iseditable') ? 'enabled' : ''}>Editable</i>
+        </span>
+      </button>
+    )
+  }
   const overlayColumnMap: Record<string, string[]> = {
     ugrp: ['groupid', 'groupdescription', 'allexceptuser', 'tokenuser', 'allexceptenv', 'tokenenv', 'allexceptmodule'],
     ugrpmodl: ['moduleguid', 'allowaccess', 'allowadd', 'allowedit', 'allowdelete', 'allowforce', 'allowwipe'],
     widg: ['widgetid', 'widgetdescription', 'sqlstr'],
+    modlcolm: ['colkey', 'coltype', 'titlecaption', 'colorder', 'collength'],
     modl: ['moduleid', 'moduledescription', 'settingmode', 'parentmoduleguid', 'accountdbguid', 'orderno', 'needlogin', 'themepageguid', 'modulestatusguid', 'modulegroupguid'],
     modlappr: ['approvalgroupguid', 'uppergroupguid', 'lvl', 'sqlfilter', 'zonegroup'],
     modlmail: ['mailguid', 'actionguid', 'tokenstatus', 'additional', 'cc', 'subject', 'body', 'reportattachment', 'definedtable'],
@@ -4249,6 +4548,7 @@ function MetadataTable({
     setActionNotice('')
     setNewPassword('')
     setConfirmPassword('')
+    setIsResettingPassword(false)
   }
 
   function openCreate() {
@@ -4261,6 +4561,7 @@ function MetadataTable({
     setActionNotice('')
     setNewPassword('')
     setConfirmPassword('')
+    setIsResettingPassword(false)
   }
 
   async function saveDraft() {
@@ -4269,7 +4570,7 @@ function MetadataTable({
       return
     }
 
-    const infoTables = new Set(['modlinfo', 'modlcolminfo', 'userinfo', 'acctinfo'])
+    const infoTables = new Set(['modlinfo', 'modginfo', 'modlcolminfo', 'userinfo', 'acctinfo'])
     if (infoTables.has(sourceKey)) {
       const infoKey = String(draftRow.infokey ?? '').trim()
       const infoValue = String(draftRow.infovalue ?? '')
@@ -4351,6 +4652,7 @@ function MetadataTable({
     setActionNotice('')
     setNewPassword('')
     setConfirmPassword('')
+    setIsResettingPassword(false)
     if (overlayOnly) onOverlayClose?.()
   }
 
@@ -4448,14 +4750,19 @@ function MetadataTable({
     setActionError('')
     setActionNotice('')
     try {
-      await ophAdminService.resetUserPassword(
-        config,
-        selection.databaseName,
-        selection.accountId,
-        userGuid,
-        userId,
-        newPassword,
-      )
+      await Promise.race([
+        ophAdminService.resetUserPassword(
+          config,
+          selection.databaseName,
+          selection.accountId,
+          userGuid,
+          userId,
+          newPassword,
+        ),
+        new Promise<never>((_resolve, reject) => {
+          window.setTimeout(() => reject(new Error(`Password reset for ${userId} did not return after 25 seconds. No detailed response was received from the desktop command.`)), 25_000)
+        }),
+      ])
       setNewPassword('')
       setConfirmPassword('')
       setActionNotice(`Password for ${userId} was reset successfully.`)
@@ -4481,6 +4788,12 @@ function MetadataTable({
           />
         </label>
         <button type="button" onClick={openCreate}>Add</button>
+        {sourceKey === 'modlcolm' ? (
+          <div className="column-view-toggle" aria-label="Column list mode">
+            <button type="button" className={columnListMode === 'table' ? 'active' : ''} onClick={() => setColumnListMode('table')}>Table</button>
+            <button type="button" className={columnListMode === 'visual' ? 'active' : ''} onClick={() => setColumnListMode('visual')}>Visual</button>
+          </div>
+        ) : null}
         <button type="button" disabled={displayedRows.length === 0} onClick={toggleAllRows}>
           {allRowsChecked ? 'Clear All' : 'Select All'}
         </button>
@@ -4499,7 +4812,69 @@ function MetadataTable({
       </div>
       {!selectedRow && actionError ? <div className="connection-error">{actionError}</div> : null}
       {!selectedRow && actionNotice ? <div className="action-notice">{actionNotice}</div> : null}
-      <div className="table-card metadata-table">
+      {sourceKey === 'modlcolm' && columnListMode === 'visual' ? (
+        <div className="column-visual-designer">
+          <div className="column-page-tabs" role="tablist" aria-label="Column pages">
+            {columnPages.map((page) => (
+              <button key={page} type="button" role="tab" aria-selected={selectedColumnPage === page} className={selectedColumnPage === page ? 'active' : ''} onClick={() => setActiveColumnPage(page)}>Page {page}</button>
+            ))}
+          </div>
+          <div className="column-area-tabs" role="tablist" aria-label="Column visual area">
+            <button type="button" role="tab" aria-selected={activeColumnVisualArea === 'browse'} className={activeColumnVisualArea === 'browse' ? 'active' : ''} onClick={() => setActiveColumnVisualArea('browse')}>Browse</button>
+            <button type="button" role="tab" aria-selected={activeColumnVisualArea === 'form'} className={activeColumnVisualArea === 'form' ? 'active' : ''} onClick={() => setActiveColumnVisualArea('form')}>Form</button>
+          </div>
+          {visualColumnRows.length === 0 ? <div className="empty-result">No columns found on this page.</div> : (
+            <div className="column-visual-split">
+              {(() => {
+                const visibilityField = activeColumnVisualArea === 'browse' ? 'isbrowsable' : 'isviewable'
+                const areaRows = visualColumnRows.filter(({ row }) => metadataFlag(row, visibilityField))
+                const availableRows = visualColumnRows.filter(({ row }) => !metadataFlag(row, visibilityField))
+                return (
+                  <section className="column-visual-area">
+                    <header><strong>{activeColumnVisualArea === 'browse' ? 'Browse' : 'Form'}</strong><span>{areaRows.length} field(s)</span></header>
+                    {areaRows.length === 0 ? <div className="empty-result">No active {activeColumnVisualArea} fields on Page {selectedColumnPage}.</div> : (
+                      activeColumnVisualArea === 'browse' ? (
+                        <div className="column-visual-fields">
+                          {areaRows.map(({ row, originalIndex }) => renderVisualField(row, originalIndex))}
+                        </div>
+                      ) : (
+                        <div className="column-form-sections">
+                          {Array.from(new Set(areaRows.map(({ row }) => String(getCellValue(row, 'sectionno') || '0')))).map((sectionNo) => {
+                            const sectionRows = areaRows.filter(({ row }) => String(getCellValue(row, 'sectionno') || '0') === sectionNo)
+                            const columnNos = Array.from(new Set(sectionRows.map(({ row }) => String(getCellValue(row, 'columnno') || '0'))))
+                              .sort((left, right) => Number(left) - Number(right) || left.localeCompare(right))
+                            return (
+                              <section key={sectionNo} className="column-form-section">
+                                <header><strong>Section {sectionNo}</strong><span>{sectionRows.length} field(s)</span></header>
+                                <div className="column-form-columns" style={{ gridTemplateColumns: `repeat(${Math.max(1, columnNos.length)}, minmax(180px, 1fr))` }}>
+                                  {columnNos.map((columnNo) => (
+                                    <div key={columnNo} className="column-form-column">
+                                      <strong>Column {columnNo}</strong>
+                                      <div>{sectionRows.filter(({ row }) => String(getCellValue(row, 'columnno') || '0') === columnNo).map(({ row, originalIndex }) => renderVisualField(row, originalIndex))}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
+                            )
+                          })}
+                        </div>
+                      )
+                    )}
+                    <section className="column-available-fields">
+                      <header><strong>Available Columns</strong><span>{availableRows.length} field(s)</span></header>
+                      {availableRows.length === 0 ? <div className="empty-result">All columns are already used in {activeColumnVisualArea}.</div> : (
+                        <div className="column-visual-fields">
+                          {availableRows.map(({ row, originalIndex }) => renderVisualField(row, originalIndex))}
+                        </div>
+                      )}
+                    </section>
+                  </section>
+                )
+              })()}
+            </div>
+          )}
+        </div>
+      ) : <div className="table-card metadata-table">
         {displayedRows.length === 0 ? (
           <div className="empty-result">{tableRows.length === 0 ? 'No rows found.' : 'No matching rows found.'}</div>
         ) : (
@@ -4543,7 +4918,7 @@ function MetadataTable({
             </tbody>
           </table>
         )}
-      </div>
+      </div>}
       </> : null}
       {isBulkDeleteOpen ? (
         <div className="row-detail-backdrop" onMouseDown={() => !isBulkDeleting && setIsBulkDeleteOpen(false)}>
@@ -4582,7 +4957,16 @@ function MetadataTable({
             {overlayColumns.map((column) => (
               <label key={column}>
                 <span>{columnLabels[column.toLowerCase()] ?? column}</span>
-                {column.toLowerCase() === 'actionguid' && sourceKey === 'modlmail' ? (
+                {column.toLowerCase() === 'mailguid' && sourceKey === 'modlmail' ? (
+                  <select
+                    value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                    disabled={!isEditing}
+                    onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                  >
+                    <option value="">Select mail profile</option>
+                    {mailProfileOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                ) : column.toLowerCase() === 'actionguid' && sourceKey === 'modlmail' ? (
                   <select
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     disabled={!isEditing}
@@ -4687,9 +5071,9 @@ function MetadataTable({
                     readOnly={!isEditing}
                     onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
                   />
-                ) : column.toLowerCase() === 'infovalue' ? (
+                ) : column.toLowerCase() === 'infovalue' || (sourceKey === 'modlmail' && column.toLowerCase() === 'body') ? (
                   <textarea
-                    className="raw-metadata-editor"
+                    className={column.toLowerCase() === 'infovalue' ? 'raw-metadata-editor' : undefined}
                     value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
                     readOnly={!isEditing}
                     rows={8}
@@ -4749,6 +5133,27 @@ function MetadataTable({
               </button>
             </div>
           ) : null}
+          {sourceKey === 'modlcolm' && !isCreating && onNavigate ? (
+            <div className="row-detail-links row-detail-inline-links">
+              <a href="#" onClick={(event) => {
+                event.preventDefault()
+                const columnGuid = String(getCellValue(selectedRow, 'columnguid') ?? '')
+                const columnLabel = String(getCellValue(selectedRow, 'colkey') || 'Column')
+                if (!columnGuid) {
+                  setActionError(`Cannot open Column Info for ${columnLabel}: column key is missing.`)
+                  return
+                }
+                cancelEdit()
+                onNavigate({
+                  ...selection,
+                  id: `${selection.databaseId}:module:${selection.moduleGuid}:columns:${columnGuid}`,
+                  kind: 'module-column',
+                  label: columnLabel,
+                  columnGuid,
+                })
+              }}>Open Column Info</a>
+            </div>
+          ) : null}
           <div className="row-detail-actions">
             <button type="button" onClick={saveDraft}>Save</button>
             {sourceKey === 'modlinfo'
@@ -4763,6 +5168,16 @@ function MetadataTable({
                   See in Query
                 </button>
               ) : null}
+            {sourceKey === 'widg' && !isCreating && String(getCellValue(selectedRow, 'sqlstr') ?? '').trim() ? (
+              <button type="button" onClick={() => {
+                window.dispatchEvent(new CustomEvent('oph:open-metadata-query', {
+                  detail: { databaseName: selection.databaseName, row: selectedRow },
+                }))
+                cancelEdit()
+              }}>
+                See in Query
+              </button>
+            ) : null}
             {sourceKey === 'modlinfo'
               && !isCreating
               && /^dplx(?:_rpt)?$/i.test(String(getCellValue(selectedRow, 'infokey') ?? '')) ? (
@@ -4807,9 +5222,21 @@ function MetadataTable({
             </label>
             <label className="copy-target-field">
               <span>Destination parent</span>
+              <input
+                type="search"
+                value={copyTargetSearch}
+                disabled={isLoadingCopyTargets || isCopyingRows}
+                placeholder="Search destination parent..."
+                onChange={(event) => setCopyTargetSearch(event.target.value)}
+              />
               <select value={copyTargetGuid} disabled={isLoadingCopyTargets || isCopyingRows} onChange={(event) => setCopyTargetGuid(event.target.value)}>
                 <option value="">{isLoadingCopyTargets ? 'Loading destinations…' : 'Select destination'}</option>
-                {copyTargets.map((target) => (
+                {copyTargets.filter((target) => {
+                  if (String(target.targetguid) === copyTargetGuid) return true
+                  const search = copyTargetSearch.trim().toLocaleLowerCase()
+                  if (!search) return true
+                  return `${String(target.targetlabel ?? '')} ${String(target.targetdescription ?? '')} ${String(target.targetguid ?? '')}`.toLocaleLowerCase().includes(search)
+                }).map((target) => (
                   <option key={String(target.targetguid)} value={String(target.targetguid)}>
                     {String(target.targetlabel ?? target.targetguid)}{target.targetdescription ? ` — ${String(target.targetdescription)}` : ''}
                   </option>

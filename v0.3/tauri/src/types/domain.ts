@@ -107,6 +107,7 @@ export type OphTreeNode = {
   label: string
   kind: TreeNodeKind
   description?: string
+  searchText?: string
   status?: string
   accountId?: string
   databaseName?: string

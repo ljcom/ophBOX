@@ -186,11 +186,28 @@ fn database_name(server: &OphServer) -> String {
 }
 
 fn read_string(row: &Row, column: &str) -> String {
-    row.get::<&str, _>(column).unwrap_or_default().to_string()
+    row.try_get::<&str, _>(column)
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn escape_sql_value(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn valid_database_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn valid_s3_configuration(access_key: &str, access_secret: &str, bucket: &str, require_host: Option<&str>) -> bool {
+    !access_key.trim().is_empty()
+        && !access_secret.trim().is_empty()
+        && !bucket.trim().is_empty()
+        && require_host.is_none_or(|host| !host.trim().is_empty())
 }
 
 fn quote_sql_identifier(value: &str) -> String {
@@ -1394,7 +1411,7 @@ async fn list_database_backups(
     let bucket = setting("BACKUP_BUCKET");
     let host = setting("BACKUP_HOST");
     let configured_prefix = setting("BACKUP_PREFIX");
-    if access_key.is_empty() || access_secret.is_empty() || bucket.is_empty() {
+    if !valid_s3_configuration(&access_key, &access_secret, &bucket, None) {
         return Err("The shared S3 backup configuration in oph_core.acctinfo is incomplete.".to_string());
     }
 
@@ -1457,10 +1474,7 @@ async fn restore_database_backup(
     if backup_key.trim().is_empty() {
         return Err("Select an S3 backup file to restore.".to_string());
     }
-    if target_database_name.is_empty()
-        || target_database_name.len() > 128
-        || !target_database_name.chars().all(|character| character.is_ascii_alphanumeric() || character == '_')
-    {
+    if !valid_database_name(&target_database_name) {
         return Err("New database name may only contain letters, numbers, and underscores.".to_string());
     }
 
@@ -1496,7 +1510,7 @@ async fn restore_database_backup(
     let access_secret = setting("BACKUP_ACCESS_SECRET");
     let bucket = setting("BACKUP_BUCKET");
     let host = setting("BACKUP_HOST").trim_end_matches('/').to_string();
-    if access_key.is_empty() || access_secret.is_empty() || bucket.is_empty() || host.is_empty() {
+    if !valid_s3_configuration(&access_key, &access_secret, &bucket, Some(&host)) {
         return Err("The shared S3 restore configuration in oph_core.acctinfo is incomplete.".to_string());
     }
 
@@ -1526,6 +1540,13 @@ async fn restore_database_backup(
         "#
     )).await.map_err(|_| "SQL Server could not configure the S3 restore credential.".to_string())?
       .into_results().await.map_err(|_| "SQL Server could not configure the S3 restore credential.".to_string())?;
+
+    client.simple_query(format!(
+        "restore verifyonly from url = N'{object_url_sql}'"
+    )).await
+      .map_err(|error| format!("Backup verification failed for {backup_key}: {error}"))?
+      .into_results().await
+      .map_err(|error| format!("Backup verification did not complete for {backup_key}: {error}"))?;
 
     let files = client.query(
         format!("restore filelistonly from url = N'{object_url_sql}'"), &[]
@@ -1762,17 +1783,23 @@ async fn reset_user_password(
     }
 
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
+    let mut client = timeout(
+        Duration::from_secs(5),
+        connect_sql_server_database(server, &database_name),
+    )
+    .await
+    .map_err(|_| format!("Cannot reset password: connection to database {database_name} timed out after 5 seconds."))??;
     let account_id = escape_sql_value(&account_id);
     let user_guid = escape_sql_value(&user_guid);
     let user_id = escape_sql_value(&user_id);
     let new_password = escape_sql_value(&new_password);
 
-    let users = client
-        .query(
+    let users = timeout(
+        Duration::from_secs(5),
+        client.query(
             format!(
                 r#"
-                select top 1 u.userguid, u.userid
+                select top 1 convert(nvarchar(36), u.userguid) as userguid, u.userid
                 from [user] u
                 inner join acct a on a.accountguid = u.accountguid
                 where a.accountid = N'{account_id}'
@@ -1783,8 +1810,10 @@ async fn reset_user_password(
                 "#
             ),
             &[],
-        )
+        ),
+    )
         .await
+        .map_err(|_| format!("Cannot reset password: finding user {user_id} in database {database_name} timed out after 5 seconds."))?
         .map_err(|error| format!("Cannot resolve the selected user: {error}"))?
         .into_first_result()
         .await
@@ -1794,12 +1823,52 @@ async fn reset_user_password(
     let resolved_user_id = escape_sql_value(&read_string(user, "userid"));
 
     let reset_query = format!(
-        "set lock_timeout 15000; exec gen.resetPassword null, N'{resolved_user_id}', '{resolved_user_guid}', @password=N'{new_password}', @accountid=N'{account_id}'"
+        r#"
+        set nocount on;
+        set xact_abort on;
+        set lock_timeout 5000;
+        begin try
+          begin transaction;
+
+          if exists (
+            select 1
+            from userinfo
+            where userguid = '{resolved_user_guid}'
+              and infokey = N'verifycode'
+          )
+          begin
+            update userinfo
+            set infokey = N'verifycode',
+                infovalue = N'8888'
+            where userguid = '{resolved_user_guid}'
+              and infokey = N'verifycode';
+          end
+          else
+          begin
+            insert into userinfo (userguid, infokey, infovalue)
+            values ('{resolved_user_guid}', N'verifycode', N'8888');
+          end;
+
+          exec gen.resetPassword
+            null,
+            N'{resolved_user_id}',
+            '{resolved_user_guid}',
+            N'{new_password}',
+            @accountid = N'{account_id}',
+            @secretcode = N'8888';
+
+          commit transaction;
+        end try
+        begin catch
+          if @@trancount > 0 rollback transaction;
+          throw;
+        end catch
+        "#
     );
-    timeout(Duration::from_secs(20), client.execute(reset_query, &[]))
+    timeout(Duration::from_secs(10), client.execute(reset_query, &[]))
         .await
-        .map_err(|_| format!("Password reset for user {resolved_user_id} timed out after 20 seconds."))?
-        .map_err(|error| format!("Cannot reset password for user {resolved_user_id}: {error}"))?;
+        .map_err(|_| format!("gen.resetPassword timed out after 10 seconds for user {resolved_user_id} in database {database_name}. Check blocking transactions on this database."))?
+        .map_err(|error| format!("gen.resetPassword failed for user {resolved_user_id} in database {database_name}: {error}"))?;
 
     Ok(())
 }
@@ -1931,7 +2000,14 @@ async fn list_module_tree(
                 moduleid,
                 moduledescription,
                 settingmode,
-                parentmoduleguid
+                parentmoduleguid,
+                stuff((
+                  select N' ' + isnull(mi.infokey, N'')
+                  from modlinfo mi
+                  where mi.moduleguid = modl.moduleguid
+                  order by mi.infokey
+                  for xml path(''), type
+                ).value('.', 'nvarchar(max)'), 1, 1, N'') as searchtext
               from modl
               where settingmode in (0, 1, 4, 5, 6, 7)
                 and accountguid = (
@@ -1964,7 +2040,14 @@ async fn list_module_column_tree(
               select
                 c.columnguid,
                 c.moduleguid,
-                c.colkey
+                c.colkey,
+                stuff((
+                  select N' ' + isnull(ci.infokey, N'')
+                  from modlcolminfo ci
+                  where ci.columnguid = c.columnguid
+                  order by ci.infokey
+                  for xml path(''), type
+                ).value('.', 'nvarchar(max)'), 1, 1, N'') as searchtext
               from modlcolm c
               inner join modl m on m.moduleguid = c.moduleguid
               where m.accountguid = (
@@ -1995,16 +2078,37 @@ async fn list_module_columns(
             r#"
             select (
               select
-                columnguid,
-                moduleguid,
-                colkey,
-                coltype,
-                titlecaption,
-                colorder,
-                collength
-              from modlcolm
-              where moduleguid = '{module_guid}'
-              order by colorder, colkey
+                c.columnguid,
+                c.moduleguid,
+                c.colkey,
+                c.coltype,
+                c.titlecaption,
+                c.colorder,
+                c.collength,
+                layout.pageno,
+                layout.sectionno,
+                layout.columnno,
+                layout.rowno,
+                layout.fieldno,
+                layout.isviewable,
+                layout.isbrowsable,
+                layout.iseditable
+              from modlcolm c
+              outer apply (
+                select
+                  max(case when lower(i.infokey) = N'pageno' then i.infovalue end) as pageno,
+                  max(case when lower(i.infokey) = N'sectionno' then i.infovalue end) as sectionno,
+                  max(case when lower(i.infokey) in (N'columnno', N'colno') then i.infovalue end) as columnno,
+                  max(case when lower(i.infokey) = N'rowno' then i.infovalue end) as rowno,
+                  max(case when lower(i.infokey) = N'fieldno' then i.infovalue end) as fieldno,
+                  max(case when lower(i.infokey) = N'isviewable' then i.infovalue end) as isviewable,
+                  max(case when lower(i.infokey) = N'isbrowsable' then i.infovalue end) as isbrowsable,
+                  max(case when lower(i.infokey) = N'iseditable' then i.infovalue end) as iseditable
+                from modlcolminfo i
+                where i.columnguid = c.columnguid
+              ) layout
+              where c.moduleguid = '{module_guid}'
+              order by c.colorder, c.colkey
               for json path
             ) as json
             "#
@@ -2294,6 +2398,7 @@ async fn list_module_mails(
                 mm.modulemailguid,
                 mm.moduleguid,
                 mm.mailguid,
+                coalesce(mail_profile.profilename, mail_profile.displayname, convert(nvarchar(36), mm.mailguid), N'') as mail,
                 mm.actionguid,
                 coalesce(action_value.parametervalue, convert(nvarchar(36), mm.actionguid), N'') as action,
                 mm.tokenstatus,
@@ -2305,6 +2410,7 @@ async fn list_module_mails(
                 mm.reportattachment,
                 mm.definedtable
               from modlmail mm
+              left join mail mail_profile on mail_profile.mailguid = mm.mailguid
               left join paravalu action_value on action_value.parametervalueguid = mm.actionguid
               outer apply (
                 select string_agg(coalesce(status_value.parameterdescription, status_value.parametervalue, token.value), N', ') as status
@@ -2936,4 +3042,34 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_sql_value, valid_database_name, valid_s3_configuration};
+
+    #[test]
+    fn escapes_apostrophes_without_changing_json_quotes() {
+        let value = r#"[{"url":"javascript:btn_function('submit')","caption":"submit"}]"#;
+        assert_eq!(escape_sql_value(value), r#"[{"url":"javascript:btn_function(''submit'')","caption":"submit"}]"#);
+    }
+
+    #[test]
+    fn validates_safe_database_names() {
+        assert!(valid_database_name("account_v4_001"));
+        assert!(!valid_database_name(""));
+        assert!(!valid_database_name("account-v4"));
+        assert!(!valid_database_name("account];drop database master;--"));
+        assert!(!valid_database_name(&"a".repeat(129)));
+    }
+
+    #[test]
+    fn validates_s3_configuration_requirements() {
+        assert!(valid_s3_configuration("access", "secret", "bucket", None));
+        assert!(valid_s3_configuration("access", "secret", "bucket", Some("s3.example.com")));
+        assert!(!valid_s3_configuration("", "secret", "bucket", None));
+        assert!(!valid_s3_configuration("access", "", "bucket", None));
+        assert!(!valid_s3_configuration("access", "secret", "", None));
+        assert!(!valid_s3_configuration("access", "secret", "bucket", Some("")));
+    }
 }
