@@ -1297,15 +1297,20 @@ function ReportDesignerWorkspace({
       .find((child) => child.tagName === selectedElement.band)
       ?.children.item(selectedElement.index) ?? null
     : null
-  const selectedSubReport = activeElement && ['subReport', 'contentGroup'].includes(activeElement.tagName) ? activeElement : null
-  const selectedContainerType = selectedSubReport?.tagName === 'contentGroup' ? 'Content Group' : 'Subreport'
+  const selectedSubReport = activeElement && ['subReport', 'contentGroup', 'conditionalFooter'].includes(activeElement.tagName) ? activeElement : null
+  const selectedContainerType = selectedSubReport?.tagName === 'contentGroup'
+    ? 'Content Group'
+    : selectedSubReport?.tagName === 'conditionalFooter'
+      ? 'Conditional Footer'
+      : 'Subreport'
+  const selectedFlatContainer = selectedSubReport && ['contentGroup', 'conditionalFooter'].includes(selectedSubReport.tagName)
   const activeSubReportBand = selectedSubReport && selectedSubReportBand
-    ? selectedSubReport.tagName === 'contentGroup'
+    ? selectedFlatContainer
       ? null
       : Array.from(selectedSubReport.children).find((child) => child.tagName === selectedSubReportBand) ?? null
     : null
   const activeSubReportElement = selectedSubReport && selectedSubReportElement
-    ? selectedSubReport.tagName === 'contentGroup'
+    ? selectedFlatContainer
       ? selectedSubReport.children.item(selectedSubReportElement.index)
       : Array.from(selectedSubReport.children)
         .find((child) => child.tagName === selectedSubReportElement.band)
@@ -1343,7 +1348,7 @@ function ReportDesignerWorkspace({
   const reportBodyWidth = Math.max(100, pageWidth - pageMargins.left - pageMargins.right)
   const reportBodyHeight = Math.max(100, pageHeight - pageMargins.top - pageMargins.bottom)
   const visibleBands = selectedSubReport
-    ? selectedSubReport.tagName === 'contentGroup'
+    ? selectedFlatContainer
       ? [selectedSubReport]
       : Array.from(selectedSubReport.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName) && Number(child.getAttribute('height') ?? 0) > 0)
     : selectedBand === 'template'
@@ -1379,7 +1384,7 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      if (subReport?.tagName === 'contentGroup' && selectedSubReportBand === 'detail') subReport.setAttribute(name, value)
+      if (subReport && ['contentGroup', 'conditionalFooter'].includes(subReport.tagName) && selectedSubReportBand === 'detail') subReport.setAttribute(name, value)
       else Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportBand)?.setAttribute(name, value)
     })
   }
@@ -1389,7 +1394,7 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      const internalBand = subReport?.tagName === 'contentGroup'
+      const internalBand = subReport && ['contentGroup', 'conditionalFooter'].includes(subReport.tagName)
         ? subReport
         : Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
       internalBand?.children.item(selectedSubReportElement.index)?.setAttribute(name, value)
@@ -1401,7 +1406,7 @@ function ReportDesignerWorkspace({
     changeXml((_document, report) => {
       const parentBand = Array.from(report.children).find((child) => child.tagName === selectedElement.band)
       const subReport = parentBand?.children.item(selectedElement.index)
-      const internalBand = subReport?.tagName === 'contentGroup'
+      const internalBand = subReport && ['contentGroup', 'conditionalFooter'].includes(subReport.tagName)
         ? subReport
         : Array.from(subReport?.children ?? []).find((child) => child.tagName === selectedSubReportElement.band)
       internalBand?.children.item(selectedSubReportElement.index)?.remove()
@@ -1530,10 +1535,10 @@ function ReportDesignerWorkspace({
         if (selectedBand === 'detail') band.setAttribute('autoSplit', 'false')
         report.appendChild(band)
       }
-      const contentGroup = selectedSubReport?.tagName === 'contentGroup' && selectedElement
+      const contentGroup = selectedFlatContainer && selectedElement
         ? band.children.item(selectedElement.index)
         : null
-      const target = contentGroup?.tagName === 'contentGroup' ? contentGroup : band
+      const target = contentGroup && ['contentGroup', 'conditionalFooter'].includes(contentGroup.tagName) ? contentGroup : band
       const element = document.createElement(name)
       if (['pageBreak', 'softBreak'].includes(name)) {
         Object.entries({ x: '0', y: '40', width: String(reportBodyWidth), height: '2' }).forEach(([key, value]) => element.setAttribute(key, value))
@@ -1566,7 +1571,7 @@ function ReportDesignerWorkspace({
       if (target === band) setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
       else {
         setSelectedSubReportBand(null)
-        setSelectedSubReportElement({ band: 'contentGroup', index: target.children.length - 1 })
+        setSelectedSubReportElement({ band: target.tagName, index: target.children.length - 1 })
       }
     })
   }
@@ -1578,10 +1583,10 @@ function ReportDesignerWorkspace({
         band = document.createElement(selectedBand)
         report.appendChild(band)
       }
-      const contentGroup = selectedSubReport?.tagName === 'contentGroup' && selectedElement
+      const contentGroup = selectedFlatContainer && selectedElement
         ? band.children.item(selectedElement.index)
         : null
-      const target = contentGroup?.tagName === 'contentGroup' ? contentGroup : band
+      const target = contentGroup && ['contentGroup', 'conditionalFooter'].includes(contentGroup.tagName) ? contentGroup : band
       const area = document.createElement('formattedRecordArea')
       Object.entries({ x: '20', y: '20', width: '180', height: '40', expandable: 'true' }).forEach(([key, value]) => area.setAttribute(key, value))
       const text = document.createElement('text')
@@ -1591,7 +1596,7 @@ function ReportDesignerWorkspace({
       if (target === band) setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
       else {
         setSelectedSubReportBand(null)
-        setSelectedSubReportElement({ band: 'contentGroup', index: target.children.length - 1 })
+        setSelectedSubReportElement({ band: target.tagName, index: target.children.length - 1 })
       }
     })
   }
@@ -1643,6 +1648,25 @@ function ReportDesignerWorkspace({
     })
   }
 
+  function addConditionalFooter() {
+    changeXml((document, report) => {
+      let footer = Array.from(report.children).find((child) => child.tagName === 'footer')
+      if (!footer) {
+        footer = document.createElement('footer')
+        footer.setAttribute('height', '80')
+        report.appendChild(footer)
+      }
+      const conditionalFooter = document.createElement('conditionalFooter')
+      conditionalFooter.setAttribute('id', `ConditionalFooter${Array.from(footer.children).filter((child) => child.tagName === 'conditionalFooter').length + 1}`)
+      conditionalFooter.setAttribute('condition', 'LastPage')
+      footer.appendChild(conditionalFooter)
+      setSelectedBand('footer')
+      setSelectedElement({ band: 'footer', index: footer.children.length - 1 })
+      setSelectedSubReportBand(null)
+      setSelectedSubReportElement(null)
+    })
+  }
+
   function deleteElement() {
     if (!selectedElement) return
     changeXml((_document, report) => {
@@ -1687,16 +1711,16 @@ function ReportDesignerWorkspace({
             <strong>Bands</strong>
             {dplxBandNames.map((bandName) => {
               const band = parsed.report ? Array.from(parsed.report.children).find((child) => child.tagName === bandName) : null
-              const nestedContainers = band ? Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => ['subReport', 'contentGroup'].includes(element.tagName)) : []
+              const nestedContainers = band ? Array.from(band.children).map((element, index) => ({ element, index })).filter(({ element }) => ['subReport', 'contentGroup', 'conditionalFooter'].includes(element.tagName)) : []
               return (
                 <div key={bandName} className="report-band-tree-item">
                   <button type="button" className={selectedBand === bandName && !selectedElement ? 'active-tool' : ''} onClick={() => { setSelectedBand(bandName); setSelectedElement(null); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>{bandName}</button>
                   {bandName !== 'template' ? nestedContainers.map(({ element, index }, containerIndex) => (
                     <div key={index} className="report-subreport-tree-item">
                       <button type="button" className={selectedBand === bandName && selectedElement?.index === index && !selectedSubReportBand ? 'active-tool report-subreport-active' : 'report-subreport-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(null); setSelectedSubReportElement(null) }}>
-                        ↳ {element.tagName === 'contentGroup' ? 'Content Group' : 'Subreport'} {containerIndex + 1}
+                        ↳ {element.tagName === 'contentGroup' ? 'Content Group' : element.tagName === 'conditionalFooter' ? 'Conditional Footer' : 'Subreport'} {containerIndex + 1}
                       </button>
-                      {(element.tagName === 'contentGroup' ? [] : Array.from(element.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName)).map((child) => child.tagName)).map((childName) => (
+                      {(['contentGroup', 'conditionalFooter'].includes(element.tagName) ? [] : Array.from(element.children).filter((child) => ['header', 'detail', 'footer'].includes(child.tagName)).map((child) => child.tagName)).map((childName) => (
                         <button key={childName} type="button" className={selectedBand === bandName && selectedElement?.index === index && selectedSubReportBand === childName && !selectedSubReportElement ? 'report-subreport-band-button active-tool' : 'report-subreport-band-button'} onClick={() => { setSelectedBand(bandName); setSelectedElement({ band: bandName, index }); setSelectedSubReportBand(childName); setSelectedSubReportElement(null) }}>
                           {childName}
                         </button>
@@ -1748,6 +1772,7 @@ function ReportDesignerWorkspace({
             <button type="button" onClick={() => addElement(imageType)}>+ Image</button>
             <button type="button" onClick={addContentGroup}>+ Content Group</button>
             <button type="button" onClick={addSubReport}>+ Subreport</button>
+            <button type="button" onClick={addConditionalFooter}>+ Conditional Footer</button>
           </aside>
           <div className="report-canvas-scroll">
             <div
@@ -1769,7 +1794,7 @@ function ReportDesignerWorkspace({
                 return (
                   <section key={band.tagName} className={`report-band ${selectedSubReport ? 'subreport-band' : ''} ${band.tagName === 'template' ? 'report-template-area' : ''} ${selectedSubReport ? selectedSubReportBand === band.tagName ? 'selected-report-band' : '' : selectedBand === band.tagName ? 'selected-report-band' : ''}`} style={{ width: previewBodyWidth, height: bandHeight }} onClick={() => {
                     if (selectedSubReport) {
-                      setSelectedSubReportBand(selectedSubReport.tagName === 'contentGroup' ? null : band.tagName)
+                      setSelectedSubReportBand(selectedFlatContainer ? null : band.tagName)
                       setSelectedSubReportElement(null)
                     } else {
                       setSelectedBand(band.tagName)
@@ -1800,7 +1825,7 @@ function ReportDesignerWorkspace({
                       return <button key={`${element.tagName}-${index}-${renderIndex}`} type="button" className={`report-layout-element report-${element.tagName.toLowerCase()} ${verticalLine ? 'report-line-vertical' : ''} ${selected ? 'selected-report-element' : ''}`} style={{ left: x, top: y, width, height, fontSize, fontFamily: font, textAlign: align ?? 'left', fontWeight: /bold/i.test(font) ? 700 : undefined, backgroundColor: element.getAttribute('fillColor') || undefined, borderColor: element.getAttribute('borderColor') || undefined }} onClick={(event) => {
                         event.stopPropagation()
                         if (selectedSubReport) {
-                          setSelectedSubReportBand(selectedSubReport.tagName === 'contentGroup' ? null : band.tagName)
+                          setSelectedSubReportBand(selectedFlatContainer ? null : band.tagName)
                           setSelectedSubReportElement({ band: band.tagName, index })
                         } else {
                           setSelectedBand(band.tagName)
@@ -3890,7 +3915,6 @@ function MetadataTable({
   const [listSearch, setListSearch] = useState('')
   const [columnListMode, setColumnListMode] = useState<'table' | 'visual'>('table')
   const [activeColumnPage, setActiveColumnPage] = useState('')
-  const [activeColumnVisualArea, setActiveColumnVisualArea] = useState<'browse' | 'form'>('browse')
   const [userTokenOptions, setUserTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleGroupTokenOptions, setModuleGroupTokenOptions] = useState<Array<{ value: string; label: string }>>([])
   const [moduleRelationOptions, setModuleRelationOptions] = useState<Record<string, Array<{ value: string; label: string }>>>({})
@@ -4115,11 +4139,14 @@ function MetadataTable({
 
   const sourceKey = sourceTable.toLowerCase()
   const normalizedListSearch = listSearch.trim().toLocaleLowerCase()
-  const displayedRows = tableRows
+  const filteredRows = tableRows
     .map((row, originalIndex) => ({ row, originalIndex }))
     .filter(({ row }) => !normalizedListSearch || Object.values(row).some((value) =>
       String(value ?? '').toLocaleLowerCase().includes(normalizedListSearch),
     ))
+  const displayedRows = sourceKey === 'menusmnu' && !normalizedListSearch
+    ? orderSubmenuRows(filteredRows)
+    : filteredRows
   const submenuOptions = sourceKey === 'menusmnu'
     ? tableRows
       .filter((row) => ['treeview', 'treeroot'].includes(String(getCellValue(row, 'type') ?? '').toLowerCase()))
@@ -4819,21 +4846,17 @@ function MetadataTable({
               <button key={page} type="button" role="tab" aria-selected={selectedColumnPage === page} className={selectedColumnPage === page ? 'active' : ''} onClick={() => setActiveColumnPage(page)}>Page {page}</button>
             ))}
           </div>
-          <div className="column-area-tabs" role="tablist" aria-label="Column visual area">
-            <button type="button" role="tab" aria-selected={activeColumnVisualArea === 'browse'} className={activeColumnVisualArea === 'browse' ? 'active' : ''} onClick={() => setActiveColumnVisualArea('browse')}>Browse</button>
-            <button type="button" role="tab" aria-selected={activeColumnVisualArea === 'form'} className={activeColumnVisualArea === 'form' ? 'active' : ''} onClick={() => setActiveColumnVisualArea('form')}>Form</button>
-          </div>
           {visualColumnRows.length === 0 ? <div className="empty-result">No columns found on this page.</div> : (
             <div className="column-visual-split">
-              {(() => {
-                const visibilityField = activeColumnVisualArea === 'browse' ? 'isbrowsable' : 'isviewable'
+              {(['browse', 'form'] as const).map((visualArea) => {
+                const visibilityField = visualArea === 'browse' ? 'isbrowsable' : 'isviewable'
                 const areaRows = visualColumnRows.filter(({ row }) => metadataFlag(row, visibilityField))
                 const availableRows = visualColumnRows.filter(({ row }) => !metadataFlag(row, visibilityField))
                 return (
-                  <section className="column-visual-area">
-                    <header><strong>{activeColumnVisualArea === 'browse' ? 'Browse' : 'Form'}</strong><span>{areaRows.length} field(s)</span></header>
-                    {areaRows.length === 0 ? <div className="empty-result">No active {activeColumnVisualArea} fields on Page {selectedColumnPage}.</div> : (
-                      activeColumnVisualArea === 'browse' ? (
+                  <section key={visualArea} className="column-visual-area">
+                    <header><strong>{visualArea === 'browse' ? 'Browse' : 'Form'}</strong><span>{areaRows.length} field(s)</span></header>
+                    {areaRows.length === 0 ? <div className="empty-result">No active {visualArea} fields on Page {selectedColumnPage}.</div> : (
+                      visualArea === 'browse' ? (
                         <div className="column-visual-fields">
                           {areaRows.map(({ row, originalIndex }) => renderVisualField(row, originalIndex))}
                         </div>
@@ -4862,7 +4885,7 @@ function MetadataTable({
                     )}
                     <section className="column-available-fields">
                       <header><strong>Available Columns</strong><span>{availableRows.length} field(s)</span></header>
-                      {availableRows.length === 0 ? <div className="empty-result">All columns are already used in {activeColumnVisualArea}.</div> : (
+                      {availableRows.length === 0 ? <div className="empty-result">All columns are already used in {visualArea}.</div> : (
                         <div className="column-visual-fields">
                           {availableRows.map(({ row, originalIndex }) => renderVisualField(row, originalIndex))}
                         </div>
@@ -4870,7 +4893,7 @@ function MetadataTable({
                     </section>
                   </section>
                 )
-              })()}
+              })}
             </div>
           )}
         </div>
@@ -5255,6 +5278,45 @@ function MetadataTable({
       ) : null}
     </div>
   )
+}
+
+function orderSubmenuRows(rows: Array<{ row: MetadataRow; originalIndex: number }>) {
+  function field(row: MetadataRow, name: string) {
+    const key = Object.keys(row).find((candidate) => candidate.toLowerCase() === name)
+    return key ? String(row[key] ?? '') : ''
+  }
+
+  const rowByGuid = new Map(rows.map((entry) => [
+    (field(entry.row, 'menudetailguid') || field(entry.row, 'submenuguid')).toLowerCase(),
+    entry,
+  ]))
+  const childrenByParent = new Map<string, Array<{ row: MetadataRow; originalIndex: number }>>()
+  const roots: Array<{ row: MetadataRow; originalIndex: number }> = []
+
+  rows.forEach((entry) => {
+    const parentGuid = field(entry.row, 'uppersubmenuguid').toLowerCase()
+    if (!parentGuid || !rowByGuid.has(parentGuid)) {
+      roots.push(entry)
+      return
+    }
+    const children = childrenByParent.get(parentGuid) ?? []
+    children.push(entry)
+    childrenByParent.set(parentGuid, children)
+  })
+
+  const ordered: Array<{ row: MetadataRow; originalIndex: number }> = []
+  const visited = new Set<number>()
+  function append(entry: { row: MetadataRow; originalIndex: number }) {
+    if (visited.has(entry.originalIndex)) return
+    visited.add(entry.originalIndex)
+    ordered.push(entry)
+    const guid = (field(entry.row, 'menudetailguid') || field(entry.row, 'submenuguid')).toLowerCase()
+    childrenByParent.get(guid)?.forEach(append)
+  }
+
+  roots.forEach(append)
+  rows.forEach(append)
+  return ordered
 }
 
 function CheckboxInput({

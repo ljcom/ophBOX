@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 use tauri::Manager;
 use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel, Row};
 use tokio::net::TcpStream;
@@ -1356,6 +1358,116 @@ async fn list_account_databases(
     .await
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct S3ListResponse {
+    #[serde(default, rename = "Contents")]
+    contents: Vec<S3Object>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct S3Object {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    size: u64,
+    #[serde(default)]
+    last_modified: String,
+    #[serde(default)]
+    storage_class: String,
+}
+
+fn aws_uri_encode(value: &str) -> String {
+    value.as_bytes().iter().map(|byte| match byte {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (*byte as char).to_string(),
+        _ => format!("%{byte:02X}"),
+    }).collect()
+}
+
+fn sha256_hex(value: impl AsRef<[u8]>) -> String {
+    format!("{:x}", Sha256::digest(value.as_ref()))
+}
+
+fn hmac_sha256(key: &[u8], value: &str) -> Result<Vec<u8>, String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)
+        .map_err(|_| "Cannot prepare S3 request signature.".to_string())?;
+    mac.update(value.as_bytes());
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+async fn list_s3_objects(
+    access_key: &str,
+    access_secret: &str,
+    bucket: &str,
+    configured_host: &str,
+    prefix: &str,
+) -> Result<S3ListResponse, String> {
+    let endpoint = if configured_host.trim().is_empty() {
+        "https://s3.us-east-1.amazonaws.com".to_string()
+    } else if configured_host.starts_with("http://") || configured_host.starts_with("https://") {
+        configured_host.trim_end_matches('/').to_string()
+    } else {
+        format!("https://{}", configured_host.trim_end_matches('/'))
+    };
+    let request_url = format!("{endpoint}/{}", aws_uri_encode(bucket));
+    let url = reqwest::Url::parse(&request_url)
+        .map_err(|error| format!("The S3 host is invalid: {error}"))?;
+    let host = match (url.host_str(), url.port()) {
+        (Some(host), Some(port)) => format!("{host}:{port}"),
+        (Some(host), None) => host.to_string(),
+        _ => return Err("The S3 host does not contain a valid server name.".to_string()),
+    };
+    let canonical_uri = url.path().to_string();
+    let canonical_query = if prefix.is_empty() {
+        "list-type=2".to_string()
+    } else {
+        format!("list-type=2&prefix={}", aws_uri_encode(prefix))
+    };
+    let now = chrono::Utc::now();
+    let request_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let short_date = now.format("%Y%m%d").to_string();
+    let payload_hash = sha256_hex("");
+    let canonical_headers = format!(
+        "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{request_date}\n"
+    );
+    let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+    let canonical_request = format!(
+        "GET\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+    );
+    let scope = format!("{short_date}/us-east-1/s3/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{request_date}\n{scope}\n{}",
+        sha256_hex(canonical_request)
+    );
+    let date_key = hmac_sha256(format!("AWS4{access_secret}").as_bytes(), &short_date)?;
+    let region_key = hmac_sha256(&date_key, "us-east-1")?;
+    let service_key = hmac_sha256(&region_key, "s3")?;
+    let signing_key = hmac_sha256(&service_key, "aws4_request")?;
+    let signature = hmac_sha256(&signing_key, &string_to_sign)?
+        .iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
+    );
+
+    let response = reqwest::Client::new()
+        .get(format!("{request_url}?{canonical_query}"))
+        .header("Host", host)
+        .header("x-amz-content-sha256", payload_hash)
+        .header("x-amz-date", request_date)
+        .header("Authorization", authorization)
+        .send().await
+        .map_err(|error| format!("S3 could not be reached: {error}"))?;
+    let status = response.status();
+    let body = response.text().await
+        .map_err(|error| format!("Cannot read the S3 response: {error}"))?;
+    if !status.is_success() {
+        return Err(format!("S3 returned {status}: {}", body.trim()));
+    }
+    quick_xml::de::from_str(&body)
+        .map_err(|error| format!("Cannot parse the S3 response: {error}"))
+}
+
 #[tauri::command]
 async fn list_database_backups(
     config: OphConnectionConfig,
@@ -1418,48 +1530,20 @@ async fn list_database_backups(
     let requested_prefix = configured_prefix
         .replace("{database}", &database_name)
         .replace("{DATABASE}", &database_name);
-    let mut command = std::process::Command::new("aws");
-    command.args(["s3api", "list-objects-v2", "--bucket", &bucket, "--output", "json"]);
-    if !host.is_empty() {
-        let endpoint = if host.starts_with("http://") || host.starts_with("https://") {
-            host
-        } else {
-            format!("https://{host}")
-        };
-        command.args(["--endpoint-url", &endpoint]);
-    }
-    if !requested_prefix.is_empty() {
-        command.args(["--prefix", &requested_prefix]);
-    }
-    command
-        .env("AWS_ACCESS_KEY_ID", access_key)
-        .env("AWS_SECRET_ACCESS_KEY", access_secret)
-        .env("AWS_DEFAULT_REGION", "us-east-1")
-        .env("AWS_EC2_METADATA_DISABLED", "true");
-
-    let output = command.output().map_err(|error| {
-        format!("Cannot run the AWS CLI. Install or configure the `aws` command first: {error}")
-    })?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Cannot load S3 backups for {database_name}: {}", detail.trim()));
-    }
-
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("Cannot read the S3 response for {database_name}: {error}"))?;
+    let response = list_s3_objects(&access_key, &access_secret, &bucket, &host, &requested_prefix)
+        .await
+        .map_err(|error| format!("Cannot load S3 backups for {database_name}: {error}"))?;
     let database_filter = database_name.to_lowercase();
     let prefix_has_database = requested_prefix.to_lowercase().contains(&database_filter);
-    let backups = response.get("Contents").and_then(|value| value.as_array())
-        .into_iter().flatten()
+    let backups = response.contents.into_iter()
         .filter(|object| {
-            prefix_has_database || object.get("Key").and_then(|value| value.as_str())
-                .is_some_and(|key| key.to_lowercase().contains(&database_filter))
+            prefix_has_database || object.key.to_lowercase().contains(&database_filter)
         })
         .map(|object| serde_json::json!({
-            "backupFile": object.get("Key").and_then(|value| value.as_str()).unwrap_or_default(),
-            "sizeBytes": object.get("Size").and_then(|value| value.as_u64()).unwrap_or_default(),
-            "lastModified": object.get("LastModified").and_then(|value| value.as_str()).unwrap_or_default(),
-            "storageClass": object.get("StorageClass").and_then(|value| value.as_str()).unwrap_or_default(),
+            "backupFile": object.key,
+            "sizeBytes": object.size,
+            "lastModified": object.last_modified,
+            "storageClass": object.storage_class,
         }))
         .collect();
     Ok(backups)
@@ -3046,7 +3130,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_sql_value, valid_database_name, valid_s3_configuration};
+    use super::{aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ListResponse};
 
     #[test]
     fn escapes_apostrophes_without_changing_json_quotes() {
@@ -3071,5 +3155,20 @@ mod tests {
         assert!(!valid_s3_configuration("access", "", "bucket", None));
         assert!(!valid_s3_configuration("access", "secret", "", None));
         assert!(!valid_s3_configuration("access", "secret", "bucket", Some("")));
+    }
+
+    #[test]
+    fn encodes_s3_query_values_for_aws_signing() {
+        assert_eq!(aws_uri_encode("backup/OPH test+.bak"), "backup%2FOPH%20test%2B.bak");
+    }
+
+    #[test]
+    fn parses_s3_list_objects_response() {
+        let response: S3ListResponse = quick_xml::de::from_str(
+            "<ListBucketResult><Contents><Key>backup/OPH.bak</Key><LastModified>2026-08-18T00:00:00Z</LastModified><Size>42</Size><StorageClass>STANDARD</StorageClass></Contents></ListBucketResult>"
+        ).expect("S3 response should parse");
+        assert_eq!(response.contents.len(), 1);
+        assert_eq!(response.contents[0].key, "backup/OPH.bak");
+        assert_eq!(response.contents[0].size, 42);
     }
 }

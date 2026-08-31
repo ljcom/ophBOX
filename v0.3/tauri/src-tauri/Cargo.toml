@@ -1,6 +1,6 @@
 [package]
 name = "oph-control-studio"
-version = "0.3.5"
+version = "0.3.6"
 description = "OPH Control Studio"
 authors = ["OPH"]
 edition = "2021"
@@ -16,6 +16,11 @@ tauri-build = { version = "=2.6.3", features = [] }
 tauri = { version = "=2.11.0", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+chrono = "0.4"
+hmac = "0.12"
+quick-xml = { version = "0.38", features = ["serialize"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.10"
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls"] }
 tokio = { version = "1", features = ["net", "time"] }
 tokio-util = { version = "0.7", features = ["compat"] }
