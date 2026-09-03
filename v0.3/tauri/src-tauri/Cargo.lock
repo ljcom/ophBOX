@@ -2175,7 +2175,7 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "oph-control-studio"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "chrono",
  "hmac",

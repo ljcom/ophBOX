@@ -855,9 +855,38 @@ function App() {
   }
 
   async function refreshModuleTreeNode(node: OphTreeNode) {
-    if (!connectionConfig || !node.databaseId) return
+    if (!connectionConfig) return
+
+    if (node.kind === 'server') {
+      await refreshServerConnection(node.serverId ?? node.id)
+      return
+    }
+
+    if (!node.databaseId) return
     const database = discoveredDatabases.find((candidate) => candidate.id === node.databaseId)
     if (!database) return
+
+    if ((node.kind === 'interface' && node.label === 'Menus') || node.kind === 'menu') {
+      const menus = await ophAdminService.listMenus(connectionConfig, database.name, database.databaseName)
+      setMenuRowsByDatabaseId((current) => ({ ...current, [database.id]: menus }))
+      return
+    }
+
+    if (node.kind === 'module-category' && node.label === 'Module Groups') {
+      const groups = await ophAdminService.listModuleGroups(connectionConfig, database.name, database.databaseName)
+      setModuleGroupRowsByDatabaseId((current) => ({ ...current, [database.id]: groups }))
+      return
+    }
+
+    if (node.kind === 'module-category' && node.settingMode !== undefined) {
+      const [modules, columns] = await Promise.all([
+        ophAdminService.listModuleTree(connectionConfig, database.name, database.databaseName),
+        ophAdminService.listModuleColumnTree(connectionConfig, database.name, database.databaseName),
+      ])
+      setModuleRowsByDatabaseId((current) => ({ ...current, [database.id]: modules }))
+      setColumnRowsByDatabaseId((current) => ({ ...current, [database.id]: columns }))
+      return
+    }
 
     if (node.kind === 'module') {
       const [modules, columns] = await Promise.all([
@@ -2313,14 +2342,35 @@ function TreeNodeView({
           <strong>{node.label}</strong>
           {node.description ? <small>{node.description}</small> : null}
         </span>
-        {node.kind === 'module' || node.kind === 'module-column' ? (
+        {node.kind === 'server'
+        || node.kind === 'module'
+        || node.kind === 'module-column'
+        || (node.kind === 'module-action' && node.label === 'Columns')
+        || (node.kind === 'module-category' && node.settingMode !== undefined)
+        || (node.kind === 'module-category' && node.label === 'Module Groups')
+        || (node.kind === 'interface' && node.label === 'Menus')
+        || node.kind === 'menu' ? (
           <span
             role="button"
             tabIndex={0}
             className="tree-refresh-button"
             aria-label={`Refresh ${node.label}`}
-            title={`Refresh ${node.kind === 'module' ? 'module and column' : 'column'} tree`}
+            title={node.kind === 'server'
+              ? 'Refresh all accounts on this server'
+              : node.kind === 'interface' || node.kind === 'menu'
+                ? 'Refresh menus tree'
+              : node.kind === 'module-category'
+                ? `Refresh ${node.label.toLowerCase()} tree`
+              : `Refresh ${node.kind === 'module' ? 'module and column' : 'column'} tree`}
             onClick={(event) => {
+              event.stopPropagation()
+              if (isRefreshing) return
+              setIsRefreshing(true)
+              void onRefresh(node).finally(() => setIsRefreshing(false))
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
               event.stopPropagation()
               if (isRefreshing) return
               setIsRefreshing(true)
@@ -2616,6 +2666,10 @@ function Workspace({
           title="Module Groups"
           sourceTable="modg"
           loadRows={ophAdminService.listModuleGroups}
+          onRefreshTree={() => {
+            const node = findTreeNode(tree, selection.id)
+            return node ? onRefreshTreeNode(node) : Promise.resolve()
+          }}
         />
       )
     }
@@ -2631,6 +2685,10 @@ function Workspace({
           loadRows={(config, accountId, databaseName) =>
             ophAdminService.listModulesBySettingMode(config, accountId, databaseName, settingMode)
           }
+          onRefreshTree={() => {
+            const node = findTreeNode(tree, selection.id)
+            return node ? onRefreshTreeNode(node) : Promise.resolve()
+          }}
         />
       )
     }
@@ -2715,6 +2773,10 @@ function Workspace({
           title="Menus"
           sourceTable="menu"
           loadRows={ophAdminService.listMenus}
+          onRefreshTree={() => {
+            const node = findTreeNode(tree, selection.id)
+            return node ? onRefreshTreeNode(node) : Promise.resolve()
+          }}
         />
       )
     }
@@ -2758,6 +2820,10 @@ function Workspace({
         loadRows={(config, accountId, databaseName) =>
           ophAdminService.listMenuSubmenus(config, accountId, databaseName, selection.menuGuid ?? '')
         }
+        onRefreshTree={() => {
+          const node = findTreeNode(tree, selection.id)
+          return node ? onRefreshTreeNode(node) : Promise.resolve()
+        }}
       />
     )
   }
@@ -5175,6 +5241,31 @@ function MetadataTable({
                   columnGuid,
                 })
               }}>Open Column Info</a>
+            </div>
+          ) : null}
+          {sourceKey === 'modg' && !isCreating && onNavigate ? (
+            <div className="row-detail-links row-detail-inline-links">
+              <a href="#" onClick={(event) => {
+                event.preventDefault()
+                const moduleGroupGuid = String(getCellValue(selectedRow, 'modulegroupguid') ?? '')
+                const moduleGroupLabel = String(
+                  getCellValue(selectedRow, 'modulegroupid')
+                  || getCellValue(selectedRow, 'modulegroupname')
+                  || 'Module Group',
+                )
+                if (!moduleGroupGuid) {
+                  setActionError(`Cannot open Module Group Info for ${moduleGroupLabel}: module group is missing.`)
+                  return
+                }
+                cancelEdit()
+                onNavigate({
+                  ...selection,
+                  id: `${selection.databaseId}:modules:groups:${moduleGroupGuid}`,
+                  kind: 'module-category',
+                  label: moduleGroupLabel,
+                  moduleGroupGuid,
+                })
+              }}>Open Module Group Info</a>
             </div>
           ) : null}
           <div className="row-detail-actions">
