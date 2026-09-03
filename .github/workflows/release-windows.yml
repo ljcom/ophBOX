@@ -49,17 +49,23 @@ jobs:
           Copy-Item src-tauri/target/release/oph-control-studio.exe "release-assets/OPH-Control-Studio_${version}_windows-x64-portable.exe"
           Copy-Item src-tauri/target/release/bundle/nsis/*-setup.exe "release-assets/OPH-Control-Studio_${version}_windows-x64-setup.exe"
 
-      - name: Create pre-release and upload assets
+      - name: Create or update pre-release and upload assets
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" `
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "${{ github.ref_name }}" `
+              --repo "${{ github.repository }}" `
+              --title "OPH Control Studio ${{ github.ref_name }}" `
+              --generate-notes `
+              --prerelease
+          }
+          gh release upload "${{ github.ref_name }}" `
             --repo "${{ github.repository }}" `
-            --title "OPH Control Studio ${{ github.ref_name }}" `
-            --generate-notes `
-            --prerelease `
+            --clobber `
             release-assets/*
 
       - name: Upload workflow artifacts
