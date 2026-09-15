@@ -76,7 +76,7 @@ jobs:
 
   macos-release:
     needs: windows-release
-    runs-on: macos-13
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: v0.3/tauri
