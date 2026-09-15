@@ -28,6 +28,7 @@ import {
   LayoutDashboard,
   Link,
   ListChecks,
+  Menu as MenuBars,
   MessageSquare,
   MonitorCog,
   Package,
@@ -265,6 +266,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(savedWorkspaceState.current?.activeTabId ?? 'main')
   const [isWorkspaceStateReady, setIsWorkspaceStateReady] = useState(false)
   const [openAppMenu, setOpenAppMenu] = useState<'view' | 'window' | null>(null)
+  const [isMobileExplorerOpen, setIsMobileExplorerOpen] = useState(false)
   const tree = useMemo(
     () => {
       if (!connectionConfig) return null
@@ -975,15 +977,35 @@ function App() {
   const activePinnedTab = pinnedTabs.find((tab) => tab.id === activeTabId)
   const activeSelection = activePinnedTab?.selection ?? selection
 
+  function navigateToFirst(kind: TreeNodeKind) {
+    const node = findFirstTreeNodeByKind(tree!, kind)
+    if (node) {
+      setSelection(workspaceSelectionFromNode(node))
+      setActiveTabId('main')
+    }
+    setIsMobileExplorerOpen(false)
+  }
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {isMobileExplorerOpen ? (
+        <button
+          type="button"
+          className="mobile-sidebar-scrim"
+          aria-label="Close explorer"
+          onClick={() => setIsMobileExplorerOpen(false)}
+        />
+      ) : null}
+      <aside className={isMobileExplorerOpen ? 'sidebar mobile-sidebar-open' : 'sidebar'}>
         <div className="brand-block">
           <div className="brand-mark">OPH</div>
           <div>
             <strong>OPH Control Studio</strong>
             <span>Connection workspace</span>
           </div>
+          <button type="button" className="mobile-sidebar-close" aria-label="Close explorer" onClick={() => setIsMobileExplorerOpen(false)}>
+            <X size={20} />
+          </button>
         </div>
         <TreeView
           root={tree}
@@ -994,12 +1016,20 @@ function App() {
           onSelect={(nextSelection) => {
           setSelection(nextSelection)
           setActiveTabId('main')
+          setIsMobileExplorerOpen(false)
           }}
         />
       </aside>
 
       <main className="workspace">
         <header className="topbar">
+          <button type="button" className="mobile-explorer-button" aria-label="Open server explorer" onClick={() => setIsMobileExplorerOpen(true)}>
+            <MenuBars size={21} />
+          </button>
+          <div className="mobile-page-title">
+            <small>{activeSelection.databaseName ?? 'OPH Control Studio'}</small>
+            <strong>{activeQueryTab?.title ?? activeReportTab?.title ?? activeSelection.label}</strong>
+          </div>
           <nav className="app-menu-bar">
             <div className="app-menu">
               <button type="button" onClick={() => setOpenAppMenu(openAppMenu === 'view' ? null : 'view')}>View</button>
@@ -1101,6 +1131,20 @@ function App() {
             )}
           </section>
         </div>
+        <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+          <button type="button" className={activeTabId === 'main' && activeSelection.kind === 'root' ? 'active' : ''} onClick={() => navigateToFirst('root')}>
+            <LayoutDashboard size={20} /><span>Home</span>
+          </button>
+          <button type="button" onClick={() => setIsMobileExplorerOpen(true)}>
+            <FolderTree size={20} /><span>Explorer</span>
+          </button>
+          <button type="button" className={activeQueryTab ? 'active' : ''} onClick={openNewQuery}>
+            <FileCode2 size={20} /><span>Query</span>
+          </button>
+          <button type="button" onClick={() => setIsAddingConnection(true)}>
+            <Server size={20} /><span>Servers</span>
+          </button>
+        </nav>
       </main>
     </div>
   )
@@ -1995,6 +2039,7 @@ function AddConnectionScreen({
 }) {
   const [serverId] = useState(() => `srv-${crypto.randomUUID()}`)
   const [authType, setAuthType] = useState<'sql' | 'windows'>('sql')
+  const [databaseEngine, setDatabaseEngine] = useState<'mssql' | 'postgresql'>('mssql')
   const [testResult, setTestResult] = useState<string>('')
   const [saveError, setSaveError] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
@@ -2005,10 +2050,11 @@ function AddConnectionScreen({
       name: String(form.get('name') || 'Production OPH'),
       host: String(form.get('host') || 'localhost'),
       port: Number(form.get('port') || 1433),
+      databaseEngine,
       authType,
       defaultDatabase: String(form.get('defaultDatabase') || 'oph_core'),
-      username: authType === 'sql' ? String(form.get('username') || '') : undefined,
-      password: authType === 'sql' ? String(form.get('password') || '') : undefined,
+      username: databaseEngine === 'postgresql' || authType === 'sql' ? String(form.get('username') || '') : undefined,
+      password: databaseEngine === 'postgresql' || authType === 'sql' ? String(form.get('password') || '') : undefined,
       trustServerCertificate: form.get('trustServerCertificate') === 'on',
       encrypt: form.get('encrypt') === 'on',
       status: 'online',
@@ -2069,29 +2115,40 @@ function AddConnectionScreen({
             <input name="name" defaultValue="Production OPH" />
           </label>
           <label>
-            SQL Server Host
+            Database Engine
+            <select value={databaseEngine} onChange={(event) => {
+              const engine = event.target.value as 'mssql' | 'postgresql'
+              setDatabaseEngine(engine)
+              if (engine === 'postgresql') setAuthType('sql')
+            }}>
+              <option value="mssql">Microsoft SQL Server</option>
+              <option value="postgresql">PostgreSQL</option>
+            </select>
+          </label>
+          <label>
+            {databaseEngine === 'postgresql' ? 'PostgreSQL Host' : 'SQL Server Host'}
             <input name="host" defaultValue="10.10.1.20" />
           </label>
           <label>
             Port
-            <input name="port" type="number" defaultValue={1433} />
+            <input key={databaseEngine} name="port" type="number" defaultValue={databaseEngine === 'postgresql' ? 5432 : 1433} />
           </label>
           <label>
             Default Database
             <input name="defaultDatabase" defaultValue="oph_core" />
           </label>
-          <label>
+          {databaseEngine === 'mssql' ? <label>
             Authentication
             <select value={authType} onChange={(event) => setAuthType(event.target.value as 'sql' | 'windows')}>
               <option value="sql">SQL Login</option>
               <option value="windows">Windows Authentication</option>
             </select>
-          </label>
-          {authType === 'sql' ? (
+          </label> : null}
+          {databaseEngine === 'postgresql' || authType === 'sql' ? (
             <>
               <label>
                 Username
-                <input name="username" defaultValue="oph_admin" />
+                <input name="username" defaultValue={databaseEngine === 'postgresql' ? 'postgres' : 'oph_admin'} />
               </label>
               <label>
                 Password
@@ -2857,7 +2914,6 @@ function Workspace({
       <AccountDatabasesWorkspace
         config={connectionConfig}
         selection={selection}
-        onRestoreComplete={() => selection.serverId ? onRefreshServer(selection.serverId) : Promise.resolve()}
       />
     )
   }
@@ -3008,7 +3064,7 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
             <tr>
               <th>Name</th>
               <th>Host</th>
-              <th>Auth</th>
+              <th>Engine / Auth</th>
               <th>Databases</th>
               <th>Status</th>
               <th>Last Checked</th>
@@ -3019,7 +3075,7 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
               <tr key={server.id}>
                 <td><strong>{server.name}</strong></td>
                 <td>{server.host}:{server.port}</td>
-                <td>{server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}</td>
+                <td>{server.databaseEngine === 'postgresql' ? 'PostgreSQL / Password' : `SQL Server / ${server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}`}</td>
                 <td>{server.databases}</td>
                 <td><span className={getStatusClass(server.status)}>{server.status}</span></td>
                 <td>{server.lastChecked}</td>
@@ -3099,7 +3155,8 @@ function ServerPage({
         <table>
           <tbody>
             <tr><th>Host</th><td>{server.host}:{server.port}</td></tr>
-            <tr><th>Authentication</th><td>{server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}</td></tr>
+            <tr><th>Database Engine</th><td>{server.databaseEngine === 'postgresql' ? 'PostgreSQL' : 'Microsoft SQL Server'}</td></tr>
+            <tr><th>Authentication</th><td>{server.databaseEngine === 'postgresql' ? 'Password' : server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}</td></tr>
             <tr><th>Core Database</th><td>oph_core</td></tr>
             <tr><th>Status</th><td><span className={getStatusClass(server.status)}>{server.status}</span></td></tr>
           </tbody>
@@ -3150,6 +3207,15 @@ function findTreeNode(root: OphTreeNode, nodeId: string): OphTreeNode | undefine
   return undefined
 }
 
+function findFirstTreeNodeByKind(root: OphTreeNode, kind: TreeNodeKind): OphTreeNode | undefined {
+  if (root.kind === kind) return root
+  for (const child of root.children ?? []) {
+    const result = findFirstTreeNodeByKind(child, kind)
+    if (result) return result
+  }
+  return undefined
+}
+
 function findTreeParent(root: OphTreeNode, nodeId: string): OphTreeNode | undefined {
   if (root.children?.some((child) => child.id === nodeId)) return root
 
@@ -3181,6 +3247,32 @@ function formatFileSize(bytes: number): string {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
 }
 
+const editorFieldTypeOptions = [
+  ['11', 'Text box'],
+  ['12', 'Password'],
+  ['13', 'Rich text editor'],
+  ['14', 'Text area'],
+  ['15', 'URL'],
+  ['19', 'Hidden box'],
+  ['20', 'Label / non-field'],
+  ['21', 'Button / non-field'],
+  ['31', 'Checkbox'],
+  ['32', 'Autosuggest'],
+  ['33', 'Token box'],
+  ['34', 'Radio'],
+  ['41', 'Date'],
+  ['42', 'Time'],
+  ['43', 'Date and time'],
+  ['44', 'Month and year'],
+  ['45', 'Year'],
+  ['51', 'Media attachment'],
+  ['52', 'Profile image'],
+  ['53', 'Media image'],
+  ['54', 'Vector signature'],
+  ['56', 'Get current location'],
+  ['57', 'Set current location'],
+] as const
+
 function DatabaseWorkspace({
   config,
   selection,
@@ -3204,6 +3296,11 @@ function DatabaseWorkspace({
   const [backups, setBackups] = useState<MetadataRow[]>([])
   const [isLoadingBackups, setIsLoadingBackups] = useState(true)
   const [backupError, setBackupError] = useState('')
+  const [selectedBackup, setSelectedBackup] = useState<MetadataRow | null>(null)
+  const [targetDatabaseName, setTargetDatabaseName] = useState('')
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState('')
+  const [restoreNotice, setRestoreNotice] = useState('')
   const databaseNode = findTreeNode(tree, selection.id)
   const modulesNode = databaseNode?.children?.find((child) => child.label === 'Modules')
   const securityNode = databaseNode?.children?.find((child) => child.label === 'Security')
@@ -3257,6 +3354,34 @@ function DatabaseWorkspace({
     }
   }
 
+  function openRestore(backup: MetadataRow) {
+    setSelectedBackup(backup)
+    setTargetDatabaseName(`${selection.databaseName}_001`)
+    setRestoreError('')
+    setRestoreNotice('')
+  }
+
+  async function restoreBackup() {
+    if (!selectedBackup) return
+    const backupFile = String(selectedBackup.backupFile ?? '')
+    const destination = targetDatabaseName.trim()
+    setIsRestoring(true)
+    setRestoreError('')
+    setRestoreNotice('')
+    try {
+      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
+      await onRefresh()
+      setRestoreNotice(`Database ${destination} restored successfully.`)
+      appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
+    } catch (restoreFailure) {
+      const detail = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
+      setRestoreError(detail)
+      appendAuditLog('restore-database', destination, 'failed', detail)
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
   return (
     <div className="page-stack">
       <SectionHeader
@@ -3291,18 +3416,42 @@ function DatabaseWorkspace({
         {!isLoadingBackups && !backupError && backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : null}
         {!isLoadingBackups && !backupError && backups.length > 0 ? (
           <table>
-            <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th></tr></thead>
+            <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th><th>Action</th></tr></thead>
             <tbody>{backups.map((backup, index) => (
               <tr key={`${backup.backupFile}-${index}`}>
                 <td><strong>{String(backup.backupFile ?? '')}</strong></td>
                 <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
                 <td>{String(backup.lastModified ?? '-')}</td>
                 <td>{String(backup.storageClass ?? '-')}</td>
+                <td><button type="button" onClick={() => openRestore(backup)}>Restore</button></td>
               </tr>
             ))}</tbody>
           </table>
         ) : null}
       </div>
+      {selectedBackup ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isRestoring && setSelectedBackup(null)}>
+          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div><span className="eyebrow">Restore S3 Backup</span><h2>{selection.databaseName}</h2></div>
+              <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <label><span>Backup File</span><input value={String(selectedBackup.backupFile ?? '')} disabled /></label>
+              <label>
+                <span>New Database Name</span>
+                <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />
+              </label>
+              <p className="delete-warning">Restore creates a new database. An existing database will never be overwritten.</p>
+              <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
+                {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
+              </button>
+            </div>
+            {restoreError ? <div className="connection-error">{restoreError}</div> : null}
+            {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
+          </aside>
+        </div>
+      ) : null}
       {isConfirmingDelete ? (
         <div className="row-detail-backdrop" onMouseDown={() => !isDeleting && setIsConfirmingDelete(false)}>
           <aside className="row-detail-overlay account-create-overlay" onMouseDown={(event) => event.stopPropagation()}>
@@ -3476,95 +3625,13 @@ function MetadataWorkspace({
 function AccountDatabasesWorkspace({
   config,
   selection,
-  onRestoreComplete,
 }: {
   config: OphConnectionConfig
   selection: WorkspaceSelection
-  onRestoreComplete: () => void | Promise<void>
 }) {
   const [databases, setDatabases] = useState<MetadataRow[]>([])
-  const [backupsByDatabase, setBackupsByDatabase] = useState<Record<string, MetadataRow[]>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selectedBackup, setSelectedBackup] = useState<{ databaseName: string; row: MetadataRow } | null>(null)
-  const [targetDatabaseName, setTargetDatabaseName] = useState('')
-  const [isRestoring, setIsRestoring] = useState(false)
-  const [restoreError, setRestoreError] = useState('')
-  const [restoreNotice, setRestoreNotice] = useState('')
-  const [backupSearch, setBackupSearch] = useState('')
-  const [backupDateFrom, setBackupDateFrom] = useState('')
-  const [backupSort, setBackupSort] = useState<'newest' | 'oldest' | 'name'>('newest')
-  const [backupPage, setBackupPage] = useState(1)
-  const [restoreStage, setRestoreStage] = useState('')
-  const restoreHistoryKey = 'oph-control-studio.restore-history'
-  const [restoreHistory, setRestoreHistory] = useState<Array<{
-    backupFile: string
-    destination: string
-    startedAt: string
-    durationMs: number
-    result: 'success' | 'failed'
-    detail: string
-  }>>(() => {
-    try { return JSON.parse(window.localStorage.getItem(restoreHistoryKey) ?? '[]') }
-    catch { return [] }
-  })
-  const backupPageSize = 50
-
-  function filteredBackups(rows: MetadataRow[]) {
-    const search = backupSearch.trim().toLocaleLowerCase()
-    const fromTime = backupDateFrom ? new Date(`${backupDateFrom}T00:00:00`).getTime() : 0
-    return rows.filter((row) => {
-      const name = String(row.backupFile ?? '').toLocaleLowerCase()
-      const modified = new Date(String(row.lastModified ?? '')).getTime()
-      return (!search || name.includes(search)) && (!fromTime || (Number.isFinite(modified) && modified >= fromTime))
-    }).sort((left, right) => {
-      if (backupSort === 'name') return String(left.backupFile ?? '').localeCompare(String(right.backupFile ?? ''))
-      const difference = new Date(String(left.lastModified ?? '')).getTime() - new Date(String(right.lastModified ?? '')).getTime()
-      return backupSort === 'oldest' ? difference : -difference
-    })
-  }
-
-  function recordRestore(entry: typeof restoreHistory[number]) {
-    setRestoreHistory((current) => {
-      const next = [entry, ...current].slice(0, 100)
-      window.localStorage.setItem(restoreHistoryKey, JSON.stringify(next))
-      return next
-    })
-  }
-
-  function openRestore(databaseName: string, row: MetadataRow) {
-    setSelectedBackup({ databaseName, row })
-    setTargetDatabaseName(`${databaseName}_001`)
-    setRestoreError('')
-    setRestoreNotice('')
-  }
-
-  async function restoreBackup() {
-    if (!selectedBackup) return
-    const startedAt = new Date()
-    const backupFile = String(selectedBackup.row.backupFile ?? '')
-    const destination = targetDatabaseName.trim()
-    setIsRestoring(true)
-    setRestoreStage('Verifying backup integrity, preparing files, and restoring database…')
-    setRestoreError('')
-    setRestoreNotice('')
-    try {
-      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
-      setRestoreStage('Restore completed. Refreshing server and database tree…')
-      await onRestoreComplete()
-      setRestoreNotice(`Database ${destination} restored successfully.`)
-      recordRestore({ backupFile, destination, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(), result: 'success', detail: 'Backup verified and restored.' })
-      appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
-    } catch (restoreFailure) {
-      const detail = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
-      setRestoreError(`${detail} The destination may be incomplete; check SQL Server restore status before retrying or choose a new database name.`)
-      recordRestore({ backupFile, destination, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(), result: 'failed', detail })
-      appendAuditLog('restore-database', destination, 'failed', detail)
-    } finally {
-      setIsRestoring(false)
-      setRestoreStage('')
-    }
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -3577,18 +3644,7 @@ function AccountDatabasesWorkspace({
     setIsLoading(true)
     setError('')
     ophAdminService.listAccountDatabases(config, selection.accountId, selection.databaseName)
-      .then(async (rows) => {
-        const backupResults = await Promise.all(rows.map(async (database) => {
-          const physicalName = String(database.databasename ?? '')
-          if (!physicalName) return [physicalName, []] as const
-          const backups = await ophAdminService.listDatabaseBackups(config, selection.accountId ?? '', physicalName)
-          return [physicalName, backups] as const
-        }))
-        if (!cancelled) {
-          setDatabases(rows)
-          setBackupsByDatabase(Object.fromEntries(backupResults))
-        }
-      })
+      .then((rows) => { if (!cancelled) setDatabases(rows) })
       .catch((loadError) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
       })
@@ -3601,79 +3657,31 @@ function AccountDatabasesWorkspace({
     <div className="page-stack">
       <SectionHeader
         eyebrow="Account"
-        title="Physical Databases & S3 Backups"
-        description={`Physical databases for ${selection.accountId}, with backup files loaded from the configured S3 bucket.`}
+        title="Physical Databases"
+        description={`Physical databases registered for ${selection.accountId}.`}
       />
-      <div className="metadata-toolbar backup-toolbar">
-        <label className="metadata-search"><Search size={16} /><input type="search" value={backupSearch} placeholder="Search backup files..." onChange={(event) => { setBackupSearch(event.target.value); setBackupPage(1) }} /></label>
-        <input type="date" aria-label="Backups from date" value={backupDateFrom} onChange={(event) => { setBackupDateFrom(event.target.value); setBackupPage(1) }} />
-        <select aria-label="Sort backups" value={backupSort} onChange={(event) => setBackupSort(event.target.value as typeof backupSort)}>
-          <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">File name</option>
-        </select>
-      </div>
-      {isLoading ? <div className="empty-result">Loading physical databases and S3 backups...</div> : null}
+      {isLoading ? <div className="empty-result">Loading physical databases...</div> : null}
       {error ? <div className="connection-error">{error}</div> : null}
-      {!isLoading && !error ? databases.map((database) => {
-        const physicalName = String(database.databasename ?? '')
-        const backups = filteredBackups(backupsByDatabase[physicalName] ?? [])
-        const pageCount = Math.max(1, Math.ceil(backups.length / backupPageSize))
-        const currentPage = Math.min(backupPage, pageCount)
-        const visibleBackups = backups.slice((currentPage - 1) * backupPageSize, currentPage * backupPageSize)
-        return (
-          <div className="table-card" key={String(database.accountdbguid ?? physicalName)}>
-            <div className="metadata-toolbar">
-              <h2>{physicalName}</h2>
-              <span>{backups.length} S3 backup files</span>
-            </div>
-            {backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : (
-              <table>
-                <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th></tr></thead>
-                <tbody>{visibleBackups.map((backup, index) => (
-                  <tr key={`${backup.backupFile}-${index}`} className="clickable-table-row" onClick={() => openRestore(physicalName, backup)}>
-                    <td><strong>{String(backup.backupFile ?? '')}</strong></td>
-                    <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
-                    <td>{String(backup.lastModified ?? '-')}</td>
-                    <td>{String(backup.storageClass ?? '-')}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            )}
-            {pageCount > 1 ? <div className="backup-pagination"><button disabled={currentPage === 1} onClick={() => setBackupPage((page) => Math.max(1, page - 1))}>Previous</button><span>Page {currentPage} of {pageCount}</span><button disabled={currentPage === pageCount} onClick={() => setBackupPage((page) => Math.min(pageCount, page + 1))}>Next</button></div> : null}
-          </div>
-        )
-      }) : null}
-      {selectedBackup ? (
-        <div className="row-detail-backdrop" onMouseDown={() => !isRestoring && setSelectedBackup(null)}>
-          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="row-detail-header">
-              <div><span className="eyebrow">Restore S3 Backup</span><h2>{selectedBackup.databaseName}</h2></div>
-              <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
-            </div>
-            <div className="row-detail-form">
-              <label><span>Backup File</span><input value={String(selectedBackup.row.backupFile ?? '')} disabled /></label>
-              <label>
-                <span>New Database Name</span>
-                <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />
-              </label>
-              <p className="delete-warning">Restore always creates a new database. An existing database will never be overwritten.</p>
-              <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
-                {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
-              </button>
-              {restoreStage ? <p className="field-help">{restoreStage}</p> : null}
-            </div>
-            {restoreError ? <div className="connection-error">{restoreError}</div> : null}
-            {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
-          </aside>
+      {!isLoading && !error && databases.length === 0 ? (
+        <div className="empty-result">No physical databases are registered for this account.</div>
+      ) : null}
+      {!isLoading && !error && databases.length > 0 ? (
+        <div className="table-card">
+          <table>
+            <thead><tr><th>Database</th><th>Version</th><th>Primary</th></tr></thead>
+            <tbody>{databases.map((database, index) => (
+              <tr key={String(database.accountdbguid ?? `${database.databasename}-${index}`)}>
+                <td><strong>{String(database.databasename ?? '')}</strong></td>
+                <td>{String(database.version ?? '-')}</td>
+                <td>{String(database.ismaster ?? '').toLowerCase() === 'true' || Number(database.ismaster) === 1 ? 'Yes' : 'No'}</td>
+              </tr>
+            ))}</tbody>
+          </table>
         </div>
       ) : null}
-      <div className="table-card">
-        <div className="metadata-toolbar"><h2>Restore History</h2><span>{restoreHistory.length} operation(s)</span></div>
-        {restoreHistory.length === 0 ? <div className="empty-result">No restore history yet.</div> : <table><thead><tr><th>Backup</th><th>Destination</th><th>Started</th><th>Duration</th><th>Result</th><th>Detail</th></tr></thead><tbody>{restoreHistory.map((entry, index) => <tr key={`${entry.startedAt}-${index}`}><td>{entry.backupFile}</td><td>{entry.destination}</td><td>{new Date(entry.startedAt).toLocaleString()}</td><td>{(entry.durationMs / 1000).toFixed(1)}s</td><td>{entry.result}</td><td>{entry.detail}</td></tr>)}</tbody></table>}
-      </div>
     </div>
   )
 }
-
 function ModuleDetailOverlay({
   config,
   selection,
@@ -5160,6 +5168,23 @@ function MetadataTable({
                     readOnly={!isEditing}
                     onChange={(value) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: value }))}
                   />
+                ) : sourceKey === 'modlcolminfo'
+                  && column.toLowerCase() === 'infovalue'
+                  && String(getCellValue({ ...selectedRow, ...draftRow }, 'infokey') ?? '').toLowerCase() === 'coltype' ? (
+                  <>
+                    <input
+                      list="editor-field-type-options"
+                      value={draftRow[column] ?? String(getCellValue(selectedRow, column) ?? '')}
+                      readOnly={!isEditing}
+                      placeholder="Select or enter a field type"
+                      onChange={(event) => setDraftRow((currentDraft) => ({ ...currentDraft, [column]: event.target.value }))}
+                    />
+                    <datalist id="editor-field-type-options">
+                      {editorFieldTypeOptions.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </datalist>
+                  </>
                 ) : column.toLowerCase() === 'infovalue' || (sourceKey === 'modlmail' && column.toLowerCase() === 'body') ? (
                   <textarea
                     className={column.toLowerCase() === 'infovalue' ? 'raw-metadata-editor' : undefined}

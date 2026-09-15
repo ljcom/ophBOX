@@ -15,6 +15,8 @@ struct OphServer {
     name: String,
     host: String,
     port: u16,
+    #[serde(default = "default_database_engine")]
+    database_engine: String,
     auth_type: String,
     #[serde(default = "default_database")]
     default_database: String,
@@ -25,6 +27,10 @@ struct OphServer {
     status: String,
     databases: u32,
     last_checked: String,
+}
+
+fn default_database_engine() -> String {
+    "mssql".to_string()
 }
 
 fn default_database() -> String {
@@ -159,6 +165,71 @@ async fn test_sql_server_connection(server: &OphServer) -> Result<TestConnection
         message: "Connection successful.".to_string(),
         server_name: server.name.clone(),
     })
+}
+
+async fn connect_postgresql_database(
+    server: &OphServer,
+    database_name: &str,
+) -> Result<tokio_postgres::Client, String> {
+    if server.host.trim().is_empty() {
+        return Err("Enter a server host before testing the connection.".to_string());
+    }
+    let username = server.username.as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Enter a username before testing the connection.".to_string())?;
+    let mut config = tokio_postgres::Config::new();
+    config.host(server.host.trim()).port(server.port).user(username)
+        .password(server.password.as_deref().unwrap_or_default()).dbname(database_name)
+        .connect_timeout(Duration::from_secs(10));
+
+    let client = if server.encrypt.unwrap_or(false) {
+        let mut builder = native_tls::TlsConnector::builder();
+        if server.trust_server_certificate.unwrap_or(false) {
+            builder.danger_accept_invalid_certs(true);
+        }
+        let connector = builder.build()
+            .map_err(|error| format!("Cannot prepare PostgreSQL TLS: {error}"))?;
+        let (client, connection) = config.connect(postgres_native_tls::MakeTlsConnector::new(connector)).await
+            .map_err(|error| format!("PostgreSQL connection failed for {}:{}: {error}", server.host, server.port))?;
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = connection.await { eprintln!("PostgreSQL connection closed: {error}"); }
+        });
+        client
+    } else {
+        let (client, connection) = config.connect(tokio_postgres::NoTls).await
+            .map_err(|error| format!("PostgreSQL connection failed for {}:{}: {error}", server.host, server.port))?;
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = connection.await { eprintln!("PostgreSQL connection closed: {error}"); }
+        });
+        client
+    };
+    Ok(client)
+}
+
+async fn query_postgresql_json(
+    client: &tokio_postgres::Client,
+    statement: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let statement = statement.trim().trim_end_matches(';');
+    let wrapped = format!(
+        "select coalesce(json_agg(row_to_json(result_row)), '[]'::json)::text from ({statement}) result_row"
+    );
+    let row = client.query_one(&wrapped, &[]).await
+        .map_err(|error| format!("Cannot read PostgreSQL metadata: {error}"))?;
+    let json: String = row.get(0);
+    serde_json::from_str(&json)
+        .map_err(|error| format!("Cannot parse PostgreSQL metadata: {error}"))
+}
+
+async fn test_server_connection(server: &OphServer) -> Result<TestConnectionResult, String> {
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name(server)).await?;
+        client.simple_query("select 1").await
+            .map_err(|error| format!("PostgreSQL validation query failed: {error}"))?;
+        Ok(TestConnectionResult { success: true, message: "Connection successful.".to_string(), server_name: server.name.clone() })
+    } else {
+        test_sql_server_connection(server).await
+    }
 }
 
 async fn connect_sql_server_database(
@@ -1103,7 +1174,7 @@ async fn save_connection_config(
         .or_else(|| config.servers.first())
         .ok_or_else(|| "Add at least one server before saving the connection config.".to_string())?;
 
-    let test_result = test_sql_server_connection(selected_server).await?;
+    let test_result = test_server_connection(selected_server).await?;
     if !test_result.success {
         return Err(test_result.message);
     }
@@ -1139,7 +1210,7 @@ fn delete_connection_config(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn test_connection(server: OphServer) -> Result<TestConnectionResult, String> {
-    test_sql_server_connection(&server).await
+    test_server_connection(&server).await
 }
 
 #[tauri::command]
@@ -1209,10 +1280,45 @@ async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDataba
     let server = selected_server(&config)?;
     let default_database = database_name(server);
 
-    if default_database.eq_ignore_ascii_case("oph_core") {
-        let mut client = connect_sql_server(server).await?;
-        let rows = client
-            .query(
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &default_database).await?;
+        let rows = client.query(
+            r#"
+            select
+              a.accountid,
+              coalesce(d.databasename, a.accountid) as databasename
+            from dbo.acct a
+            inner join dbo.acctdbse d
+              on d.accountguid = a.accountguid
+             and d.ismaster is true
+             and d.version = '4.0'
+            where a.isdeleted is not true
+            order by a.accountid
+            "#,
+            &[],
+        ).await.map_err(|error| format!(
+            "Cannot read acct and acctdbse from PostgreSQL database {default_database}: {error}"
+        ))?;
+        return Ok(rows.into_iter().map(|row| {
+            let account_id: String = row.get("accountid");
+            let database_name: String = row.get("databasename");
+            OphDatabase {
+                id: format!("{}:{}", server.id, account_id),
+                name: account_id,
+                database_name: database_name.clone(),
+                server_id: server.id.clone(),
+                r#type: if database_name.eq_ignore_ascii_case(&default_database) { "core".to_string() } else { "account".to_string() },
+                status: "healthy".to_string(),
+                modules: 0,
+                size: "-".to_string(),
+                updated_at: format!("Loaded from {default_database}"),
+            }
+        }).collect());
+    }
+
+    let mut client = connect_sql_server_database(server, &default_database).await?;
+    let rows = client
+        .query(
                 r#"
                 select
                   a.accountid,
@@ -1228,10 +1334,10 @@ async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDataba
                 &[],
             )
             .await
-            .map_err(|error| format!("Cannot read accounts from oph_core: {error}"))?
+            .map_err(|error| format!("Cannot read acct and acctdbse from {default_database}: {error}"))?
             .into_first_result()
             .await
-            .map_err(|error| format!("Cannot load OPH account list: {error}"))?;
+            .map_err(|error| format!("Cannot load OPH account list from {default_database}: {error}"))?;
 
         let databases = rows
             .iter()
@@ -1243,7 +1349,7 @@ async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDataba
                     name: account_id,
                     database_name: database_name.clone(),
                     server_id: server.id.clone(),
-                    r#type: if database_name.eq_ignore_ascii_case("oph_core") {
+                    r#type: if database_name.eq_ignore_ascii_case(&default_database) {
                         "core".to_string()
                     } else {
                         "account".to_string()
@@ -1251,25 +1357,12 @@ async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDataba
                     status: "healthy".to_string(),
                     modules: 0,
                     size: "-".to_string(),
-                    updated_at: "Loaded from oph_core".to_string(),
+                    updated_at: format!("Loaded from {default_database}"),
                 }
             })
             .collect();
 
-        Ok(databases)
-    } else {
-        Ok(vec![OphDatabase {
-            id: format!("{}:{}", server.id, default_database),
-            name: default_database.clone(),
-            database_name: default_database,
-            server_id: server.id.clone(),
-            r#type: "account".to_string(),
-            status: "healthy".to_string(),
-            modules: 0,
-            size: "-".to_string(),
-            updated_at: "Default database".to_string(),
-        }])
-    }
+    Ok(databases)
 }
 
 #[tauri::command]
@@ -1279,8 +1372,12 @@ async fn list_account_info(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select a.accountid, i.accountinfoguid, i.accountguid, i.infokey, i.infovalue from dbo.acctinfo i inner join dbo.acct a on a.accountguid=i.accountguid where a.accountid='{account_id}' order by i.infokey")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -1309,11 +1406,24 @@ async fn list_account_info(
 async fn list_account_databases(
     config: OphConnectionConfig,
     account_id: String,
-    _database_name: String,
+    database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
     let account_id = escape_sql_value(&account_id);
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select a.accountid, d.accountdbguid, d.accountguid, d.databasename,
+                   d.ismaster, d.version, '' as s3backupinfo
+            from dbo.acctdbse d
+            inner join dbo.acct a on a.accountguid = d.accountguid
+            where a.accountid = '{account_id}'
+            order by a.accountid, d.databasename
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, "oph_core").await?;
 
     query_json(
         &mut client,
@@ -1378,6 +1488,15 @@ struct S3Object {
     storage_class: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct S3ErrorResponse {
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    region: String,
+}
+
 fn aws_uri_encode(value: &str) -> String {
     value.as_bytes().iter().map(|byte| match byte {
         b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (*byte as char).to_string(),
@@ -1396,15 +1515,16 @@ fn hmac_sha256(key: &[u8], value: &str) -> Result<Vec<u8>, String> {
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
-async fn list_s3_objects(
+async fn list_s3_objects_in_region(
     access_key: &str,
     access_secret: &str,
     bucket: &str,
     configured_host: &str,
     prefix: &str,
-) -> Result<S3ListResponse, String> {
+    region: &str,
+) -> Result<Result<S3ListResponse, (reqwest::StatusCode, String)>, String> {
     let endpoint = if configured_host.trim().is_empty() {
-        "https://s3.us-east-1.amazonaws.com".to_string()
+        format!("https://s3.{region}.amazonaws.com")
     } else if configured_host.starts_with("http://") || configured_host.starts_with("https://") {
         configured_host.trim_end_matches('/').to_string()
     } else {
@@ -1435,13 +1555,13 @@ async fn list_s3_objects(
     let canonical_request = format!(
         "GET\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
     );
-    let scope = format!("{short_date}/us-east-1/s3/aws4_request");
+    let scope = format!("{short_date}/{region}/s3/aws4_request");
     let string_to_sign = format!(
         "AWS4-HMAC-SHA256\n{request_date}\n{scope}\n{}",
         sha256_hex(canonical_request)
     );
     let date_key = hmac_sha256(format!("AWS4{access_secret}").as_bytes(), &short_date)?;
-    let region_key = hmac_sha256(&date_key, "us-east-1")?;
+    let region_key = hmac_sha256(&date_key, region)?;
     let service_key = hmac_sha256(&region_key, "s3")?;
     let signing_key = hmac_sha256(&service_key, "aws4_request")?;
     let signature = hmac_sha256(&signing_key, &string_to_sign)?
@@ -1462,10 +1582,57 @@ async fn list_s3_objects(
     let body = response.text().await
         .map_err(|error| format!("Cannot read the S3 response: {error}"))?;
     if !status.is_success() {
-        return Err(format!("S3 returned {status}: {}", body.trim()));
+        return Ok(Err((status, body)));
     }
     quick_xml::de::from_str(&body)
+        .map(Ok)
         .map_err(|error| format!("Cannot parse the S3 response: {error}"))
+}
+
+async fn list_s3_objects(
+    access_key: &str,
+    access_secret: &str,
+    bucket: &str,
+    configured_host: &str,
+    prefix: &str,
+) -> Result<S3ListResponse, String> {
+    let initial_region = configured_host
+        .split('.')
+        .find(|part| part.starts_with("us-") || part.starts_with("ap-") || part.starts_with("eu-")
+            || part.starts_with("sa-") || part.starts_with("ca-") || part.starts_with("me-")
+            || part.starts_with("af-"))
+        .unwrap_or("us-east-1");
+
+    match list_s3_objects_in_region(
+        access_key, access_secret, bucket, configured_host, prefix, initial_region,
+    ).await? {
+        Ok(response) => Ok(response),
+        Err((status, body)) => {
+            let s3_error = quick_xml::de::from_str::<S3ErrorResponse>(&body).ok();
+            let retry_region = s3_error.as_ref().and_then(|error| {
+                (error.code == "AuthorizationHeaderMalformed" && !error.region.trim().is_empty())
+                    .then(|| error.region.trim())
+            });
+            if let Some(region) = retry_region.filter(|region| *region != initial_region) {
+                let retry_host = if configured_host.trim().is_empty()
+                    || configured_host.trim_end_matches('/').ends_with("amazonaws.com")
+                {
+                    ""
+                } else {
+                    configured_host
+                };
+                return match list_s3_objects_in_region(
+                    access_key, access_secret, bucket, retry_host, prefix, region,
+                ).await? {
+                    Ok(response) => Ok(response),
+                    Err((retry_status, retry_body)) => Err(format!(
+                        "S3 returned {retry_status}: {}", retry_body.trim()
+                    )),
+                };
+            }
+            Err(format!("S3 returned {status}: {}", body.trim()))
+        }
+    }
 }
 
 #[tauri::command]
@@ -1688,8 +1855,22 @@ async fn list_sub_accounts(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            with recursive account_tree as (
+              select accountguid, parentaccountguid, accountid, accountid::text as accountpath, 0 as level
+              from dbo.acct where parentaccountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) and isdeleted is not true
+              union all
+              select child.accountguid, child.parentaccountguid, child.accountid,
+                     parent.accountpath || ' / ' || child.accountid, parent.level + 1
+              from dbo.acct child join account_tree parent on child.parentaccountguid=parent.accountguid
+              where child.isdeleted is not true
+            ) select accountid, accountpath, level, accountguid, parentaccountguid from account_tree order by accountpath
+        "#)).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -1745,8 +1926,19 @@ async fn list_sub_account_users(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            with recursive account_tree as (
+              select accountguid from dbo.acct where parentaccountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) and isdeleted is not true
+              union all
+              select child.accountguid from dbo.acct child join account_tree parent on child.parentaccountguid=parent.accountguid where child.isdeleted is not true
+            ) select u.accountguid, u.userguid, u.userid, u.username, u.email, u.expirypwd as expirydate
+              from dbo."user" u join account_tree a on a.accountguid=u.accountguid order by u.accountguid, u.userid
+        "#)).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -1794,8 +1986,12 @@ async fn list_users(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select userguid, userid, username, email, expirypwd from dbo.\"user\" where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by userid")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -1827,6 +2023,10 @@ async fn list_all_users(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, "select u.userguid, u.userid, u.username, u.accountguid, a.accountid from dbo.\"user\" u left join dbo.acct a on a.accountguid=u.accountguid order by u.userid").await;
+    }
     let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
@@ -1964,8 +2164,12 @@ async fn list_user_groups(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select ugroupguid, groupid, groupdescription, allexceptuser, tokenuser, allexceptenv, tokenenv, allexceptmodule from dbo.ugrp where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by groupid")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2001,8 +2205,12 @@ async fn list_user_info(
     user_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let user_guid = escape_sql_value(&user_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select userinfoguid, userguid, infokey, infovalue from dbo.userinfo where userguid='{user_guid}' order by infokey")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2032,8 +2240,12 @@ async fn list_user_group_modules(
     user_group_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let user_group_guid = escape_sql_value(&user_group_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select gm.accessguid, gm.ugroupguid, gm.moduleguid, m.moduleid, m.moduledescription, gm.allowaccess, gm.allowadd, gm.allowedit, gm.allowdelete, gm.allowforce, gm.allowwipe from dbo.ugrpmodl gm left join dbo.modl m on m.moduleguid=gm.moduleguid where gm.ugroupguid='{user_group_guid}' order by m.moduleid")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2071,8 +2283,34 @@ async fn list_module_tree(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(
+            r#"
+            select
+              m.moduleguid,
+              m.moduleid,
+              m.moduledescription,
+              m.settingmode,
+              m.parentmoduleguid,
+              coalesce((
+                select string_agg(coalesce(mi.infokey, ''), ' ' order by mi.infokey)
+                from dbo.modlinfo mi
+                where mi.moduleguid = m.moduleguid
+              ), '') as searchtext
+            from dbo.modl m
+            where m.settingmode in (0, 1, 4, 5, 6, 7)
+              and m.accountguid = (
+                select accountguid from dbo.acct where accountid = '{account_id}' limit 1
+              )
+            order by m.settingmode, m.moduleid
+            "#
+        )).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2113,8 +2351,32 @@ async fn list_module_column_tree(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(
+            r#"
+            select
+              c.columnguid,
+              c.moduleguid,
+              c.colkey,
+              coalesce((
+                select string_agg(coalesce(ci.infokey, ''), ' ' order by ci.infokey)
+                from dbo.modlcolminfo ci
+                where ci.columnguid = c.columnguid
+              ), '') as searchtext
+            from dbo.modlcolm c
+            inner join dbo.modl m on m.moduleguid = c.moduleguid
+            where m.accountguid = (
+              select accountguid from dbo.acct where accountid = '{account_id}' limit 1
+            )
+            order by m.moduleid, c.colorder, c.colkey
+            "#
+        )).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2153,8 +2415,34 @@ async fn list_module_columns(
     module_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let module_guid = module_guid.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select c.columnguid, c.moduleguid, c.colkey, c.coltype,
+                   c.titlecaption, c.colorder, c.collength,
+                   layout.pageno, layout.sectionno, layout.columnno, layout.rowno,
+                   layout.fieldno, layout.isviewable, layout.isbrowsable, layout.iseditable
+            from dbo.modlcolm c
+            left join lateral (
+              select
+                max(case when lower(i.infokey) = 'pageno' then i.infovalue end) as pageno,
+                max(case when lower(i.infokey) = 'sectionno' then i.infovalue end) as sectionno,
+                max(case when lower(i.infokey) in ('columnno', 'colno') then i.infovalue end) as columnno,
+                max(case when lower(i.infokey) = 'rowno' then i.infovalue end) as rowno,
+                max(case when lower(i.infokey) = 'fieldno' then i.infovalue end) as fieldno,
+                max(case when lower(i.infokey) = 'isviewable' then i.infovalue end) as isviewable,
+                max(case when lower(i.infokey) = 'isbrowsable' then i.infovalue end) as isbrowsable,
+                max(case when lower(i.infokey) = 'iseditable' then i.infovalue end) as iseditable
+              from dbo.modlcolminfo i where i.columnguid = c.columnguid
+            ) layout on true
+            where c.moduleguid = '{module_guid}'
+            order by c.colorder, c.colkey
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2239,8 +2527,19 @@ async fn list_module_info(
     module_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let module_guid = module_guid.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select moduleinfoguid, moduleguid, infokey, infovalue
+            from dbo.modlinfo
+            where moduleguid = '{module_guid}'
+            order by infokey
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2270,8 +2569,19 @@ async fn list_module_column_info(
     column_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let column_guid = column_guid.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select columninfoguid, columnguid, infokey, infovalue
+            from dbo.modlcolminfo
+            where columnguid = '{column_guid}'
+            order by infokey
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2519,8 +2829,29 @@ async fn list_modules(
     setting_mode: i32,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select m.moduleguid, m.moduleid, m.moduledescription, m.settingmode,
+                   m.accountdbguid, m.themepageguid, m.modulestatusguid, m.modulegroupguid,
+                   d.databasename as accountdb, p.moduleid as parentmodule,
+                   m.orderno, m.needlogin, tp.pageurl as themepage,
+                   s.modulestatusname as modulestatus, g.modulegroupname as modulegroup
+            from dbo.modl m
+            left join dbo.acctdbse d on d.accountdbguid = m.accountdbguid
+            left join dbo.modl p on p.moduleguid = m.parentmoduleguid
+            left join dbo.thmepage tp on tp.themepageguid = m.themepageguid
+            left join dbo.msta s on s.modulestatusguid = m.modulestatusguid
+            left join dbo.modg g on g.modulegroupguid = m.modulegroupguid
+            where m.settingmode = {setting_mode}
+              and m.accountguid = (select accountguid from dbo.acct where accountid = '{account_id}' limit 1)
+            order by m.moduleid
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2569,8 +2900,20 @@ async fn list_module_statuses(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select modulestatusguid, accountguid, modulestatusname,
+                   modulestatusdescription, isdefault, createddate, updateddate
+            from dbo.msta
+            where accountguid = (select accountguid from dbo.acct where accountid = '{account_id}' limit 1)
+            order by modulestatusname
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2606,8 +2949,12 @@ async fn list_module_status_states(
     module_status_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let module_status_guid = escape_sql_value(&module_status_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select modulestatusdetailguid, modulestatusguid, stateid, statecode, statename, statedesc, isdefault from dbo.mstastat where modulestatusguid='{module_status_guid}' order by stateid, statecode")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2640,8 +2987,20 @@ async fn list_module_theme_pages(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select tp.themepageguid, tp.pageurl, t.themecode, t.themename
+            from dbo.thmepage tp
+            inner join dbo.thme t on t.themeguid = tp.themeguid
+            where t.accountguid = (select accountguid from dbo.acct where accountid = '{account_id}' limit 1)
+            order by t.themecode, tp.pageurl
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2674,8 +3033,20 @@ async fn list_module_groups(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!(r#"
+            select modulegroupid, modulegroupname, modulegroupdescription,
+                   modulegroupguid, accountguid, accountdbguid
+            from dbo.modg
+            where accountguid = (select accountguid from dbo.acct where accountid = '{account_id}' limit 1)
+            order by modulegroupid
+        "#)).await;
+    }
+
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2708,6 +3079,10 @@ async fn list_all_module_groups(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, "select g.modulegroupguid, g.modulegroupid, g.modulegroupname, g.accountguid, a.accountid from dbo.modg g left join dbo.acct a on a.accountguid=g.accountguid order by g.modulegroupid").await;
+    }
     let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
@@ -2738,8 +3113,12 @@ async fn list_module_group_info(
     module_group_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let module_group_guid = escape_sql_value(&module_group_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select envinfoguid, modulegroupguid, infokey, infovalue from dbo.modginfo where modulegroupguid='{module_group_guid}' order by infokey")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2765,8 +3144,12 @@ async fn list_themes(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select themeguid, accountguid, themecode, themename, themefolder from dbo.thme where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by themecode")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2799,8 +3182,12 @@ async fn list_theme_pages(
     theme_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let theme_guid = escape_sql_value(&theme_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select themepageguid, themeguid, pageurl, isdefault from dbo.thmepage where themeguid='{theme_guid}' order by pageurl")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2830,8 +3217,12 @@ async fn list_menus(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select menuguid as menuid, menucode, menudescription, createddate, updateddate, lockmode from dbo.menu where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by menucode")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2865,8 +3256,12 @@ async fn list_menu_submenus(
     menu_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let menu_guid = escape_sql_value(&menu_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select menudetailguid, menudetailguid as submenuguid, menuguid, submenudescription, tag, url, orderno, caption, type, uppersubmenuguid, icon_fa, icon_url from dbo.menusmnu where menuguid='{menu_guid}' order by orderno, submenudescription")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2906,8 +3301,12 @@ async fn list_parameters(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select parameterguid, parameterid, parameterdescription, createddate, updateddate from dbo.para where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by parameterid")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2940,8 +3339,12 @@ async fn list_parameter_values(
     parameter_guid: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let parameter_guid = escape_sql_value(&parameter_guid);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select parametervalueguid, parameterguid, parametervalue, parameterdescription from dbo.paravalu where parameterguid='{parameter_guid}' order by parametervalue")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -2971,8 +3374,12 @@ async fn list_widgets(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = escape_sql_value(&account_id);
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select widgetguid, accountguid, widgetid, widgetdescription, sqlstr from dbo.widg where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by widgetid")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -3005,8 +3412,12 @@ async fn list_mail_profiles(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select mailguid, profilename, accountname, displayname, emailaddress, bcc, createddate, updateddate from dbo.mail where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by profilename")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -3042,8 +3453,12 @@ async fn list_translator_words(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, &database_name).await?;
     let account_id = account_id.replace('\'', "''");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database_name).await?;
+        return query_postgresql_json(&client, &format!("select wordguid, originstatements, createddate, updateddate from dbo.word where accountguid=(select accountguid from dbo.acct where accountid='{account_id}' limit 1) order by originstatements")).await;
+    }
+    let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
         &mut client,
@@ -3130,7 +3545,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ListResponse};
+    use super::{aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
 
     #[test]
     fn escapes_apostrophes_without_changing_json_quotes() {
@@ -3170,5 +3585,14 @@ mod tests {
         assert_eq!(response.contents.len(), 1);
         assert_eq!(response.contents[0].key, "backup/OPH.bak");
         assert_eq!(response.contents[0].size, 42);
+    }
+
+    #[test]
+    fn parses_region_from_s3_authorization_error() {
+        let response: S3ErrorResponse = quick_xml::de::from_str(
+            "<Error><Code>AuthorizationHeaderMalformed</Code><Region>ap-southeast-1</Region></Error>"
+        ).expect("S3 error response should parse");
+        assert_eq!(response.code, "AuthorizationHeaderMalformed");
+        assert_eq!(response.region, "ap-southeast-1");
     }
 }

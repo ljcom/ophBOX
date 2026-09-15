@@ -765,7 +765,7 @@ async function saveConnectionConfig(config: OphConnectionConfig): Promise<OphCon
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('__TAURI') || message.includes('invoke')) {
-      throw new Error('Run the desktop app to test and save a real SQL Server connection.')
+      throw new Error('Run the desktop app to test and save a real database connection.')
     }
     throw new Error(message)
   }
@@ -783,7 +783,7 @@ async function testConnection(server: OphServer): Promise<TestConnectionResult> 
   if (!isDesktopRuntime()) {
     return {
       success: true,
-      message: `Web demo ready for ${server.name}. Live SQL Server access requires the OPH web API.`,
+      message: `Web demo ready for ${server.name}. Live database access requires the OPH web API.`,
       serverName: server.name,
     }
   }
@@ -795,7 +795,7 @@ async function testConnection(server: OphServer): Promise<TestConnectionResult> 
     if (message.includes('__TAURI') || message.includes('invoke')) {
       return {
         success: false,
-        message: 'Run the desktop app to test a real SQL Server connection.',
+        message: 'Run the desktop app to test a real database connection.',
         serverName: server.name,
       }
     }

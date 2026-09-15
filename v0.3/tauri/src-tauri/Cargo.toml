@@ -1,6 +1,6 @@
 [package]
 name = "oph-control-studio"
-version = "0.3.7"
+version = "0.3.8"
 description = "OPH Control Studio"
 authors = ["OPH"]
 edition = "2021"
@@ -24,3 +24,6 @@ sha2 = "0.10"
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls"] }
 tokio = { version = "1", features = ["net", "time"] }
 tokio-util = { version = "0.7", features = ["compat"] }
+tokio-postgres = "0.7"
+postgres-native-tls = "0.5"
+native-tls = "0.2"

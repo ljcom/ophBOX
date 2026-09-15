@@ -1,10 +1,12 @@
 export type AuthType = 'sql' | 'windows'
+export type DatabaseEngine = 'mssql' | 'postgresql'
 
 export type OphServer = {
   id: string
   name: string
   host: string
   port: number
+  databaseEngine?: DatabaseEngine
   authType: AuthType
   defaultDatabase: string
   username?: string

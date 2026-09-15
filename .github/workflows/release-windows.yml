@@ -74,6 +74,62 @@ jobs:
           name: OPH-Control-Studio-Windows-x64
           path: v0.3/tauri/release-assets/*
 
+  macos-release:
+    needs: windows-release
+    runs-on: macos-13
+    defaults:
+      run:
+        working-directory: v0.3/tauri
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: v0.3/tauri/package-lock.json
+
+      - name: Set up Rust for universal macOS
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: v0.3/tauri/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build universal macOS application and disk image
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
+
+      - name: Prepare release assets
+        run: |
+          version="${{ github.ref_name }}"
+          mkdir -p release-assets
+          ditto -c -k --sequesterRsrc --keepParent \
+            "src-tauri/target/universal-apple-darwin/release/bundle/macos/OPH Control Studio.app" \
+            "release-assets/OPH-Control-Studio_${version}_macos-universal.app.zip"
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg \
+            "release-assets/OPH-Control-Studio_${version}_macos-universal.dmg"
+
+      - name: Upload assets to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" --clobber release-assets/*
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPH-Control-Studio-macOS-universal
+          path: v0.3/tauri/release-assets/*
+
   linux-release:
     needs: windows-release
     runs-on: ubuntu-22.04
