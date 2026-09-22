@@ -1515,13 +1515,21 @@ fn hmac_sha256(key: &[u8], value: &str) -> Result<Vec<u8>, String> {
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
-async fn list_s3_objects_in_region(
+fn encode_s3_object_key(key: &str) -> Result<String, String> {
+    if key.trim().is_empty() || key.split('/').any(|segment| segment == "." || segment == "..") {
+        return Err("Select a valid S3 backup file to delete.".to_string());
+    }
+    Ok(key.split('/').map(aws_uri_encode).collect::<Vec<_>>().join("/"))
+}
+
+async fn request_s3_objects_in_region(
     access_key: &str,
     access_secret: &str,
     bucket: &str,
     configured_host: &str,
     prefix: &str,
     region: &str,
+    delete_key: Option<&str>,
 ) -> Result<Result<S3ListResponse, (reqwest::StatusCode, String)>, String> {
     let endpoint = if configured_host.trim().is_empty() {
         format!("https://s3.{region}.amazonaws.com")
@@ -1530,7 +1538,10 @@ async fn list_s3_objects_in_region(
     } else {
         format!("https://{}", configured_host.trim_end_matches('/'))
     };
-    let request_url = format!("{endpoint}/{}", aws_uri_encode(bucket));
+    let request_url = match delete_key {
+        Some(key) => format!("{endpoint}/{}/{}", aws_uri_encode(bucket), encode_s3_object_key(key)?),
+        None => format!("{endpoint}/{}", aws_uri_encode(bucket)),
+    };
     let url = reqwest::Url::parse(&request_url)
         .map_err(|error| format!("The S3 host is invalid: {error}"))?;
     let host = match (url.host_str(), url.port()) {
@@ -1539,7 +1550,9 @@ async fn list_s3_objects_in_region(
         _ => return Err("The S3 host does not contain a valid server name.".to_string()),
     };
     let canonical_uri = url.path().to_string();
-    let canonical_query = if prefix.is_empty() {
+    let canonical_query = if delete_key.is_some() {
+        String::new()
+    } else if prefix.is_empty() {
         "list-type=2".to_string()
     } else {
         format!("list-type=2&prefix={}", aws_uri_encode(prefix))
@@ -1552,8 +1565,9 @@ async fn list_s3_objects_in_region(
         "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{request_date}\n"
     );
     let signed_headers = "host;x-amz-content-sha256;x-amz-date";
+    let method = if delete_key.is_some() { "DELETE" } else { "GET" };
     let canonical_request = format!(
-        "GET\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+        "{method}\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
     );
     let scope = format!("{short_date}/{region}/s3/aws4_request");
     let string_to_sign = format!(
@@ -1571,7 +1585,10 @@ async fn list_s3_objects_in_region(
     );
 
     let response = reqwest::Client::new()
-        .get(format!("{request_url}?{canonical_query}"))
+        .request(
+            if delete_key.is_some() { reqwest::Method::DELETE } else { reqwest::Method::GET },
+            if canonical_query.is_empty() { request_url } else { format!("{request_url}?{canonical_query}") },
+        )
         .header("Host", host)
         .header("x-amz-content-sha256", payload_hash)
         .header("x-amz-date", request_date)
@@ -1584,17 +1601,21 @@ async fn list_s3_objects_in_region(
     if !status.is_success() {
         return Ok(Err((status, body)));
     }
+    if delete_key.is_some() {
+        return Ok(Ok(S3ListResponse { contents: Vec::new() }));
+    }
     quick_xml::de::from_str(&body)
         .map(Ok)
         .map_err(|error| format!("Cannot parse the S3 response: {error}"))
 }
 
-async fn list_s3_objects(
+async fn request_s3_objects(
     access_key: &str,
     access_secret: &str,
     bucket: &str,
     configured_host: &str,
     prefix: &str,
+    delete_key: Option<&str>,
 ) -> Result<S3ListResponse, String> {
     let initial_region = configured_host
         .split('.')
@@ -1603,8 +1624,8 @@ async fn list_s3_objects(
             || part.starts_with("af-"))
         .unwrap_or("us-east-1");
 
-    match list_s3_objects_in_region(
-        access_key, access_secret, bucket, configured_host, prefix, initial_region,
+    match request_s3_objects_in_region(
+        access_key, access_secret, bucket, configured_host, prefix, initial_region, delete_key,
     ).await? {
         Ok(response) => Ok(response),
         Err((status, body)) => {
@@ -1621,8 +1642,8 @@ async fn list_s3_objects(
                 } else {
                     configured_host
                 };
-                return match list_s3_objects_in_region(
-                    access_key, access_secret, bucket, retry_host, prefix, region,
+                return match request_s3_objects_in_region(
+                    access_key, access_secret, bucket, retry_host, prefix, region, delete_key,
                 ).await? {
                     Ok(response) => Ok(response),
                     Err((retry_status, retry_body)) => Err(format!(
@@ -1635,13 +1656,8 @@ async fn list_s3_objects(
     }
 }
 
-#[tauri::command]
-async fn list_database_backups(
-    config: OphConnectionConfig,
-    _account_id: String,
-    database_name: String,
-) -> Result<Vec<serde_json::Value>, String> {
-    let server = selected_server(&config)?;
+async fn load_s3_backup_settings(config: &OphConnectionConfig) -> Result<(String, String, String, String, String), String> {
+    let server = selected_server(config)?;
     let mut client = connect_sql_server_database(server, "oph_core").await?;
     let settings = query_json(
         &mut client,
@@ -1694,10 +1710,21 @@ async fn list_database_backups(
         return Err("The shared S3 backup configuration in oph_core.acctinfo is incomplete.".to_string());
     }
 
+    Ok((access_key, access_secret, bucket, host, configured_prefix))
+}
+
+#[tauri::command]
+async fn list_database_backups(
+    config: OphConnectionConfig,
+    _account_id: String,
+    database_name: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let (access_key, access_secret, bucket, host, configured_prefix) = load_s3_backup_settings(&config).await?;
+
     let requested_prefix = configured_prefix
         .replace("{database}", &database_name)
         .replace("{DATABASE}", &database_name);
-    let response = list_s3_objects(&access_key, &access_secret, &bucket, &host, &requested_prefix)
+    let response = request_s3_objects(&access_key, &access_secret, &bucket, &host, &requested_prefix, None)
         .await
         .map_err(|error| format!("Cannot load S3 backups for {database_name}: {error}"))?;
     let database_filter = database_name.to_lowercase();
@@ -1714,6 +1741,19 @@ async fn list_database_backups(
         }))
         .collect();
     Ok(backups)
+}
+
+#[tauri::command]
+async fn delete_database_backup(
+    config: OphConnectionConfig,
+    backup_key: String,
+) -> Result<(), String> {
+    encode_s3_object_key(&backup_key)?;
+    let (access_key, access_secret, bucket, host, _) = load_s3_backup_settings(&config).await?;
+    request_s3_objects(&access_key, &access_secret, &bucket, &host, "", Some(&backup_key))
+        .await
+        .map_err(|error| format!("Cannot delete S3 backup {backup_key}: {error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -3503,6 +3543,7 @@ pub fn run() {
             list_account_info,
             list_account_databases,
             list_database_backups,
+            delete_database_backup,
             restore_database_backup,
             list_sub_accounts,
             list_sub_account_users,
@@ -3545,7 +3586,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
+    use super::{encode_s3_object_key, request_s3_objects_in_region, aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
 
     #[test]
     fn escapes_apostrophes_without_changing_json_quotes() {
@@ -3575,6 +3616,46 @@ mod tests {
     #[test]
     fn encodes_s3_query_values_for_aws_signing() {
         assert_eq!(aws_uri_encode("backup/OPH test+.bak"), "backup%2FOPH%20test%2B.bak");
+    }
+
+    #[test]
+    fn preserves_exact_s3_object_keys_and_rejects_normalized_paths() {
+        assert_eq!(encode_s3_object_key("daily/OPH test+%?.bak").unwrap(), "daily/OPH%20test%2B%25%3F.bak");
+        assert_eq!(encode_s3_object_key("weekly//OPH.bak").unwrap(), "weekly//OPH.bak");
+        assert!(encode_s3_object_key("").is_err());
+        assert!(encode_s3_object_key("daily/../other.bak").is_err());
+        assert!(encode_s3_object_key("daily/./other.bak").is_err());
+    }
+
+    #[test]
+    fn sends_signed_delete_and_handles_s3_success_and_denial() {
+        use std::io::{Read, Write};
+        for (status, expected_success) in [("204 No Content", true), ("403 Forbidden", false)] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                write!(socket, "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                String::from_utf8(request).unwrap()
+            });
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let result = runtime.block_on(request_s3_objects_in_region(
+                "test-access", "test-secret", "backups", &endpoint, "", "us-east-1", Some("daily/db test+.bak"),
+            )).unwrap();
+            assert_eq!(result.is_ok(), expected_success);
+            let request = server.join().unwrap();
+            assert!(request.starts_with("DELETE /backups/daily/db%20test%2B.bak HTTP/1.1\r\n"));
+            assert!(request.to_lowercase().contains("authorization: aws4-hmac-sha256"));
+            assert!(!request.contains("test-secret"));
+        }
     }
 
     #[test]

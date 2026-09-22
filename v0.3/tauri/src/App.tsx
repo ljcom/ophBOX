@@ -1,3 +1,4 @@
+import { groupBackups } from './services/backupGroups'
 import {
   Activity,
   AlertTriangle,
@@ -227,6 +228,7 @@ const treeIcons: Record<TreeNodeKind, typeof Server> = {
   root: Server,
   server: Server,
   database: Database,
+  'physical-database': Database,
   modules: Layers3,
   'module-category': Table2,
   module: FileCode2,
@@ -245,6 +247,7 @@ const treeIcons: Record<TreeNodeKind, typeof Server> = {
 function App() {
   const savedWorkspaceState = useRef(loadSavedWorkspaceState())
   const [connectionConfig, setConnectionConfig] = useState<OphConnectionConfig | null>(null)
+  const [accountDatabaseRowsByDatabaseId, setAccountDatabaseRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [discoveredDatabases, setDiscoveredDatabases] = useState<OphDatabase[]>([])
   const [moduleRowsByDatabaseId, setModuleRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [columnRowsByDatabaseId, setColumnRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
@@ -285,6 +288,7 @@ function App() {
         parameterRowsByDatabaseId,
         moduleStatusRowsByDatabaseId,
         moduleGroupRowsByDatabaseId,
+        accountDatabaseRowsByDatabaseId,
       )
     },
     [
@@ -302,6 +306,7 @@ function App() {
       parameterRowsByDatabaseId,
       moduleStatusRowsByDatabaseId,
       moduleGroupRowsByDatabaseId,
+      accountDatabaseRowsByDatabaseId,
     ],
   )
   const firstDatabase = tree?.children?.[0]?.children?.[0]
@@ -680,6 +685,23 @@ function App() {
     return Object.fromEntries(entries)
   }
 
+  async function loadAccountDatabaseRowsByDatabase(
+    config: OphConnectionConfig,
+    databases: OphDatabase[],
+  ): Promise<Record<string, MetadataRow[]>> {
+    const entries = await Promise.all(
+      databases.map(async (database) => {
+        try {
+          return [database.id, await ophAdminService.listAccountDatabases(config, database.name, database.databaseName)] as const
+        } catch {
+          return [database.id, []] as const
+        }
+      }),
+    )
+
+    return Object.fromEntries(entries)
+  }
+
   async function loadParameterRowsByDatabase(
     config: OphConnectionConfig,
     databases: OphDatabase[],
@@ -727,6 +749,7 @@ function App() {
 
   async function activateConnection(config: OphConnectionConfig, preferredAccountId?: string) {
     const loadedDatabases = await ophAdminService.listOphDatabases(config)
+    const loadedAccountDatabaseRows = await loadAccountDatabaseRowsByDatabase(config, loadedDatabases)
     const loadedModuleRows = await loadModuleRowsByDatabase(config, loadedDatabases)
     const loadedColumnRows = await loadColumnRowsByDatabase(config, loadedDatabases)
     const loadedSubAccountRows = await loadSubAccountRowsByDatabase(config, loadedDatabases)
@@ -752,6 +775,7 @@ function App() {
       loadedParameterRows,
       loadedModuleStatusRows,
       loadedModuleGroupRows,
+      loadedAccountDatabaseRows,
     )
     const loadedDatabase = loadedTree.children?.[0]?.children?.find((database) =>
       preferredAccountId
@@ -759,6 +783,7 @@ function App() {
         : true)
       ?? loadedTree.children?.[0]?.children?.[0]
 
+    setAccountDatabaseRowsByDatabaseId(loadedAccountDatabaseRows)
     setDiscoveredDatabases(loadedDatabases)
     setModuleRowsByDatabaseId(loadedModuleRows)
     setColumnRowsByDatabaseId(loadedColumnRows)
@@ -2909,6 +2934,16 @@ function Workspace({
     )
   }
 
+  if (selection.kind === 'physical-database') {
+    return (
+      <DatabaseBackupsWorkspace
+        key={selection.id}
+        config={connectionConfig}
+        selection={{ ...selection, databaseName: selection.label }}
+      />
+    )
+  }
+
   if (selection.kind === 'account' && selection.label === 'Databases') {
     return (
       <AccountDatabasesWorkspace
@@ -3273,6 +3308,181 @@ const editorFieldTypeOptions = [
   ['57', 'Set current location'],
 ] as const
 
+function DatabaseBackupsWorkspace({
+  config: connectionConfig,
+  selection,
+  onRefresh,
+}: {
+  config: OphConnectionConfig
+  selection: WorkspaceSelection
+  onRefresh?: () => void | Promise<void>
+}) {
+  const config = useMemo(() => selection.serverId
+    ? { ...connectionConfig, selectedServerId: selection.serverId }
+    : connectionConfig, [connectionConfig, selection.serverId])
+  const [backupToDelete, setBackupToDelete] = useState<MetadataRow | null>(null)
+  const [isDeletingBackup, setIsDeletingBackup] = useState(false)
+  const [deleteBackupError, setDeleteBackupError] = useState('')
+  const [deleteBackupNotice, setDeleteBackupNotice] = useState('')
+  const [backups, setBackups] = useState<MetadataRow[]>([])
+  const [isLoadingBackups, setIsLoadingBackups] = useState(true)
+  const [backupError, setBackupError] = useState('')
+  const [selectedBackup, setSelectedBackup] = useState<MetadataRow | null>(null)
+  const [targetDatabaseName, setTargetDatabaseName] = useState('')
+  const [isRestoring, setIsRestoring] = useState(false)
+  const [restoreError, setRestoreError] = useState('')
+  const [restoreNotice, setRestoreNotice] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selection.accountId || !selection.databaseName) return
+    setIsLoadingBackups(true)
+    setBackupError('')
+    ophAdminService.listDatabaseBackups(config, selection.accountId, selection.databaseName)
+      .then((rows) => { if (!cancelled) setBackups(rows) })
+      .catch((error) => { if (!cancelled) setBackupError(error instanceof Error ? error.message : String(error)) })
+      .finally(() => { if (!cancelled) setIsLoadingBackups(false) })
+    return () => { cancelled = true }
+  }, [config, selection.accountId, selection.databaseName])
+
+  async function deleteBackup() {
+    if (!backupToDelete || isDeletingBackup) return
+    const backupFile = String(backupToDelete.backupFile ?? '')
+    setIsDeletingBackup(true)
+    setDeleteBackupError('')
+    setDeleteBackupNotice('')
+    try {
+      await ophAdminService.deleteDatabaseBackup(config, backupFile)
+      setBackups((current) => current.filter((backup) => backup.backupFile !== backupFile))
+      setBackupToDelete(null)
+      setDeleteBackupNotice(`Deleted S3 backup ${backupFile}.`)
+      appendAuditLog('delete-backup', backupFile, 'success', `Database ${selection.databaseName}.`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setDeleteBackupError(detail)
+      appendAuditLog('delete-backup', backupFile, 'failed', detail)
+    } finally {
+      setIsDeletingBackup(false)
+    }
+  }
+
+  function openRestore(backup: MetadataRow) {
+    setSelectedBackup(backup)
+    setTargetDatabaseName(`${selection.databaseName}_001`)
+    setRestoreError('')
+    setRestoreNotice('')
+  }
+
+  async function restoreBackup() {
+    if (!selectedBackup) return
+    const backupFile = String(selectedBackup.backupFile ?? '')
+    const destination = targetDatabaseName.trim()
+    setIsRestoring(true)
+    setRestoreError('')
+    setRestoreNotice('')
+    try {
+      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
+      await onRefresh?.()
+      setRestoreNotice(`Database ${destination} restored successfully.`)
+      appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
+    } catch (restoreFailure) {
+      const detail = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
+      setRestoreError(detail)
+      appendAuditLog('restore-database', destination, 'failed', detail)
+    } finally {
+      setIsRestoring(false)
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      {selection.kind === 'physical-database' ? (
+        <SectionHeader
+          eyebrow="Database"
+          title={selection.databaseName ?? selection.label}
+          description="Browse S3 backups and restore a backup as a new database."
+        />
+      ) : null}
+      <div className="table-card">
+        <div className="metadata-toolbar">
+          <h2>S3 backups</h2>
+          <span>{backups.length} backup files for {selection.databaseName}</span>
+        </div>
+        {isLoadingBackups ? <div className="empty-result">Loading S3 backups...</div> : null}
+        {backupError ? <div className="connection-error">{backupError}</div> : null}
+        {!isLoadingBackups && !backupError && backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : null}
+        {deleteBackupNotice ? <div className="connection-notice" role="status">{deleteBackupNotice}</div> : null}
+        {!isLoadingBackups && !backupError ? groupBackups(backups).map((group) => (
+          <section key={group.schedule}>
+            <div className="metadata-toolbar"><h3>{group.schedule}</h3><span>{group.backups.length} backup files</span></div>
+            <table>
+              <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th><th>Action</th></tr></thead>
+              <tbody>{group.backups.map((backup) => (
+                <tr key={String(backup.backupFile)}>
+                  <td><strong>{String(backup.backupFile ?? '')}</strong></td>
+                  <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
+                  <td>{String(backup.lastModified ?? '-')}</td>
+                  <td>{String(backup.storageClass ?? '-')}</td>
+                  <td><div className="metadata-toolbar">
+                    <button type="button" disabled={isDeletingBackup || isRestoring} onClick={() => openRestore(backup)}>Restore</button>
+                    <button type="button" className="danger-button" disabled={isDeletingBackup || isRestoring} onClick={() => {
+                      setBackupToDelete(backup)
+                      setDeleteBackupError('')
+                      setDeleteBackupNotice('')
+                    }}>Delete</button>
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </section>
+        )) : null}
+      </div>
+      {backupToDelete ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isDeletingBackup && setBackupToDelete(null)}>
+          <aside className="row-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-backup-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div><span className="eyebrow">{selection.databaseName}</span><h2 id="delete-backup-title">Delete S3 Backup</h2></div>
+              <button className="overlay-close-button" type="button" aria-label="Close" disabled={isDeletingBackup} onClick={() => setBackupToDelete(null)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <label><span>Backup File</span><input value={String(backupToDelete.backupFile ?? '')} disabled /></label>
+              <p className="delete-warning">Delete this backup from S3? It will no longer be available for restore in this list.</p>
+              <div className="metadata-toolbar">
+                <button type="button" disabled={isDeletingBackup} onClick={() => setBackupToDelete(null)}>Cancel</button>
+                <button type="button" className="danger-button" disabled={isDeletingBackup} onClick={deleteBackup}>{isDeletingBackup ? 'Deleting Backup…' : 'Delete Backup'}</button>
+              </div>
+              {deleteBackupError ? <div className="connection-error" role="alert">{deleteBackupError}</div> : null}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+      {selectedBackup ? (
+        <div className="row-detail-backdrop" onMouseDown={() => !isRestoring && setSelectedBackup(null)}>
+          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="row-detail-header">
+              <div><span className="eyebrow">Restore S3 Backup</span><h2>{selection.databaseName}</h2></div>
+              <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
+            </div>
+            <div className="row-detail-form">
+              <label><span>Backup File</span><input value={String(selectedBackup.backupFile ?? '')} disabled /></label>
+              <label>
+                <span>New Database Name</span>
+                <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />
+              </label>
+              <p className="delete-warning">Restore creates a new database. An existing database will never be overwritten.</p>
+              <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
+                {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
+              </button>
+            </div>
+            {restoreError ? <div className="connection-error">{restoreError}</div> : null}
+            {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
+          </aside>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function DatabaseWorkspace({
   config,
   selection,
@@ -3293,14 +3503,6 @@ function DatabaseWorkspace({
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [actionError, setActionError] = useState('')
-  const [backups, setBackups] = useState<MetadataRow[]>([])
-  const [isLoadingBackups, setIsLoadingBackups] = useState(true)
-  const [backupError, setBackupError] = useState('')
-  const [selectedBackup, setSelectedBackup] = useState<MetadataRow | null>(null)
-  const [targetDatabaseName, setTargetDatabaseName] = useState('')
-  const [isRestoring, setIsRestoring] = useState(false)
-  const [restoreError, setRestoreError] = useState('')
-  const [restoreNotice, setRestoreNotice] = useState('')
   const databaseNode = findTreeNode(tree, selection.id)
   const modulesNode = databaseNode?.children?.find((child) => child.label === 'Modules')
   const securityNode = databaseNode?.children?.find((child) => child.label === 'Security')
@@ -3311,18 +3513,6 @@ function DatabaseWorkspace({
   const securityCount = countLeafChildren(securityNode)
   const interfaceCount = countLeafChildren(interfaceNode)
   const accountCount = countLeafChildren(accountNode)
-
-  useEffect(() => {
-    let cancelled = false
-    if (!selection.accountId || !selection.databaseName) return
-    setIsLoadingBackups(true)
-    setBackupError('')
-    ophAdminService.listDatabaseBackups(config, selection.accountId, selection.databaseName)
-      .then((rows) => { if (!cancelled) setBackups(rows) })
-      .catch((error) => { if (!cancelled) setBackupError(error instanceof Error ? error.message : String(error)) })
-      .finally(() => { if (!cancelled) setIsLoadingBackups(false) })
-    return () => { cancelled = true }
-  }, [config, selection.accountId, selection.databaseName])
 
   async function refreshTree() {
     setIsRefreshing(true)
@@ -3354,34 +3544,6 @@ function DatabaseWorkspace({
     }
   }
 
-  function openRestore(backup: MetadataRow) {
-    setSelectedBackup(backup)
-    setTargetDatabaseName(`${selection.databaseName}_001`)
-    setRestoreError('')
-    setRestoreNotice('')
-  }
-
-  async function restoreBackup() {
-    if (!selectedBackup) return
-    const backupFile = String(selectedBackup.backupFile ?? '')
-    const destination = targetDatabaseName.trim()
-    setIsRestoring(true)
-    setRestoreError('')
-    setRestoreNotice('')
-    try {
-      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
-      await onRefresh()
-      setRestoreNotice(`Database ${destination} restored successfully.`)
-      appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
-    } catch (restoreFailure) {
-      const detail = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
-      setRestoreError(detail)
-      appendAuditLog('restore-database', destination, 'failed', detail)
-    } finally {
-      setIsRestoring(false)
-    }
-  }
-
   return (
     <div className="page-stack">
       <SectionHeader
@@ -3406,52 +3568,7 @@ function DatabaseWorkspace({
         <MetricCard label="Interface" value={String(interfaceCount)} detail="Themes, menus, translator" onClick={interfaceNode ? () => onNavigate(workspaceSelectionFromNode(interfaceNode)) : undefined} />
         <MetricCard label="Account" value={String(accountCount)} detail="Parameters and mail" onClick={accountNode ? () => onNavigate(workspaceSelectionFromNode(accountNode)) : undefined} />
       </div>
-      <div className="table-card">
-        <div className="metadata-toolbar">
-          <h2>S3 backups</h2>
-          <span>{backups.length} backup files for {selection.databaseName}</span>
-        </div>
-        {isLoadingBackups ? <div className="empty-result">Loading S3 backups...</div> : null}
-        {backupError ? <div className="connection-error">{backupError}</div> : null}
-        {!isLoadingBackups && !backupError && backups.length === 0 ? <div className="empty-result">No S3 backups found for this database.</div> : null}
-        {!isLoadingBackups && !backupError && backups.length > 0 ? (
-          <table>
-            <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th><th>Action</th></tr></thead>
-            <tbody>{backups.map((backup, index) => (
-              <tr key={`${backup.backupFile}-${index}`}>
-                <td><strong>{String(backup.backupFile ?? '')}</strong></td>
-                <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
-                <td>{String(backup.lastModified ?? '-')}</td>
-                <td>{String(backup.storageClass ?? '-')}</td>
-                <td><button type="button" onClick={() => openRestore(backup)}>Restore</button></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        ) : null}
-      </div>
-      {selectedBackup ? (
-        <div className="row-detail-backdrop" onMouseDown={() => !isRestoring && setSelectedBackup(null)}>
-          <aside className="row-detail-overlay" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="row-detail-header">
-              <div><span className="eyebrow">Restore S3 Backup</span><h2>{selection.databaseName}</h2></div>
-              <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
-            </div>
-            <div className="row-detail-form">
-              <label><span>Backup File</span><input value={String(selectedBackup.backupFile ?? '')} disabled /></label>
-              <label>
-                <span>New Database Name</span>
-                <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />
-              </label>
-              <p className="delete-warning">Restore creates a new database. An existing database will never be overwritten.</p>
-              <button type="button" disabled={isRestoring || !targetDatabaseName.trim()} onClick={restoreBackup}>
-                {isRestoring ? 'Restoring Database…' : 'Restore as New Database'}
-              </button>
-            </div>
-            {restoreError ? <div className="connection-error">{restoreError}</div> : null}
-            {restoreNotice ? <div className="connection-notice">{restoreNotice}</div> : null}
-          </aside>
-        </div>
-      ) : null}
+      <DatabaseBackupsWorkspace key={selection.id} config={config} selection={selection} onRefresh={onRefresh} />
       {isConfirmingDelete ? (
         <div className="row-detail-backdrop" onMouseDown={() => !isDeleting && setIsConfirmingDelete(false)}>
           <aside className="row-detail-overlay account-create-overlay" onMouseDown={(event) => event.stopPropagation()}>
@@ -3651,7 +3768,7 @@ function AccountDatabasesWorkspace({
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [config, selection.accountId, selection.databaseName])
+  }, [config, selection.accountId, selection.databaseName, selection.kind, selection.label])
 
   return (
     <div className="page-stack">

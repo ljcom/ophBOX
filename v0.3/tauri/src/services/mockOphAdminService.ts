@@ -418,6 +418,7 @@ function buildDatabaseChildren(
   parameterRows: MetadataRow[] = [],
   moduleStatusRows: MetadataRow[] = [],
   moduleGroupRows: MetadataRow[] = [],
+  accountDatabaseRows: MetadataRow[] = [],
 ): OphTreeNode[] {
   const accountId = getAccountId(database)
 
@@ -638,7 +639,23 @@ function buildDatabaseChildren(
           databaseId: database.id,
           children: rootSubAccounts.map((account) => buildSubAccountNode(account)),
         },
-        { id: `${database.id}:account:databases`, label: 'Databases', kind: 'account', accountId, databaseName: database.databaseName, databaseId: database.id },
+        {
+          id: `${database.id}:account:databases`,
+          label: 'Databases',
+          kind: 'account',
+          accountId,
+          databaseName: database.databaseName,
+          databaseId: database.id,
+          children: accountDatabaseRows.map((row) => ({
+            id: `${database.id}:account:database:${String(row.accountdbguid ?? row.databasename)}`,
+            label: String(row.databasename ?? ''),
+            kind: 'physical-database' as const,
+            accountId,
+            databaseName: database.databaseName,
+            databaseId: database.id,
+            serverId: database.serverId,
+          })),
+        },
         {
           id: `${database.id}:account:parameters`,
           label: 'Parameters',
@@ -678,6 +695,7 @@ function buildTree(
   parameterRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   moduleStatusRowsByDatabaseId: Record<string, MetadataRow[]> = {},
   moduleGroupRowsByDatabaseId: Record<string, MetadataRow[]> = {},
+  accountDatabaseRowsByDatabaseId: Record<string, MetadataRow[]> = {},
 ): OphTreeNode {
   return {
     id: 'servers',
@@ -718,6 +736,7 @@ function buildTree(
             parameterRowsByDatabaseId[database.id] ?? [],
             moduleStatusRowsByDatabaseId[database.id] ?? [],
             moduleGroupRowsByDatabaseId[database.id] ?? [],
+            accountDatabaseRowsByDatabaseId[database.id] ?? [],
           ),
         })),
     })),
@@ -840,6 +859,10 @@ async function listAccountDatabases(config: OphConnectionConfig, accountId: stri
 
 async function listDatabaseBackups(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
   return invoke<MetadataRow[]>('list_database_backups', { config, accountId, databaseName })
+}
+
+async function deleteDatabaseBackup(config: OphConnectionConfig, backupKey: string): Promise<void> {
+  return invoke<void>('delete_database_backup', { config, backupKey })
 }
 
 async function restoreDatabaseBackup(config: OphConnectionConfig, backupKey: string, targetDatabaseName: string): Promise<void> {
@@ -1096,6 +1119,7 @@ export const ophAdminService = {
   listAccountInfo,
   listAccountDatabases,
   listDatabaseBackups,
+  deleteDatabaseBackup,
   restoreDatabaseBackup,
   listSubAccounts,
   listSubAccountUsers,

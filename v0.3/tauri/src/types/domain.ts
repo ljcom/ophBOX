@@ -90,6 +90,7 @@ export type TreeNodeKind =
   | 'root'
   | 'server'
   | 'database'
+  | 'physical-database'
   | 'modules'
   | 'module-category'
   | 'module'
