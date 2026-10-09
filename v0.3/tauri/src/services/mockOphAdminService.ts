@@ -1,3 +1,4 @@
+import { notifyMetadataChange } from './metadataChanges'
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type {
   OphConnectionConfig,
@@ -1033,7 +1034,7 @@ async function saveMetadataRow(
   moduleStatusGuid?: string,
   moduleGroupGuid?: string,
 ): Promise<void> {
-  return invoke<void>('save_metadata_row', {
+  await invoke<void>('save_metadata_row', {
     config,
     databaseName,
     sourceTable,
@@ -1050,6 +1051,7 @@ async function saveMetadataRow(
     moduleStatusGuid,
     moduleGroupGuid,
   })
+  await notifyMetadataChange({ config, databaseName, sourceTable })
 }
 
 async function deleteMetadataRow(
@@ -1058,7 +1060,8 @@ async function deleteMetadataRow(
   sourceTable: string,
   originalRow: MetadataRow,
 ): Promise<void> {
-  return invoke<void>('delete_metadata_row', { config, databaseName, sourceTable, originalRow })
+  await invoke<void>('delete_metadata_row', { config, databaseName, sourceTable, originalRow })
+  await notifyMetadataChange({ config, databaseName, sourceTable })
 }
 
 async function listCopyTargets(
@@ -1084,7 +1087,7 @@ async function copyMetadataRows(
   targetAccountId: string,
   sourceAccountId: string,
 ): Promise<number> {
-  return invoke<number>('copy_metadata_rows', {
+  const count = await invoke<number>('copy_metadata_rows', {
     config,
     databaseName,
     sourceTable,
@@ -1094,6 +1097,8 @@ async function copyMetadataRows(
     targetAccountId,
     sourceAccountId,
   })
+  await notifyMetadataChange({ config, databaseName: targetDatabaseName, sourceTable })
+  return count
 }
 
 async function runQuery(config: OphConnectionConfig, databaseName: string, sql: string): Promise<MetadataRow[]> {

@@ -2879,3 +2879,22 @@ pre {
     background: #eff6ff;
   }
 }
+
+.dplx-xml-workspace { display: flex; flex-direction: column; gap: 10px; min-height: 520px; height: 100%; }
+.xml-search-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.xml-search-toolbar > input { flex: 1; min-width: 160px; padding: 8px 10px; border: 1px solid #dce4ee; border-radius: 8px; }
+.xml-search-toolbar label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.xml-search-toolbar > span { min-width: 85px; font-size: 12px; }
+.xml-editor-stack { position: relative; flex: 1; min-height: 480px; background: #0f172a; border: 1px solid #dce4ee; border-radius: 16px; overflow: hidden; }
+.xml-editor-stack .report-xml-editor,
+.xml-highlight-layer { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 18px; border: 0; border-radius: 0; box-sizing: border-box; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre; tab-size: 4; }
+.xml-highlight-layer { overflow: hidden; pointer-events: none; color: #dbeafe; }
+.xml-editor-stack .report-xml-editor { color: transparent; -webkit-text-fill-color: transparent; caret-color: #f8fafc; background: transparent; overflow: auto; }
+.xml-editor-stack .report-xml-editor::selection { background: #60a5fa55; }
+.xml-tag { color: #7dd3fc; }
+.xml-string { color: #86efac; }
+.xml-attribute { color: #c4b5fd; }
+.xml-comment { color: #94a3b8; }
+.xml-highlight-layer mark { background: #fde68a; color: #0f172a; border-radius: 2px; }
+.xml-highlight-layer mark span { color: inherit; }
+.xml-highlight-layer .xml-active-match { background: #fb923c; outline: 1px solid #fdba74; }

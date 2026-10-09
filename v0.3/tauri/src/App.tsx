@@ -1,3 +1,6 @@
+import { DplxXmlEditor } from './components/DplxXmlEditor'
+import { RecordTextProperties, recordTextProperties } from './components/RecordTextProperties'
+import { subscribeMetadataChanges } from './services/metadataChanges'
 import { groupBackups } from './services/backupGroups'
 import {
   Activity,
@@ -262,6 +265,7 @@ function App() {
   const [moduleGroupRowsByDatabaseId, setModuleGroupRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [isAddingConnection, setIsAddingConnection] = useState(false)
+  const [treeRefreshError, setTreeRefreshError] = useState('')
   const [initialConnectionError, setInitialConnectionError] = useState('')
   const [queryTabs, setQueryTabs] = useState<QueryTab[]>(savedWorkspaceState.current?.queryTabs ?? [])
   const [reportTabs, setReportTabs] = useState<ReportDesignerTab[]>(savedWorkspaceState.current?.reportTabs ?? [])
@@ -326,6 +330,33 @@ function App() {
     userGroupGuid: firstDatabase?.userGroupGuid,
     settingMode: firstDatabase?.settingMode,
   }))
+
+  const previousTree = useRef(tree)
+  useEffect(() => {
+    const oldTree = previousTree.current
+    previousTree.current = tree
+    if (!tree || !oldTree || tree === oldTree) return
+
+    function refreshedSelection(current: WorkspaceSelection): WorkspaceSelection {
+      const node = findTreeNode(tree!, current.id)
+      if (node) {
+        const next = workspaceSelectionFromNode(node)
+        return JSON.stringify(next) === JSON.stringify(current) ? current : next
+      }
+      function survivingParent(branch: OphTreeNode): OphTreeNode | undefined {
+        for (const child of branch.children ?? []) {
+          if (child.id === current.id || findTreeNode(child, current.id)) {
+            return survivingParent(child) ?? findTreeNode(tree!, branch.id)
+          }
+        }
+        return undefined
+      }
+      const parent = survivingParent(oldTree!)
+      return parent ? workspaceSelectionFromNode(parent) : current
+    }
+    setSelection(refreshedSelection)
+    setPinnedTabs((tabs) => tabs.map((tab) => ({ ...tab, selection: refreshedSelection(tab.selection) })))
+  }, [tree])
 
   useEffect(() => {
     if (!isWorkspaceStateReady) return
@@ -881,6 +912,93 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false
+    let pending = Promise.resolve()
+    const unsubscribe = subscribeMetadataChanges((change) => {
+      pending = pending.then(async () => {
+        if (cancelled) return
+        const source = change.sourceTable.toLowerCase().replace(/[\[\]]/g, '')
+        const targets = discoveredDatabases.filter((database) =>
+          database.databaseName.toLowerCase() === change.databaseName.toLowerCase()
+          && database.serverId === (change.config.selectedServerId ?? change.config.servers[0]?.id))
+        try {
+          await Promise.all(targets.map(async (database) => {
+            const config = { ...change.config, selectedServerId: database.serverId }
+            switch (source) {
+              case 'modl': {
+                const rows = await ophAdminService.listModuleTree(config, database.name, database.databaseName)
+                if (!cancelled) setModuleRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'modlcolm': {
+                const rows = await ophAdminService.listModuleColumnTree(config, database.name, database.databaseName)
+                if (!cancelled) setColumnRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'acct': {
+                const rows = await ophAdminService.listSubAccounts(config, database.name, database.databaseName)
+                if (!cancelled) setSubAccountRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'user': {
+                const [rows, subAccountUsers] = await Promise.all([
+                  ophAdminService.listUsers(config, database.name, database.databaseName),
+                  ophAdminService.listSubAccountUsers(config, database.name, database.databaseName),
+                ])
+                if (!cancelled) {
+                  setUserRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                  setSubAccountUserRowsByDatabaseId((current) => ({ ...current, [database.id]: subAccountUsers }))
+                }
+                break
+              }
+              case 'ugrp': {
+                const rows = await ophAdminService.listUserGroups(config, database.name, database.databaseName)
+                if (!cancelled) setUserGroupRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'thme': {
+                const rows = await ophAdminService.listThemes(config, database.name, database.databaseName)
+                if (!cancelled) setThemeRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'menu': {
+                const rows = await ophAdminService.listMenus(config, database.name, database.databaseName)
+                if (!cancelled) setMenuRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'para': {
+                const rows = await ophAdminService.listParameters(config, database.name, database.databaseName)
+                if (!cancelled) setParameterRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'msta': {
+                const rows = await ophAdminService.listModuleStatuses(config, database.name, database.databaseName)
+                if (!cancelled) setModuleStatusRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'modg': {
+                const rows = await ophAdminService.listModuleGroups(config, database.name, database.databaseName)
+                if (!cancelled) setModuleGroupRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+              case 'acctdbse': {
+                const rows = await ophAdminService.listAccountDatabases(config, database.name, database.databaseName)
+                if (!cancelled) setAccountDatabaseRowsByDatabaseId((current) => ({ ...current, [database.id]: rows }))
+                break
+              }
+            }
+          }))
+          if (!cancelled) setTreeRefreshError('')
+        } catch (error) {
+          if (!cancelled) setTreeRefreshError(`Changes saved, but the tree for ${change.databaseName} could not refresh: ${error instanceof Error ? error.message : String(error)}. Refresh the server to try again.`)
+        }
+      })
+      return pending
+    })
+    return () => { cancelled = true; unsubscribe() }
+  }, [discoveredDatabases])
+
   async function refreshModuleTreeNode(node: OphTreeNode) {
     if (!connectionConfig) return
 
@@ -1032,6 +1150,7 @@ function App() {
             <X size={20} />
           </button>
         </div>
+        {treeRefreshError ? <div className="connection-error" role="alert">{treeRefreshError}</div> : null}
         <TreeView
           root={tree}
           selectionId={activeSelection.id}
@@ -1665,6 +1784,9 @@ function ReportDesignerWorkspace({
           element.setAttribute('expandable', 'false')
         }
       }
+      if (['recordBox', 'recordArea'].includes(name)) {
+        recordTextProperties.forEach(({ name: attributeName, defaultValue }) => element.setAttribute(attributeName, attributeName === 'id' ? `${name}-${crypto.randomUUID()}` : defaultValue))
+      }
       target.appendChild(element)
       if (target === band) setSelectedElement({ band: selectedBand, index: band.children.length - 1 })
       else {
@@ -1800,7 +1922,7 @@ function ReportDesignerWorkspace({
       {tab.error || parsed.error ? <div className="connection-error">{tab.error || parsed.error}</div> : null}
       {tab.saveNotice ? <div className="action-notice">{tab.saveNotice}</div> : null}
       {mode === 'xml' ? (
-        <textarea className="report-xml-editor" spellCheck={false} value={tab.xml} onChange={(event) => onChange(event.target.value)} />
+        <DplxXmlEditor key={tab.id} value={tab.xml} onChange={onChange} />
       ) : (
         <div className="report-designer-grid">
           <aside className="report-toolbox">
@@ -1943,6 +2065,9 @@ function ReportDesignerWorkspace({
             {activeSubReportElement ? (
               <>
                 <span className="report-element-type">{selectedContainerType} {activeSubReportElement.tagName}</span>
+                {['recordBox', 'recordArea'].includes(activeSubReportElement.tagName) ? (
+                  <RecordTextProperties element={activeSubReportElement} onChange={updateSubReportElementAttribute} />
+                ) : (<>
                 {Array.from(activeSubReportElement.attributes).filter((attribute) => attribute.name !== 'expandable' && (!dplxTypographyElementNames.has(activeSubReportElement.tagName) || !dplxTypographyAttributes.has(attribute.name))).map((attribute) => (
                   <label key={attribute.name}>
                     <span>{attribute.name}</span>
@@ -1960,6 +2085,7 @@ function ReportDesignerWorkspace({
                   </>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateSubReportElementAttribute('fontSize', '10')}>Add fontSize</button></label>
+                </>)}
                 <button type="button" className="danger-button" onClick={deleteSubReportElement}>Delete control</button>
               </>
             ) : activeSubReportBand ? (
@@ -1982,6 +2108,9 @@ function ReportDesignerWorkspace({
             ) : activeElement ? (
               <>
                 <span className="report-element-type">{activeElement.tagName}</span>
+                {['recordBox', 'recordArea'].includes(activeElement.tagName) ? (
+                  <RecordTextProperties element={activeElement} onChange={updateElementAttribute} />
+                ) : (<>
                 {Array.from(activeElement.attributes).filter((attribute) => attribute.name !== 'expandable' && (!dplxTypographyElementNames.has(activeElement.tagName) || !dplxTypographyAttributes.has(attribute.name))).map((attribute) => (
                   <label key={attribute.name}><span>{attribute.name}</span><DplxAttributeInput name={attribute.name} value={attribute.value} onChange={(value) => updateElementAttribute(attribute.name, value)} /></label>
                 ))}
@@ -1996,6 +2125,7 @@ function ReportDesignerWorkspace({
                   </>
                 ) : null}
                 <label><span>New attribute</span><button type="button" onClick={() => updateElementAttribute('fontSize', '10')}>Add fontSize</button></label>
+                </>)}
                 <button type="button" className="danger-button" onClick={deleteElement}>Delete control</button>
                 {activeElement.tagName === 'subReport' ? queryProperties(activeElement, 'subreport') : null}
               </>

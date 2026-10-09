@@ -2361,7 +2361,7 @@ dependencies = [
 
 [[package]]
 name = "oph-control-studio"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "chrono",
  "hmac 0.12.1",
