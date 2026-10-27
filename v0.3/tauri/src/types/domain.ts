@@ -7,6 +7,7 @@ export type OphServer = {
   host: string
   port: number
   databaseEngine?: DatabaseEngine
+  databaseLayout?: 'separate' | 'single'
   authType: AuthType
   defaultDatabase: string
   username?: string

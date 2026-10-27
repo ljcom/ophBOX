@@ -17,6 +17,8 @@ struct OphServer {
     port: u16,
     #[serde(default = "default_database_engine")]
     database_engine: String,
+    #[serde(default)]
+    database_layout: DatabaseLayout,
     auth_type: String,
     #[serde(default = "default_database")]
     default_database: String,
@@ -27,6 +29,54 @@ struct OphServer {
     status: String,
     databases: u32,
     last_checked: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum DatabaseLayout {
+    #[default]
+    Separate,
+    Single,
+}
+
+// In a combined installation, account discovery must not depend on acctdbse
+// mappings that may be absent or still reference the original split databases.
+fn single_database_accounts_query(postgresql: bool) -> &'static str {
+    if postgresql {
+        "select accountid, accountguid from dbo.acct where parentaccountguid is null and isdeleted is not true order by accountid"
+    } else {
+        "select (select accountid, accountguid from dbo.acct where parentaccountguid is null and isnull(isdeleted, 0) <> 1 order by accountid for json path) as json"
+    }
+}
+
+fn single_database_entries(server: &OphServer, accounts: &[serde_json::Value]) -> Vec<OphDatabase> {
+    let database = core_database_name(server);
+    accounts.iter().map(|account| {
+        let account_id = json_field(account, "accountid");
+        OphDatabase {
+            id: format!("{}:{}", server.id, account_id),
+            name: account_id,
+            database_name: database.clone(),
+            server_id: server.id.clone(),
+            r#type: "account".to_string(),
+            status: "healthy".to_string(),
+            modules: 0,
+            size: "-".to_string(),
+            updated_at: format!("Loaded from {database} (single database)"),
+        }
+    }).collect()
+}
+
+async fn single_database_accounts(server: &OphServer) -> Result<Vec<serde_json::Value>, String> {
+    let database = core_database_name(server);
+    let query = single_database_accounts_query(server.database_engine == "postgresql");
+    if server.database_engine == "postgresql" {
+        let client = connect_postgresql_database(server, &database).await?;
+        query_postgresql_json(&client, query).await
+    } else {
+        let mut client = connect_sql_server_database(server, &database).await?;
+        query_json(&mut client, query.to_string()).await
+    }
 }
 
 fn default_database_engine() -> String {
@@ -223,7 +273,7 @@ async fn query_postgresql_json(
 
 async fn test_server_connection(server: &OphServer) -> Result<TestConnectionResult, String> {
     if server.database_engine == "postgresql" {
-        let client = connect_postgresql_database(server, &database_name(server)).await?;
+        let client = connect_postgresql_database(server, &core_database_name(server)).await?;
         client.simple_query("select 1").await
             .map_err(|error| format!("PostgreSQL validation query failed: {error}"))?;
         Ok(TestConnectionResult { success: true, message: "Connection successful.".to_string(), server_name: server.name.clone() })
@@ -250,7 +300,7 @@ fn selected_server(config: &OphConnectionConfig) -> Result<&OphServer, String> {
         .ok_or_else(|| "Add at least one server before loading OPH databases.".to_string())
 }
 
-fn database_name(server: &OphServer) -> String {
+fn core_database_name(server: &OphServer) -> String {
     if server.default_database.trim().is_empty() {
         "oph_core".to_string()
     } else {
@@ -894,7 +944,14 @@ async fn list_copy_accounts(
     config: OphConnectionConfig,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    if server.database_layout == DatabaseLayout::Single {
+        let mut accounts = single_database_accounts(server).await?;
+        for account in &mut accounts {
+            account["databasename"] = serde_json::Value::String(core_database_name(server));
+        }
+        return Ok(accounts);
+    }
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
 
     query_json(
         &mut client,
@@ -1232,7 +1289,7 @@ async fn add_account(
         .iter()
         .find(|server| server.id == server_id)
         .ok_or_else(|| format!("Cannot add account: server {server_id} was not found."))?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
     let account_id = escape_sql_value(account_id);
 
     client
@@ -1241,7 +1298,7 @@ async fn add_account(
             &[],
         )
         .await
-        .map_err(|error| format!("Cannot add account {account_id} to oph_core: {error}"))?;
+        .map_err(|error| format!("Cannot add account {account_id} to {}: {error}", core_database_name(server)))?;
 
     Ok(())
 }
@@ -1262,7 +1319,7 @@ async fn delete_account(
         .iter()
         .find(|server| server.id == server_id)
         .ok_or_else(|| format!("Cannot delete account: server {server_id} was not found."))?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
     let account_id = escape_sql_value(account_id);
 
     client
@@ -1273,7 +1330,7 @@ async fn delete_account(
             &[],
         )
         .await
-        .map_err(|error| format!("Cannot delete account {account_id} from oph_core: {error}"))?;
+        .map_err(|error| format!("Cannot delete account {account_id} from {}: {error}", core_database_name(server)))?;
 
     Ok(())
 }
@@ -1281,7 +1338,13 @@ async fn delete_account(
 #[tauri::command]
 async fn list_oph_databases(config: OphConnectionConfig) -> Result<Vec<OphDatabase>, String> {
     let server = selected_server(&config)?;
-    let default_database = database_name(server);
+    let default_database = core_database_name(server);
+
+    if server.database_layout == DatabaseLayout::Single {
+        let accounts = single_database_accounts(server).await.map_err(|error|
+            format!("Cannot load accounts from database {default_database} on server {}: {error}", server.name))?;
+        return Ok(single_database_entries(server, &accounts));
+    }
 
     if server.database_engine == "postgresql" {
         let client = connect_postgresql_database(server, &default_database).await?;
@@ -1426,7 +1489,7 @@ async fn list_account_databases(
         "#)).await;
     }
 
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
 
     query_json(
         &mut client,
@@ -1661,7 +1724,7 @@ async fn request_s3_objects(
 
 async fn load_s3_backup_settings(config: &OphConnectionConfig) -> Result<(String, String, String, String, String), String> {
     let server = selected_server(config)?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
     let settings = query_json(
         &mut client,
         r#"
@@ -1710,7 +1773,7 @@ async fn load_s3_backup_settings(config: &OphConnectionConfig) -> Result<(String
     let host = setting("BACKUP_HOST");
     let configured_prefix = setting("BACKUP_PREFIX");
     if !valid_s3_configuration(&access_key, &access_secret, &bucket, None) {
-        return Err("The shared S3 backup configuration in oph_core.acctinfo is incomplete.".to_string());
+        return Err("The shared S3 backup configuration in the configured core database is incomplete.".to_string());
     }
 
     Ok((access_key, access_secret, bucket, host, configured_prefix))
@@ -1773,7 +1836,7 @@ async fn restore_database_backup(
     }
 
     let server = selected_server(&config)?;
-    let mut client = connect_sql_server_database(server, "oph_core").await?;
+    let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
     let settings = query_json(
         &mut client,
         r#"
@@ -1805,7 +1868,7 @@ async fn restore_database_backup(
     let bucket = setting("BACKUP_BUCKET");
     let host = setting("BACKUP_HOST").trim_end_matches('/').to_string();
     if !valid_s3_configuration(&access_key, &access_secret, &bucket, Some(&host)) {
-        return Err("The shared S3 restore configuration in oph_core.acctinfo is incomplete.".to_string());
+        return Err("The shared S3 restore configuration in the configured core database is incomplete.".to_string());
     }
 
     let endpoint = host.trim_start_matches("https://").trim_start_matches("http://");
@@ -3590,6 +3653,44 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{encode_s3_object_key, request_s3_objects_in_region, aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
+
+    fn server_profile() -> serde_json::Value {
+        serde_json::json!({
+            "id": "server-1", "name": "Dummy", "host": "localhost", "port": 1433,
+            "authType": "sql", "status": "online", "databases": 1, "lastChecked": "",
+            "defaultDatabase": "Customer Demo-2026"
+        })
+    }
+
+    #[test]
+    fn legacy_profiles_keep_separate_layout_and_custom_database_name() {
+        let server: super::OphServer = serde_json::from_value(server_profile()).unwrap();
+        assert_eq!(server.database_layout, super::DatabaseLayout::Separate);
+        assert_eq!(super::core_database_name(&server), "Customer Demo-2026");
+    }
+
+    #[test]
+    fn single_layout_round_trips_and_routes_distinct_accounts_to_custom_database() {
+        let mut profile = server_profile();
+        profile["databaseLayout"] = serde_json::json!("single");
+        let server: super::OphServer = serde_json::from_value(profile).unwrap();
+        assert_eq!(serde_json::to_value(&server).unwrap()["databaseLayout"], "single");
+        let entries = super::single_database_entries(&server, &[
+            serde_json::json!({"accountid": "OPH"}),
+            serde_json::json!({"accountid": "Dummy"}),
+        ]);
+        assert_eq!(entries.len(), 2);
+        assert_ne!(entries[0].id, entries[1].id);
+        assert_eq!(entries[0].name, "OPH");
+        assert_eq!(entries[1].name, "Dummy");
+        assert!(entries.iter().all(|entry| entry.database_name == "Customer Demo-2026"));
+        for postgresql in [false, true] {
+            let sql = super::single_database_accounts_query(postgresql);
+            assert!(!sql.contains("acctdbse"));
+            assert!(sql.contains("where parentaccountguid is null and"));
+            assert!(sql.contains("isdeleted"));
+        }
+    }
 
     #[test]
     fn escapes_apostrophes_without_changing_json_quotes() {

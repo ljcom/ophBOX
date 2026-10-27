@@ -2252,6 +2252,7 @@ function AddConnectionScreen({
   const [serverId] = useState(() => initialServer?.id ?? `srv-${crypto.randomUUID()}`)
   const [authType, setAuthType] = useState<'sql' | 'windows'>(initialServer?.authType ?? 'sql')
   const [databaseEngine, setDatabaseEngine] = useState<'mssql' | 'postgresql'>(initialServer?.databaseEngine ?? 'mssql')
+  const [databaseLayout, setDatabaseLayout] = useState<'separate' | 'single'>(initialServer?.databaseLayout ?? 'separate')
   const [testResult, setTestResult] = useState<string>('')
   const [saveError, setSaveError] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
@@ -2263,6 +2264,7 @@ function AddConnectionScreen({
       host: String(form.get('host') || 'localhost'),
       port: Number(form.get('port') || 1433),
       databaseEngine,
+      databaseLayout,
       authType,
       defaultDatabase: String(form.get('defaultDatabase') || 'oph_core'),
       username: databaseEngine === 'postgresql' || authType === 'sql' ? String(form.get('username') || '') : undefined,
@@ -2346,8 +2348,16 @@ function AddConnectionScreen({
             <input key={databaseEngine} name="port" type="number" min={1} max={65535} required defaultValue={initialServer && (initialServer.databaseEngine ?? 'mssql') === databaseEngine ? initialServer.port : databaseEngine === 'postgresql' ? 5432 : 1433} />
           </label>
           <label>
-            Default Database
-            <input name="defaultDatabase" defaultValue={initialServer?.defaultDatabase ?? "oph_core"} />
+            Database Layout
+            <select value={databaseLayout} onChange={(event) => setDatabaseLayout(event.target.value as 'separate' | 'single')}>
+              <option value="separate">Separate Databases</option>
+              <option value="single">Single Database</option>
+            </select>
+          </label>
+          <label>
+            {databaseLayout === 'single' ? 'OPH Database' : 'Core Database'}
+            <input name="defaultDatabase" required defaultValue={initialServer?.defaultDatabase ?? "oph_core"} />
+            <small>{databaseLayout === 'single' ? 'Contains accounts, module metadata, and application data. Enter the database name used on this server.' : 'Contains accounts and their database connections. Enter the core database name used on this server.'}</small>
           </label>
           {databaseEngine === 'mssql' ? <label>
             Authentication
@@ -3398,7 +3408,7 @@ function ServerPage({
       <SectionHeader
         eyebrow="Server"
         title={server.name}
-        description={`${server.host}:${server.port}. Add an OPH account; the database trigger prepares its data and v4 databases.`}
+        description={`${server.host}:${server.port}. ${server.databaseLayout === 'single' ? 'Accounts, module metadata, and application data share one database.' : 'Manage OPH accounts and their databases.'}`}
         action="Add Account"
         onAction={() => setIsAddingAccount(true)}
       />
@@ -3414,7 +3424,8 @@ function ServerPage({
             <tr><th>Host</th><td>{server.host}:{server.port}</td></tr>
             <tr><th>Database Engine</th><td>{server.databaseEngine === 'postgresql' ? 'PostgreSQL' : 'Microsoft SQL Server'}</td></tr>
             <tr><th>Authentication</th><td>{server.databaseEngine === 'postgresql' ? 'Password' : server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}</td></tr>
-            <tr><th>Core Database</th><td>oph_core</td></tr>
+            <tr><th>Database Layout</th><td>{server.databaseLayout === 'single' ? 'Single Database' : 'Separate Databases'}</td></tr>
+            <tr><th>{server.databaseLayout === 'single' ? 'OPH Database' : 'Core Database'}</th><td>{server.defaultDatabase || 'oph_core'}</td></tr>
             <tr><th>Status</th><td><span className={getStatusClass(server.status)}>{server.status}</span></td></tr>
           </tbody>
         </table>
