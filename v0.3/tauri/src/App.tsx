@@ -265,6 +265,7 @@ function App() {
   const [moduleGroupRowsByDatabaseId, setModuleGroupRowsByDatabaseId] = useState<Record<string, MetadataRow[]>>({})
   const [isLoadingConfig, setIsLoadingConfig] = useState(true)
   const [isAddingConnection, setIsAddingConnection] = useState(false)
+  const [editingConnection, setEditingConnection] = useState<OphServer | null>(null)
   const [treeRefreshError, setTreeRefreshError] = useState('')
   const [initialConnectionError, setInitialConnectionError] = useState('')
   const [queryTabs, setQueryTabs] = useState<QueryTab[]>(savedWorkspaceState.current?.queryTabs ?? [])
@@ -902,6 +903,54 @@ function App() {
     setIsAddingConnection(false)
   }
 
+  async function applyConnectionConfig(config: OphConnectionConfig) {
+    setConnectionConfig(config)
+    setQueryTabs([])
+    setReportTabs([])
+    setPinnedTabs([])
+    setActiveTabId('main')
+    setDiscoveredDatabases([])
+    try {
+      await activateConnection(config)
+    } catch (error) {
+      setInitialConnectionError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function editConnection(config: OphConnectionConfig) {
+    if (!connectionConfig) return
+    const updatedServer = config.servers[0]
+    const saved = await ophAdminService.saveConnectionConfig({
+      ...connectionConfig,
+      servers: connectionConfig.servers.map((server) => server.id === updatedServer.id ? updatedServer : server),
+      selectedServerId: updatedServer.id,
+    })
+    await applyConnectionConfig(saved)
+    setEditingConnection(null)
+  }
+
+  async function removeConnection(serverId: string) {
+    if (!connectionConfig) return
+    const remaining = connectionConfig.servers.filter((server) => server.id !== serverId)
+    if (!remaining.length) {
+      await ophAdminService.clearConnectionConfig()
+      setConnectionConfig(null)
+      setInitialConnectionError('')
+      setQueryTabs([])
+      setReportTabs([])
+      setPinnedTabs([])
+      setActiveTabId('main')
+      setDiscoveredDatabases([])
+      return
+    }
+    const saved = await ophAdminService.saveConnectionConfig({
+      ...connectionConfig,
+      servers: remaining,
+      selectedServerId: connectionConfig.selectedServerId === serverId ? remaining[0].id : connectionConfig.selectedServerId,
+    }, false)
+    await applyConnectionConfig(saved)
+  }
+
   async function refreshConnection() {
     if (!connectionConfig) return
 
@@ -1106,6 +1155,10 @@ function App() {
     return <AddConnectionScreen initialError={initialConnectionError} onSave={saveConnection} />
   }
 
+  if (editingConnection) {
+    return <AddConnectionScreen key={editingConnection.id} initialServer={editingConnection} onSave={editConnection} onCancel={() => setEditingConnection(null)} />
+  }
+
   if (isAddingConnection) {
     return (
       <AddConnectionScreen
@@ -1260,6 +1313,8 @@ function App() {
                 connectionConfig={connectionConfig}
                 connectionError={initialConnectionError}
                 onAddConnection={() => setIsAddingConnection(true)}
+                onEditConnection={setEditingConnection}
+                onRemoveConnection={removeConnection}
                 onRefreshConnection={refreshConnection}
                 onRefreshServer={refreshServerConnection}
                 onDeleteAccount={deleteAccount}
@@ -2184,17 +2239,19 @@ function ReportDesignerWorkspace({
 }
 
 function AddConnectionScreen({
+  initialServer,
   initialError,
   onSave,
   onCancel,
 }: {
+  initialServer?: OphServer
   initialError?: string
   onSave: (config: OphConnectionConfig) => void | Promise<void>
   onCancel?: () => void
 }) {
-  const [serverId] = useState(() => `srv-${crypto.randomUUID()}`)
-  const [authType, setAuthType] = useState<'sql' | 'windows'>('sql')
-  const [databaseEngine, setDatabaseEngine] = useState<'mssql' | 'postgresql'>('mssql')
+  const [serverId] = useState(() => initialServer?.id ?? `srv-${crypto.randomUUID()}`)
+  const [authType, setAuthType] = useState<'sql' | 'windows'>(initialServer?.authType ?? 'sql')
+  const [databaseEngine, setDatabaseEngine] = useState<'mssql' | 'postgresql'>(initialServer?.databaseEngine ?? 'mssql')
   const [testResult, setTestResult] = useState<string>('')
   const [saveError, setSaveError] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
@@ -2254,20 +2311,20 @@ function AddConnectionScreen({
           <div className="brand-mark">OPH</div>
           <div>
             <strong>OPH Control Studio</strong>
-            <span>No saved connection found</span>
+            <span>{initialServer ? 'Edit saved connection' : 'Server connection'}</span>
           </div>
         </div>
         <SectionHeader
-          eyebrow="Add Connection"
+          eyebrow={initialServer ? 'Edit Connection' : 'Add Connection'}
           title="Connect to OPH core"
-          description="Save a server profile first. After the connection exists, the workspace opens with a server and database tree."
+          description={initialServer ? `Update the connection settings for ${initialServer.name}.` : "Save a server profile to open the server and database workspace."}
           action={onCancel ? 'Cancel' : undefined}
           onAction={onCancel}
         />
         <form className="connection-form" onSubmit={submitConnection}>
           <label>
             Connection Name
-            <input name="name" defaultValue="Production OPH" />
+            <input name="name" defaultValue={initialServer?.name ?? "Production OPH"} required />
           </label>
           <label>
             Database Engine
@@ -2282,15 +2339,15 @@ function AddConnectionScreen({
           </label>
           <label>
             {databaseEngine === 'postgresql' ? 'PostgreSQL Host' : 'SQL Server Host'}
-            <input name="host" defaultValue="10.10.1.20" />
+            <input name="host" defaultValue={initialServer?.host ?? "10.10.1.20"} required />
           </label>
           <label>
             Port
-            <input key={databaseEngine} name="port" type="number" defaultValue={databaseEngine === 'postgresql' ? 5432 : 1433} />
+            <input key={databaseEngine} name="port" type="number" min={1} max={65535} required defaultValue={initialServer && (initialServer.databaseEngine ?? 'mssql') === databaseEngine ? initialServer.port : databaseEngine === 'postgresql' ? 5432 : 1433} />
           </label>
           <label>
             Default Database
-            <input name="defaultDatabase" defaultValue="oph_core" />
+            <input name="defaultDatabase" defaultValue={initialServer?.defaultDatabase ?? "oph_core"} />
           </label>
           {databaseEngine === 'mssql' ? <label>
             Authentication
@@ -2303,24 +2360,24 @@ function AddConnectionScreen({
             <>
               <label>
                 Username
-                <input name="username" defaultValue={databaseEngine === 'postgresql' ? 'postgres' : 'oph_admin'} />
+                <input name="username" defaultValue={initialServer?.username ?? (databaseEngine === 'postgresql' ? 'postgres' : 'oph_admin')} />
               </label>
               <label>
                 Password
-                <input name="password" type="password" defaultValue="password" />
+                <input name="password" type="password" defaultValue={initialServer?.password ?? "password"} />
               </label>
             </>
           ) : null}
           <label className="check-row">
             <span>Encrypt connection</span>
-            <input name="encrypt" type="checkbox" defaultChecked />
+            <input name="encrypt" type="checkbox" defaultChecked={initialServer?.encrypt ?? true} />
           </label>
           <label className="check-row">
             <span>Trust server certificate</span>
-            <input name="trustServerCertificate" type="checkbox" defaultChecked />
+            <input name="trustServerCertificate" type="checkbox" defaultChecked={initialServer?.trustServerCertificate ?? true} />
           </label>
           <div className="connection-actions">
-            <button className="primary-button" type="submit">
+            <button className="primary-button" type="submit" disabled={isSaving}>
               {isSaving ? 'Testing Connection...' : 'Save Connection'}
             </button>
             <button
@@ -2651,6 +2708,8 @@ function Workspace({
   connectionConfig,
   connectionError,
   onAddConnection,
+  onEditConnection,
+  onRemoveConnection,
   onRefreshConnection,
   onRefreshServer,
   onDeleteAccount,
@@ -2663,6 +2722,8 @@ function Workspace({
   connectionConfig: OphConnectionConfig
   connectionError: string
   onAddConnection: () => void
+  onEditConnection: (server: OphServer) => void
+  onRemoveConnection: (serverId: string) => Promise<void>
   onRefreshConnection: () => void | Promise<void>
   onRefreshServer: (serverId: string, expectedAccountId?: string) => void | Promise<void>
   onDeleteAccount: (serverId: string, accountId: string) => void | Promise<void>
@@ -2673,11 +2734,11 @@ function Workspace({
   tree: OphTreeNode
 }) {
   if (connectionError) {
-    return <ConnectionIssuePage error={connectionError} onRefresh={onRefreshConnection} />
+    return <div className="page-stack"><ConnectionIssuePage error={connectionError} onRefresh={onRefreshConnection} /><ServersPage servers={servers} onAddConnection={onAddConnection} onEditConnection={onEditConnection} onRemoveConnection={onRemoveConnection} /></div>
   }
 
   if (selection.kind === 'root') {
-    return <ServersPage servers={servers} onAddConnection={onAddConnection} />
+    return <ServersPage servers={servers} onAddConnection={onAddConnection} onEditConnection={onEditConnection} onRemoveConnection={onRemoveConnection} />
   }
 
   if (selection.kind === 'server' && selection.serverId) {
@@ -2686,9 +2747,10 @@ function Workspace({
       <ServerPage
         config={connectionConfig}
         server={server}
+        connectionActions={<ConnectionActions server={server} onEdit={onEditConnection} onRemove={onRemoveConnection} />}
         onRefresh={(accountId) => onRefreshServer(server.id, accountId)}
       />
-    ) : <ServersPage servers={servers} onAddConnection={onAddConnection} />
+    ) : <ServersPage servers={servers} onAddConnection={onAddConnection} onEditConnection={onEditConnection} onRemoveConnection={onRemoveConnection} />
   }
 
   if (selection.kind === 'database') {
@@ -3213,7 +3275,34 @@ function MetricCard({ label, value, detail, onClick }: MetricCardProps) {
   )
 }
 
-function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAddConnection: () => void }) {
+function ConnectionActions({ server, onEdit, onRemove }: { server: OphServer; onEdit: (server: OphServer) => void; onRemove: (serverId: string) => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [error, setError] = useState('')
+  return <div className="connection-actions">
+    <button type="button" disabled={removing} onClick={() => onEdit(server)}>Edit Connection</button>
+    <button type="button" disabled={removing} onClick={() => setConfirming(true)}>Remove Connection</button>
+    {confirming ? <div className="row-detail-backdrop">
+      <aside className="row-detail-overlay account-create-overlay" role="dialog" aria-modal="true" aria-label="Remove Connection">
+        <h2>Remove {server.name}?</h2>
+        <p>This removes the saved connection profile from this device. Server databases are kept.</p>
+        <div className="connection-actions">
+          <button type="button" disabled={removing} onClick={async () => {
+            setRemoving(true)
+            setError('')
+            try { await onRemove(server.id); setConfirming(false) }
+            catch (error) { setError(`Cannot remove ${server.name}: ${error instanceof Error ? error.message : String(error)}`) }
+            finally { setRemoving(false) }
+          }}>{removing ? 'Removing...' : 'Remove Connection'}</button>
+          <button type="button" disabled={removing} onClick={() => { setConfirming(false); setError('') }}>Cancel</button>
+        </div>
+        {error ? <div className="connection-error" role="alert">{error}</div> : null}
+      </aside>
+    </div> : null}
+  </div>
+}
+
+function ServersPage({ servers, onAddConnection, onEditConnection, onRemoveConnection }: { servers: OphServer[]; onAddConnection: () => void; onEditConnection: (server: OphServer) => void; onRemoveConnection: (serverId: string) => Promise<void> }) {
   return (
     <div className="page-stack">
       <SectionHeader
@@ -3232,7 +3321,7 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
               <th>Engine / Auth</th>
               <th>Databases</th>
               <th>Status</th>
-              <th>Last Checked</th>
+              <th>Last Checked</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -3243,7 +3332,7 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
                 <td>{server.databaseEngine === 'postgresql' ? 'PostgreSQL / Password' : `SQL Server / ${server.authType === 'sql' ? 'SQL Login' : 'Windows Auth'}`}</td>
                 <td>{server.databases}</td>
                 <td><span className={getStatusClass(server.status)}>{server.status}</span></td>
-                <td>{server.lastChecked}</td>
+                <td>{server.lastChecked}</td><td><ConnectionActions server={server} onEdit={onEditConnection} onRemove={onRemoveConnection} /></td>
               </tr>
             ))}
           </tbody>
@@ -3256,10 +3345,12 @@ function ServersPage({ servers, onAddConnection }: { servers: OphServer[]; onAdd
 function ServerPage({
   config,
   server,
+  connectionActions,
   onRefresh,
 }: {
   config: OphConnectionConfig
   server: OphServer
+  connectionActions: ReactNode
   onRefresh: (accountId?: string) => void | Promise<void>
 }) {
   const [isAddingAccount, setIsAddingAccount] = useState(false)
@@ -3312,6 +3403,7 @@ function ServerPage({
         onAction={() => setIsAddingAccount(true)}
       />
       <div className="metadata-toolbar server-toolbar">
+        {connectionActions}
         <button type="button" disabled={isRefreshing} onClick={refreshTree}>
           {isRefreshing ? 'Refreshing Tree…' : 'Refresh Tree'}
         </button>

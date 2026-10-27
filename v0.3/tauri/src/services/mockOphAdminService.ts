@@ -774,14 +774,14 @@ async function loadConnectionConfig(): Promise<OphConnectionConfig | null> {
   }
 }
 
-async function saveConnectionConfig(config: OphConnectionConfig): Promise<OphConnectionConfig> {
+async function saveConnectionConfig(config: OphConnectionConfig, testConnection = true): Promise<OphConnectionConfig> {
   if (!isDesktopRuntime()) {
     window.localStorage.setItem(connectionConfigKey, JSON.stringify(config))
     return config
   }
 
   try {
-    return await invoke<OphConnectionConfig>('save_connection_config', { config })
+    return await invoke<OphConnectionConfig>('save_connection_config', { config, testConnection })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('__TAURI') || message.includes('invoke')) {
@@ -792,9 +792,9 @@ async function saveConnectionConfig(config: OphConnectionConfig): Promise<OphCon
 }
 
 async function clearConnectionConfig(): Promise<void> {
-  try {
+  if (isDesktopRuntime()) {
     await invoke('delete_connection_config')
-  } catch {
+  } else {
     window.localStorage.removeItem(connectionConfigKey)
   }
 }

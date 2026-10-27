@@ -1162,6 +1162,7 @@ async fn copy_metadata_rows(
 async fn save_connection_config(
     app: tauri::AppHandle,
     config: OphConnectionConfig,
+    test_connection: Option<bool>,
 ) -> Result<OphConnectionConfig, String> {
     if config.servers.is_empty() {
         return Err("Add at least one server before saving the connection config.".to_string());
@@ -1174,9 +1175,11 @@ async fn save_connection_config(
         .or_else(|| config.servers.first())
         .ok_or_else(|| "Add at least one server before saving the connection config.".to_string())?;
 
-    let test_result = test_server_connection(selected_server).await?;
-    if !test_result.success {
-        return Err(test_result.message);
+    if test_connection.unwrap_or(true) {
+        let test_result = test_server_connection(selected_server).await?;
+        if !test_result.success {
+            return Err(test_result.message);
+        }
     }
 
     let config_path = connection_config_path(&app)?;
