@@ -22,6 +22,10 @@ struct OphServer {
     auth_type: String,
     #[serde(default = "default_database")]
     default_database: String,
+    #[serde(default)]
+    s3_backup_locations: Vec<String>,
+    #[serde(default)]
+    s3_settings: Option<S3Settings>,
     username: Option<String>,
     password: Option<String>,
     trust_server_certificate: Option<bool>,
@@ -29,6 +33,40 @@ struct OphServer {
     status: String,
     databases: u32,
     last_checked: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct S3Settings {
+    host: String,
+    access_key: String,
+    access_secret: String,
+    bucket: String,
+    #[serde(default)]
+    prefix: String,
+}
+
+// Credentials must never appear in debug output.
+impl std::fmt::Debug for S3Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("S3Settings { credentials: [redacted] }")
+    }
+}
+
+fn connection_s3_settings(server: &OphServer) -> Result<Option<(String, String, String, String, String)>, String> {
+    let Some(settings) = &server.s3_settings else { return Ok(None); };
+    if !valid_s3_configuration(&settings.access_key, &settings.access_secret, &settings.bucket, Some(&settings.host)) {
+        return Err(format!("Complete the S3 endpoint, access key, secret key, and bucket for connection {}.", server.name));
+    }
+    let endpoint = if settings.host.contains("://") { settings.host.clone() } else { format!("https://{}", settings.host) };
+    let url = reqwest::Url::parse(&endpoint).map_err(|_| "Enter a valid S3 endpoint.".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
+        || !url.username().is_empty() || url.password().is_some() || url.query().is_some()
+        || url.fragment().is_some() || !matches!(url.path(), "" | "/") {
+        return Err("Enter an S3 endpoint containing only the protocol, host, and optional port.".to_string());
+    }
+    parse_s3_backup_location(&format!("s3://{}/", settings.bucket))?;
+    Ok(Some((settings.access_key.clone(), settings.access_secret.clone(), settings.bucket.clone(), settings.host.clone(), settings.prefix.clone())))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1225,6 +1263,13 @@ async fn save_connection_config(
         return Err("Add at least one server before saving the connection config.".to_string());
     }
 
+    for server in &config.servers {
+        connection_s3_settings(server)?;
+        for location in &server.s3_backup_locations {
+            parse_s3_backup_location(location)?;
+        }
+    }
+
     let selected_server = config
         .selected_server_id
         .as_ref()
@@ -1539,6 +1584,10 @@ async fn list_account_databases(
 struct S3ListResponse {
     #[serde(default, rename = "Contents")]
     contents: Vec<S3Object>,
+    #[serde(default)]
+    is_truncated: bool,
+    #[serde(default)]
+    next_continuation_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1596,6 +1645,7 @@ async fn request_s3_objects_in_region(
     prefix: &str,
     region: &str,
     delete_key: Option<&str>,
+    continuation_token: Option<&str>,
 ) -> Result<Result<S3ListResponse, (reqwest::StatusCode, String)>, String> {
     let endpoint = if configured_host.trim().is_empty() {
         format!("https://s3.{region}.amazonaws.com")
@@ -1616,13 +1666,18 @@ async fn request_s3_objects_in_region(
         _ => return Err("The S3 host does not contain a valid server name.".to_string()),
     };
     let canonical_uri = url.path().to_string();
-    let canonical_query = if delete_key.is_some() {
+    let mut canonical_query = if delete_key.is_some() {
         String::new()
     } else if prefix.is_empty() {
         "list-type=2".to_string()
     } else {
         format!("list-type=2&prefix={}", aws_uri_encode(prefix))
     };
+    if delete_key.is_none() {
+        if let Some(token) = continuation_token {
+            canonical_query = format!("continuation-token={}&{canonical_query}", aws_uri_encode(token));
+        }
+    }
     let now = chrono::Utc::now();
     let request_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let short_date = now.format("%Y%m%d").to_string();
@@ -1668,7 +1723,7 @@ async fn request_s3_objects_in_region(
         return Ok(Err((status, body)));
     }
     if delete_key.is_some() {
-        return Ok(Ok(S3ListResponse { contents: Vec::new() }));
+        return Ok(Ok(S3ListResponse { contents: Vec::new(), is_truncated: false, next_continuation_token: String::new() }));
     }
     quick_xml::de::from_str(&body)
         .map(Ok)
@@ -1683,6 +1738,37 @@ async fn request_s3_objects(
     prefix: &str,
     delete_key: Option<&str>,
 ) -> Result<S3ListResponse, String> {
+    let mut contents = Vec::new();
+    let mut continuation_token: Option<String> = None;
+    let mut seen_tokens = std::collections::HashSet::new();
+    loop {
+        let page = request_s3_objects_page(
+            access_key, access_secret, bucket, configured_host, prefix,
+            delete_key, continuation_token.as_deref(),
+        ).await?;
+        contents.extend(page.contents);
+        if delete_key.is_some() || !page.is_truncated {
+            return Ok(S3ListResponse {
+                contents, is_truncated: false, next_continuation_token: String::new(),
+            });
+        }
+        if page.next_continuation_token.trim().is_empty()
+            || !seen_tokens.insert(page.next_continuation_token.clone()) {
+            return Err("S3 returned an incomplete backup list without a valid next page token.".to_string());
+        }
+        continuation_token = Some(page.next_continuation_token);
+    }
+}
+
+async fn request_s3_objects_page(
+    access_key: &str,
+    access_secret: &str,
+    bucket: &str,
+    configured_host: &str,
+    prefix: &str,
+    delete_key: Option<&str>,
+    continuation_token: Option<&str>,
+) -> Result<S3ListResponse, String> {
     let initial_region = configured_host
         .split('.')
         .find(|part| part.starts_with("us-") || part.starts_with("ap-") || part.starts_with("eu-")
@@ -1691,7 +1777,7 @@ async fn request_s3_objects(
         .unwrap_or("us-east-1");
 
     match request_s3_objects_in_region(
-        access_key, access_secret, bucket, configured_host, prefix, initial_region, delete_key,
+        access_key, access_secret, bucket, configured_host, prefix, initial_region, delete_key, continuation_token,
     ).await? {
         Ok(response) => Ok(response),
         Err((status, body)) => {
@@ -1709,7 +1795,7 @@ async fn request_s3_objects(
                     configured_host
                 };
                 return match request_s3_objects_in_region(
-                    access_key, access_secret, bucket, retry_host, prefix, region, delete_key,
+                    access_key, access_secret, bucket, retry_host, prefix, region, delete_key, continuation_token,
                 ).await? {
                     Ok(response) => Ok(response),
                     Err((retry_status, retry_body)) => Err(format!(
@@ -1724,6 +1810,9 @@ async fn request_s3_objects(
 
 async fn load_s3_backup_settings(config: &OphConnectionConfig) -> Result<(String, String, String, String, String), String> {
     let server = selected_server(config)?;
+    if let Some(settings) = connection_s3_settings(server)? {
+        return Ok(settings);
+    }
     let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
     let settings = query_json(
         &mut client,
@@ -1779,6 +1868,31 @@ async fn load_s3_backup_settings(config: &OphConnectionConfig) -> Result<(String
     Ok((access_key, access_secret, bucket, host, configured_prefix))
 }
 
+// Locations retain their exact key prefix; S3 keys are case sensitive.
+fn parse_s3_backup_location(location: &str) -> Result<(String, String), String> {
+    let value = location.trim().strip_prefix("s3://")
+        .ok_or_else(|| format!("Invalid S3 backup location {location}. Use s3://bucket/folder/."))?;
+    let (bucket, prefix) = value.split_once('/').unwrap_or((value, ""));
+    if bucket.is_empty() || !bucket.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        || prefix.contains('?') || prefix.contains('#') {
+        return Err(format!("Invalid S3 backup location {location}. Use s3://bucket/folder/."));
+    }
+    Ok((bucket.to_string(), prefix.to_string()))
+}
+
+fn backup_bucket_for_operation(server: &OphServer, default_bucket: &str, requested: Option<&str>) -> Result<String, String> {
+    let bucket = requested.unwrap_or(default_bucket);
+    if bucket == default_bucket {
+        return Ok(bucket.to_string());
+    }
+    for location in &server.s3_backup_locations {
+        if parse_s3_backup_location(location)?.0 == bucket {
+            return Ok(bucket.to_string());
+        }
+    }
+    Err(format!("S3 bucket {bucket} is not configured for connection {}.", server.name))
+}
+
 #[tauri::command]
 async fn list_database_backups(
     config: OphConnectionConfig,
@@ -1787,25 +1901,33 @@ async fn list_database_backups(
 ) -> Result<Vec<serde_json::Value>, String> {
     let (access_key, access_secret, bucket, host, configured_prefix) = load_s3_backup_settings(&config).await?;
 
-    let requested_prefix = configured_prefix
-        .replace("{database}", &database_name)
-        .replace("{DATABASE}", &database_name);
-    let response = request_s3_objects(&access_key, &access_secret, &bucket, &host, &requested_prefix, None)
-        .await
-        .map_err(|error| format!("Cannot load S3 backups for {database_name}: {error}"))?;
+    let server = selected_server(&config)?;
+    let locations = if server.s3_backup_locations.is_empty() {
+        vec![(bucket, configured_prefix)]
+    } else {
+        server.s3_backup_locations.iter().map(|location| parse_s3_backup_location(location)).collect::<Result<Vec<_>, _>>()?
+    };
+    let mut backups = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     let database_filter = database_name.to_lowercase();
-    let prefix_has_database = requested_prefix.to_lowercase().contains(&database_filter);
-    let backups = response.contents.into_iter()
-        .filter(|object| {
-            prefix_has_database || object.key.to_lowercase().contains(&database_filter)
-        })
-        .map(|object| serde_json::json!({
-            "backupFile": object.key,
-            "sizeBytes": object.size,
-            "lastModified": object.last_modified,
-            "storageClass": object.storage_class,
-        }))
-        .collect();
+    for (bucket, prefix) in locations {
+        let requested_prefix = prefix.replace("{database}", &database_name).replace("{DATABASE}", &database_name);
+        let response = request_s3_objects(&access_key, &access_secret, &bucket, &host, &requested_prefix, None)
+            .await.map_err(|error| format!("Cannot load S3 backups for {database_name} from s3://{bucket}/{requested_prefix}: {error}"))?;
+        let prefix_has_database = requested_prefix.to_lowercase().contains(&database_filter);
+        for object in response.contents {
+            if (prefix_has_database || object.key.to_lowercase().contains(&database_filter))
+                && seen.insert((bucket.clone(), object.key.clone())) {
+                backups.push(serde_json::json!({
+                    "backupFile": object.key,
+                    "backupBucket": bucket,
+                    "sizeBytes": object.size,
+                    "lastModified": object.last_modified,
+                    "storageClass": object.storage_class,
+                }));
+            }
+        }
+    }
     Ok(backups)
 }
 
@@ -1813,9 +1935,11 @@ async fn list_database_backups(
 async fn delete_database_backup(
     config: OphConnectionConfig,
     backup_key: String,
+    backup_bucket: Option<String>,
 ) -> Result<(), String> {
     encode_s3_object_key(&backup_key)?;
     let (access_key, access_secret, bucket, host, _) = load_s3_backup_settings(&config).await?;
+    let bucket = backup_bucket_for_operation(selected_server(&config)?, &bucket, backup_bucket.as_deref())?;
     request_s3_objects(&access_key, &access_secret, &bucket, &host, "", Some(&backup_key))
         .await
         .map_err(|error| format!("Cannot delete S3 backup {backup_key}: {error}"))?;
@@ -1827,6 +1951,7 @@ async fn restore_database_backup(
     config: OphConnectionConfig,
     backup_key: String,
     target_database_name: String,
+    backup_bucket: Option<String>,
 ) -> Result<(), String> {
     if backup_key.trim().is_empty() {
         return Err("Select an S3 backup file to restore.".to_string());
@@ -1837,36 +1962,9 @@ async fn restore_database_backup(
 
     let server = selected_server(&config)?;
     let mut client = connect_sql_server_database(server, &core_database_name(server)).await?;
-    let settings = query_json(
-        &mut client,
-        r#"
-        select (
-          select selected.infokey, selected.infovalue
-          from (
-            select i.infokey, i.infovalue,
-              row_number() over (partition by upper(i.infokey) order by case
-                when lower(a.accountid) = 'oph_core' then 0
-                when lower(a.accountid) = 'oph' then 1 else 2 end) as preference
-            from acctinfo i
-            inner join acct a on a.accountguid = i.accountguid
-            where upper(i.infokey) in ('BACKUP_ACCESS_KEY', 'BACKUP_ACCESS_SECRET', 'BACKUP_BUCKET', 'BACKUP_HOST')
-          ) selected
-          where selected.preference = 1
-          for json path
-        ) as json
-        "#.to_string(),
-    ).await?;
-    let setting = |key: &str| -> String {
-        settings.iter().find_map(|row| {
-            row.get("infokey")?.as_str()?.eq_ignore_ascii_case(key).then(||
-                row.get("infovalue").and_then(|value| value.as_str()).unwrap_or_default().trim().to_string()
-            )
-        }).unwrap_or_default()
-    };
-    let access_key = setting("BACKUP_ACCESS_KEY");
-    let access_secret = setting("BACKUP_ACCESS_SECRET");
-    let bucket = setting("BACKUP_BUCKET");
-    let host = setting("BACKUP_HOST").trim_end_matches('/').to_string();
+    let (access_key, access_secret, default_bucket, host, _) = load_s3_backup_settings(&config).await?;
+    let bucket = backup_bucket_for_operation(server, &default_bucket, backup_bucket.as_deref())?;
+    let host = host.trim_end_matches('/').to_string();
     if !valid_s3_configuration(&access_key, &access_secret, &bucket, Some(&host)) {
         return Err("The shared S3 restore configuration in the configured core database is incomplete.".to_string());
     }
@@ -3652,7 +3750,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_s3_object_key, request_s3_objects_in_region, aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
+    use super::{encode_s3_object_key, request_s3_objects, request_s3_objects_in_region, aws_uri_encode, escape_sql_value, valid_database_name, valid_s3_configuration, S3ErrorResponse, S3ListResponse};
 
     fn server_profile() -> serde_json::Value {
         serde_json::json!({
@@ -3752,7 +3850,7 @@ mod tests {
             });
             let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
             let result = runtime.block_on(request_s3_objects_in_region(
-                "test-access", "test-secret", "backups", &endpoint, "", "us-east-1", Some("daily/db test+.bak"),
+                "test-access", "test-secret", "backups", &endpoint, "", "us-east-1", Some("daily/db test+.bak"), None,
             )).unwrap();
             assert_eq!(result.is_ok(), expected_success);
             let request = server.join().unwrap();
@@ -3760,6 +3858,82 @@ mod tests {
             assert!(request.to_lowercase().contains("authorization: aws4-hmac-sha256"));
             assert!(!request.contains("test-secret"));
         }
+    }
+
+    #[test]
+    fn connection_s3_override_validates_and_round_trips() {
+        let mut profile = server_profile();
+        let legacy: super::OphServer = serde_json::from_value(profile.clone()).unwrap();
+        assert!(super::connection_s3_settings(&legacy).unwrap().is_none());
+        profile["s3Settings"] = serde_json::json!({
+            "host": "https://s3.example.com", "accessKey": "access", "accessSecret": "private-secret",
+            "bucket": "oph-storage1", "prefix": "backup/sql02/"
+        });
+        let server: super::OphServer = serde_json::from_value(profile.clone()).unwrap();
+        let settings = super::connection_s3_settings(&server).unwrap().unwrap();
+        assert_eq!(settings.2, "oph-storage1");
+        assert_eq!(settings.4, "backup/sql02/");
+        assert!(!format!("{server:?}").contains("private-secret"));
+        assert_eq!(serde_json::to_value(&server).unwrap()["s3Settings"], profile["s3Settings"]);
+        profile["s3Settings"]["accessSecret"] = serde_json::json!("");
+        let invalid: super::OphServer = serde_json::from_value(profile.clone()).unwrap();
+        assert!(super::connection_s3_settings(&invalid).is_err());
+        profile["s3Settings"]["accessSecret"] = serde_json::json!("private-secret");
+        profile["s3Settings"]["host"] = serde_json::json!("https://s3.example.com/bucket");
+        let invalid: super::OphServer = serde_json::from_value(profile).unwrap();
+        assert!(super::connection_s3_settings(&invalid).is_err());
+    }
+
+    #[test]
+    fn backup_locations_preserve_prefix_and_validate_buckets() {
+        let (bucket, prefix) = super::parse_s3_backup_location("s3://oph-storage1/backup/sql02/{database}/").unwrap();
+        assert_eq!(bucket, "oph-storage1");
+        assert_eq!(prefix, "backup/sql02/{database}/");
+        assert!(super::parse_s3_backup_location("https://oph-storage1/backup/").is_err());
+        assert!(super::parse_s3_backup_location("s3:///backup/").is_err());
+        let mut profile = server_profile();
+        profile["s3BackupLocations"] = serde_json::json!(["s3://oph-storage1/backup/sql01/", "s3://oph-storage1/backup/sql02/"]);
+        let server: super::OphServer = serde_json::from_value(profile).unwrap();
+        assert_eq!(super::backup_bucket_for_operation(&server, "old-bucket", Some("oph-storage1")).unwrap(), "oph-storage1");
+        assert!(super::backup_bucket_for_operation(&server, "old-bucket", Some("unknown-bucket")).is_err());
+        let saved = serde_json::to_value(server).unwrap();
+        assert_eq!(saved["s3BackupLocations"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn loads_all_s3_backup_pages() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for page in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let body = if page == 0 {
+                    assert!(request.starts_with("GET /backups?list-type=2&prefix=mx4 HTTP/1.1"));
+                    "<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>a+/=</NextContinuationToken><Contents><Key>mx4/old.bak</Key></Contents></ListBucketResult>"
+                } else {
+                    assert!(request.starts_with("GET /backups?continuation-token=a%2B%2F%3D&list-type=2&prefix=mx4 HTTP/1.1"));
+                    "<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>mx4/new.bak</Key></Contents></ListBucketResult>"
+                };
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let response = runtime.block_on(request_s3_objects(
+            "test-access", "test-secret", "backups", &endpoint, "mx4", None,
+        )).unwrap();
+        server.join().unwrap();
+        assert_eq!(response.contents.len(), 2);
+        assert_eq!(response.contents[1].key, "mx4/new.bak");
     }
 
     #[test]

@@ -10,6 +10,8 @@ export type OphServer = {
   databaseLayout?: 'separate' | 'single'
   authType: AuthType
   defaultDatabase: string
+  s3BackupLocations?: string[]
+  s3Settings?: { host: string; accessKey: string; accessSecret: string; bucket: string; prefix: string }
   username?: string
   password?: string
   trustServerCertificate?: boolean

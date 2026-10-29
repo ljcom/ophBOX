@@ -2253,6 +2253,7 @@ function AddConnectionScreen({
   const [authType, setAuthType] = useState<'sql' | 'windows'>(initialServer?.authType ?? 'sql')
   const [databaseEngine, setDatabaseEngine] = useState<'mssql' | 'postgresql'>(initialServer?.databaseEngine ?? 'mssql')
   const [databaseLayout, setDatabaseLayout] = useState<'separate' | 'single'>(initialServer?.databaseLayout ?? 'separate')
+  const [customS3, setCustomS3] = useState(Boolean(initialServer?.s3Settings))
   const [testResult, setTestResult] = useState<string>('')
   const [saveError, setSaveError] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
@@ -2267,6 +2268,14 @@ function AddConnectionScreen({
       databaseLayout,
       authType,
       defaultDatabase: String(form.get('defaultDatabase') || 'oph_core'),
+      s3BackupLocations: String(form.get('s3BackupLocations') || '').split(/\r?\n/).map((location) => location.trim()).filter(Boolean),
+      s3Settings: customS3 ? {
+        host: String(form.get('s3Host') || '').trim(),
+        accessKey: String(form.get('s3AccessKey') || '').trim(),
+        accessSecret: String(form.get('s3AccessSecret') || ''),
+        bucket: String(form.get('s3Bucket') || '').trim(),
+        prefix: String(form.get('s3Prefix') || '').trim(),
+      } : undefined,
       username: databaseEngine === 'postgresql' || authType === 'sql' ? String(form.get('username') || '') : undefined,
       password: databaseEngine === 'postgresql' || authType === 'sql' ? String(form.get('password') || '') : undefined,
       trustServerCertificate: form.get('trustServerCertificate') === 'on',
@@ -2358,6 +2367,23 @@ function AddConnectionScreen({
             {databaseLayout === 'single' ? 'OPH Database' : 'Core Database'}
             <input name="defaultDatabase" required defaultValue={initialServer?.defaultDatabase ?? "oph_core"} />
             <small>{databaseLayout === 'single' ? 'Contains accounts, module metadata, and application data. Enter the database name used on this server.' : 'Contains accounts and their database connections. Enter the core database name used on this server.'}</small>
+          </label>
+          <label className="check-row">
+            <span>Use S3 settings for this connection</span>
+            <input type="checkbox" checked={customS3} onChange={(event) => setCustomS3(event.target.checked)} />
+          </label>
+          {customS3 ? <>
+            <label>S3 Endpoint<input name="s3Host" required defaultValue={initialServer?.s3Settings?.host ?? ''} placeholder="https://s3.ap-southeast-1.amazonaws.com" /></label>
+            <label>S3 Access Key<input name="s3AccessKey" required autoComplete="off" defaultValue={initialServer?.s3Settings?.accessKey ?? ''} /></label>
+            <label>S3 Secret Key<input name="s3AccessSecret" type="password" required autoComplete="new-password" defaultValue={initialServer?.s3Settings?.accessSecret ?? ''} /></label>
+            <label>S3 Bucket<input name="s3Bucket" required defaultValue={initialServer?.s3Settings?.bucket ?? ''} placeholder="oph-storage1" /></label>
+            <label>S3 Folder Prefix<input name="s3Prefix" defaultValue={initialServer?.s3Settings?.prefix ?? ''} placeholder="backup/sql02/" /><small>Used when S3 Backup Locations is empty.</small></label>
+            <small>S3 credentials are saved locally with this connection.</small>
+          </> : null}
+          <label>
+            S3 Backup Locations
+            <textarea name="s3BackupLocations" rows={3} defaultValue={initialServer?.s3BackupLocations?.join('\n') ?? ''} placeholder={'s3://oph-storage1/backup/sql01/\ns3://oph-storage1/backup/sql02/'} />
+            <small>One S3 location per line. Leave empty to use the configured bucket and folder prefix. All locations use this connection’s S3 settings, or the core database settings when disabled. You can use {'{database}'} in a folder path.</small>
           </label>
           {databaseEngine === 'mssql' ? <label>
             Authentication
@@ -3585,8 +3611,8 @@ function DatabaseBackupsWorkspace({
     setDeleteBackupError('')
     setDeleteBackupNotice('')
     try {
-      await ophAdminService.deleteDatabaseBackup(config, backupFile)
-      setBackups((current) => current.filter((backup) => backup.backupFile !== backupFile))
+      await ophAdminService.deleteDatabaseBackup(config, backupFile, String(backupToDelete.backupBucket ?? '') || undefined)
+      setBackups((current) => current.filter((backup) => backup.backupFile !== backupFile || backup.backupBucket !== backupToDelete.backupBucket))
       setBackupToDelete(null)
       setDeleteBackupNotice(`Deleted S3 backup ${backupFile}.`)
       appendAuditLog('delete-backup', backupFile, 'success', `Database ${selection.databaseName}.`)
@@ -3614,7 +3640,7 @@ function DatabaseBackupsWorkspace({
     setRestoreError('')
     setRestoreNotice('')
     try {
-      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination)
+      await ophAdminService.restoreDatabaseBackup(config, backupFile, destination, String(selectedBackup.backupBucket ?? '') || undefined)
       await onRefresh?.()
       setRestoreNotice(`Database ${destination} restored successfully.`)
       appendAuditLog('restore-database', destination, 'success', `Restored from ${backupFile}.`)
@@ -3651,8 +3677,8 @@ function DatabaseBackupsWorkspace({
             <table>
               <thead><tr><th>Backup File</th><th>Size</th><th>Last Modified</th><th>Storage</th><th>Action</th></tr></thead>
               <tbody>{group.backups.map((backup) => (
-                <tr key={String(backup.backupFile)}>
-                  <td><strong>{String(backup.backupFile ?? '')}</strong></td>
+                <tr key={`${backup.backupBucket}/${backup.backupFile}`}>
+                  <td><strong>{backup.backupBucket ? `s3://${backup.backupBucket}/` : ''}{String(backup.backupFile ?? '')}</strong></td>
                   <td>{formatFileSize(Number(backup.sizeBytes ?? 0))}</td>
                   <td>{String(backup.lastModified ?? '-')}</td>
                   <td>{String(backup.storageClass ?? '-')}</td>
@@ -3678,7 +3704,7 @@ function DatabaseBackupsWorkspace({
               <button className="overlay-close-button" type="button" aria-label="Close" disabled={isDeletingBackup} onClick={() => setBackupToDelete(null)}>×</button>
             </div>
             <div className="row-detail-form">
-              <label><span>Backup File</span><input value={String(backupToDelete.backupFile ?? '')} disabled /></label>
+              <label><span>Backup File</span><input value={`${backupToDelete.backupBucket ? `s3://${backupToDelete.backupBucket}/` : ''}${backupToDelete.backupFile ?? ''}`}  disabled /></label>
               <p className="delete-warning">Delete this backup from S3? It will no longer be available for restore in this list.</p>
               <div className="metadata-toolbar">
                 <button type="button" disabled={isDeletingBackup} onClick={() => setBackupToDelete(null)}>Cancel</button>
@@ -3697,7 +3723,7 @@ function DatabaseBackupsWorkspace({
               <button className="overlay-close-button" type="button" disabled={isRestoring} onClick={() => setSelectedBackup(null)}>×</button>
             </div>
             <div className="row-detail-form">
-              <label><span>Backup File</span><input value={String(selectedBackup.backupFile ?? '')} disabled /></label>
+              <label><span>Backup File</span><input value={`${selectedBackup.backupBucket ? `s3://${selectedBackup.backupBucket}/` : ''}${selectedBackup.backupFile ?? ''}`}  disabled /></label>
               <label>
                 <span>New Database Name</span>
                 <input autoFocus value={targetDatabaseName} disabled={isRestoring} onChange={(event) => setTargetDatabaseName(event.target.value)} placeholder="example_001" />

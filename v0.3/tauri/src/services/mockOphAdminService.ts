@@ -862,12 +862,12 @@ async function listDatabaseBackups(config: OphConnectionConfig, accountId: strin
   return invoke<MetadataRow[]>('list_database_backups', { config, accountId, databaseName })
 }
 
-async function deleteDatabaseBackup(config: OphConnectionConfig, backupKey: string): Promise<void> {
-  return invoke<void>('delete_database_backup', { config, backupKey })
+async function deleteDatabaseBackup(config: OphConnectionConfig, backupKey: string, backupBucket?: string): Promise<void> {
+  return invoke<void>('delete_database_backup', { config, backupKey, backupBucket })
 }
 
-async function restoreDatabaseBackup(config: OphConnectionConfig, backupKey: string, targetDatabaseName: string): Promise<void> {
-  return invoke<void>('restore_database_backup', { config, backupKey, targetDatabaseName })
+async function restoreDatabaseBackup(config: OphConnectionConfig, backupKey: string, targetDatabaseName: string, backupBucket?: string): Promise<void> {
+  return invoke<void>('restore_database_backup', { config, backupKey, targetDatabaseName, backupBucket })
 }
 
 async function listSubAccounts(config: OphConnectionConfig, accountId: string, databaseName: string): Promise<MetadataRow[]> {
