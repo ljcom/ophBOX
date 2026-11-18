@@ -8,6 +8,8 @@ use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
+mod column_types;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OphServer {
@@ -2699,6 +2701,9 @@ async fn list_mssql_column_types(
     database_name: String,
 ) -> Result<Vec<serde_json::Value>, String> {
     let server = selected_server(&config)?;
+    if server.database_engine == "postgresql" {
+        return Ok(column_types::postgresql_column_types());
+    }
     let mut client = connect_sql_server_database(server, &database_name).await?;
 
     query_json(
